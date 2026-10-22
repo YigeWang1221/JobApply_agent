@@ -39,7 +39,7 @@
 ## 本机构建
 
 - 本机默认 JDK 是 Homebrew `openjdk@21`，`JAVA_HOME` 与 `PATH` 在 `~/.zshrc` 全局设置，项目内不再单独配置。
-- 在 `backend/` 执行 `mvn -B clean test`。
+- 在 `backend/` 执行 `mvn -B clean verify`（单元测试 + `*IT` 场景测试）。只跑单元测试时用 `mvn -B clean test`。
 
 ## 编码原则
 

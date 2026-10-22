@@ -82,13 +82,20 @@ closed      已结束
 
 分成两张表：一张一个申请一行，一张一轮一行。每一行都由后端从 Job 记录（`job.md`）生成。
 
+### 表 0：候选池（`tracker/leads.md`，C002 起草时提出，用户确认，2026-10-22）
+
+| 公司 | 岗位 | 城市 | 类型 | 状态 | 评分 | 资格 | 发现于 | 链接 | 不投原因 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+按公司分组，同一家公司的岗位排在一起；`converted` 的排到最后。「状态」是 `lead_status`，「发现于」是 Session。
+
 ### 表 1：申请总表（`tracker/applications.md`，每个 Project 一份，另有全局一份）
 
 | 列 | 例子 | 说明 |
 | --- | --- | --- |
 | # | 12 | 本 Project 内编号 |
 | 公司 | 公司 X | |
-| 岗位 | Backend Engineer | 链接到 Session |
+| 岗位 | Backend Engineer | 链接到 `job.md`（Session 与 Job 已解耦） |
 | 类型 | 校招·全职 | 校招全职 / 实习 / 社招 |
 | 城市 | 上海 | |
 | 投递日 | 10-16 | 有证据的提交日期 |
@@ -177,7 +184,7 @@ Agent 的处理：
 
 | 内容 | 位置 | 理由 |
 | --- | --- | --- |
-| 某一轮的复盘（原始记录） | `projects/<p>/sessions/<s>/rounds/<seq>-<type>.md` | 跟着申请走，是原始事实，**只有这里是用户确认过的手写内容** |
+| 某一轮的复盘（原始记录） | `projects/<p>/jobs/<job-id>/rounds/<seq>-<type>.md` | 跟着申请走，是原始事实，**只有这里是用户确认过的手写内容** |
 | 常考题库 | `storage/review/questions.md`（生成） | 题目和人有关、和侧重无关，所以跨 Project 汇总；每题标注出处 |
 | 按公司汇总 | `storage/review/companies/<company>.md`（生成） | 再投同一家公司，或者面试前复习时用：这家公司历次各轮问过什么 |
 | 经验总结 | `storage/review/lessons.md` | 从各轮复盘里提出的候选，经用户确认后写入；带来源链接 |
