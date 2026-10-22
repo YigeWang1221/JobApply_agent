@@ -37,3 +37,10 @@
 ## 停靠点
 
 Master Plan 已全部确认，plan 目录已按 Master / Coding 分类重排。等待用户指令起草 C002（Memory 与台账）。用户将删除 `storage/example.data/`。
+
+### 新会话从这里接手
+
+1. 读 `AGENTS.md` → `dev-limit.md` → 本文件 → `plan/README.md`。
+2. C002 对应 [workflow.md](plan/master/workflow.md)「里程碑」第 1 段，要读的 Master：[memory.md](plan/master/memory.md)（storage 结构、Project / Job / Session、继承、存储格式、Obsidian 兼容）、[tracking.md](plan/master/tracking.md)（阶段与轮次、unknown 规则、md + csv 台账栏目）。
+3. 先起草 `plan/coding/C002-*.md` 交给用户确认，确认后再写代码。
+4. 已知的一点：Master 中的旧路径和旧说法已清理；`dev-log.md`、`dev-recoding.md` 是历史记录，里面的旧路径不代表现状。
