@@ -25,7 +25,8 @@
 | --- | --- | --- |
 | [C000](plan/coding/C000-process.md) | 安装开发流程 | 完成 |
 | [C001](plan/coding/C001-scaffold.md) | 本地单模块脚手架 | 完成 |
-| [C002](plan/coding/C002-memory-ledger.md) | workflow 里程碑第 1 段：Memory 与台账 | 完成，待用户验收 |
+| [C002](plan/coding/C002-memory-ledger.md) | workflow 里程碑第 1 段：Memory 与台账 | 完成 |
+| [C003](plan/coding/C003-playwright-mcp.md) | workflow 里程碑第 2 段：Playwright MCP 接通 | 进行中 |
 
 ## 参考（不是施工步骤）
 
@@ -36,11 +37,11 @@
 
 ## 停靠点
 
-Master Plan 已全部确认，plan 目录已按 Master / Coding 分类重排。C002（Memory 与台账）已实现，`mvn -B clean verify` 通过（172 个单元测试 + 1 个场景测试，含三方评审修复），等待用户验收；下一份 Coding Plan（里程碑第 2 段：Playwright MCP 接通）等用户指令再起草。用户将删除 `storage/example.data/`。
+C003（里程碑第 2 段：Playwright MCP 接通）草案已写好，用户已定 4 项：本地 HTTP 接口、现在接 LangGraph4j 中断与 Checkpoint、真实连接只做手动冒烟、Node 用本机已有的（`@playwright/mcp` 锁 0.0.83）。「待确认」第 5 项（账号标识）已定。还等其余 7 项和「回写 Master」3 项，确认后再写代码。
 
 ### 新会话从这里接手
 
 1. 读 `AGENTS.md` → `dev-limit.md` → 本文件 → `plan/README.md`。
-2. C002 对应 [workflow.md](plan/master/workflow.md)「里程碑」第 1 段，要读的 Master：[memory.md](plan/master/memory.md)（storage 结构、Project / Job / Session、继承、存储格式、Obsidian 兼容）、[tracking.md](plan/master/tracking.md)（阶段与轮次、unknown 规则、md + csv 台账栏目）。
-3. 先起草 `plan/coding/C002-*.md` 交给用户确认，确认后再写代码。
-4. 已知的一点：Master 中的旧路径和旧说法已清理；`dev-log.md`、`dev-recoding.md` 是历史记录，里面的旧路径不代表现状。
+2. 读 [C003](plan/coding/C003-playwright-mcp.md)；它对应的 Master 写在文首。参考已完成的 [C002](plan/coding/C002-memory-ledger.md)。
+3. 用户确认前不写代码。验证命令是在 `backend/` 执行 `mvn -B clean verify`。
+4. 已知的一点：`dev-log.md`、`dev-recoding.md` 是历史记录，里面的旧路径不代表现状。

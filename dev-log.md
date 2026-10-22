@@ -176,3 +176,27 @@
   - 第 5 条：`FactsFile.render` 在渲染前检查重复 key，有重复就报错，原文件不动。
 - 验证：修复前，5 个新测试按预期失败（`StorageGitTest`、`FactsFileTest`、`JobLedgerTest$Leads` 各 1 个，`JobLedgerTest$InputValidation` 2 个）。修复后在 `backend/` 执行 `mvn -B clean verify`，退出码 0；surefire Tests run: 172，failsafe Tests run: 1，Failures / Errors / Skipped 均为 0。
 - 偏差：无。未提交 git。
+
+## 2026-10-22 · C002 验收
+
+- 日期：2026-10-22
+- 指令：C002 验收通过。
+- 结果：C002、`plan/README.md`、`dev-plan.md` 的状态改为「完成」；`dev-plan.md` 的停靠点改为等待 C003 起草前的 4 项决定。
+- 验证：未运行（本步只改文档状态）。最近一次 `mvn -B clean verify` 的结果见上一条。
+- 偏差：无。
+
+## 2026-10-22 · 起草 C003（Playwright MCP 接通）
+
+- 日期：2026-10-22
+- 指令：开发 C003。用户已定 4 项：（1）用最小的本地 HTTP 接口告诉系统「登录好了」；（2）现在就接 LangGraph4j 的中断与 Checkpoint；（3）真实连接只做手动冒烟，由用户装扩展、选测试网站；（4）本机有的环境就用本机的，没有的再装，`@playwright/mcp` 版本起草时重查。
+- 结果：按 `AGENTS.md` 先起草 `plan/coding/C003-playwright-mcp.md`（状态：待确认），内容包括目标、不做、环境、依赖、要改的文件、关键规则（图、台账衔接、登录页识别、身份核对、`sites.md`、HTTP、子进程）、5 个切片、测试、手动冒烟步骤、验收标准、3 项回写 Master、8 项待确认。`dev-plan.md`、`plan/README.md` 加了索引行。未写代码，未改 Master。
+- 验证：只读查询了本机环境和公开仓库。本机 Node `v22.13.1`、npm `10.9.2`（nvm），npx 可用；npm 上 `@playwright/mcp` 的 `latest` 仍是 `0.0.83`（2026-09-28 发布）。Maven Central 上有 `spring-ai-starter-mcp-client` 2.0.1（依赖 MCP Java SDK 2.0.0）、`langgraph4j-sqlite-saver` 1.9.6（依赖 `sqlite-jdbc` 3.53.2.0）、`spring-boot-starter-webmvc` 4.1.1。用 `javap` 确认了 LangGraph4j 1.9.6 的 `interruptBefore`、`updateState`、`GraphInput.resume()`。把 `@playwright/mcp` 0.0.83 和 `playwright-core` 1.64.0-alpha 下载到会话临时目录，读源码确认了扩展连接超时为 30 秒、返回文本的小节格式；MCP SDK 的 stdio 传输会继承全部环境变量。没有运行测试（本步只有文档）。
+- 偏差：无。
+
+## 2026-10-22 · C003 第 5 项：账号标识改为可选
+
+- 日期：2026-10-22
+- 指令：账号标识是可选项。各平台登录方式不同（邮箱、账号密码、公司自家的社交 app），所以可以填 UID、用户名、邮箱、手机号，也可以留空。
+- 结果：C003「关键规则 · 身份核对」改为：标识可选，不区分是哪一种；只校验去掉首尾空格后不超过 128 个字符、不含换行或 `|`（避免写坏 `sites.md` 的表格）；留空或页面上没有显示时，交给用户确认；`sites.md` 原样保存，标识不写进日志。`sites.md` 示例、目标第 1 条、Controller 测试、待确认第 5 项都已同步。按本次指令回写 `plan/master/workflow.md`「登录状态」：删掉「只写邮箱或手机号末四位」，改为「可选，由用户自己填写」。
+- 验证：未运行。本步只有文档。
+- 偏差：原草案的上限是 32 个字符，因为当时假定只填打码形式；现在允许填完整邮箱，所以放宽到 128 个字符。
