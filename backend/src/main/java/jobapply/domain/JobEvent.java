@@ -19,6 +19,9 @@ public record JobEvent(
         if (session == null || session.isBlank()) {
             throw new IllegalArgumentException("事件必须带 session");
         }
+        if (actor == null || type == null) {
+            throw new IllegalArgumentException("事件必须带 actor 和 type");
+        }
     }
 
     public enum Type {

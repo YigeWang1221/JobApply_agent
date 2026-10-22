@@ -162,3 +162,17 @@
   - 主代码行为没有改动。
 - 验证：在 `backend/` 执行 `mvn -B clean verify`，退出码 0；surefire Tests run: 166，failsafe Tests run: 1，Failures / Errors / Skipped 均为 0。README 没有可以执行的检查，属于人工撰写。
 - 偏差：无。未提交 git。
+
+## 2026-10-22 · C002 三方评审修复
+
+- 日期：2026-10-22
+- 指令：三方评审 6 条中修复第 1–5 条，第 6 条（CRLF 换行的 frontmatter）不处理。
+- 结果：
+  - 先把范围写进 C002「追加：三方评审修复」。每条都先补一个复现测试，确认它失败后再修。
+  - 第 2 条：`JobRepository` 写回 `evidence` 时在已有内容上合并，`evidence` 下其它子字段和 `submitted` 里多出来的字段都保留。
+  - 第 3 条：新增 `domain.Ids`，`StorageLayout` 拼路径前校验 project / job / session id 的格式；列目录时跳过名字不合规的目录；`ProjectSpec` 改用 `Ids`。
+  - 第 1 条：`StorageGit.commit` 只检查本次路径有没有变化，并用 `setOnly` 提交，用户事先暂存的文件不会被带进来，提交后仍在暂存区。
+  - 第 4 条：`JobLedger` 在写任何文件之前先检查 actor、posting、transition 不为空，并先构造好事件；`JobEvent` 要求 actor 和 type 不为空。
+  - 第 5 条：`FactsFile.render` 在渲染前检查重复 key，有重复就报错，原文件不动。
+- 验证：修复前，5 个新测试按预期失败（`StorageGitTest`、`FactsFileTest`、`JobLedgerTest$Leads` 各 1 个，`JobLedgerTest$InputValidation` 2 个）。修复后在 `backend/` 执行 `mvn -B clean verify`，退出码 0；surefire Tests run: 172，failsafe Tests run: 1，Failures / Errors / Skipped 均为 0。
+- 偏差：无。未提交 git。

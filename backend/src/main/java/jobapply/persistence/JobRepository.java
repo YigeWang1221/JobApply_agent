@@ -49,7 +49,7 @@ public final class JobRepository {
     /** 本 Project 的全部 Job，按 id 排序。 */
     public List<Job> list(String projectId) {
         List<Job> jobs = new ArrayList<>();
-        for (String jobId : StorageLayout.childDirectoryNames(layout.jobsDir(projectId))) {
+        for (String jobId : layout.jobIds(projectId)) {
             if (exists(projectId, jobId)) {
                 jobs.add(load(projectId, jobId));
             }
@@ -61,7 +61,7 @@ public final class JobRepository {
     public List<String> allJobIds() {
         List<String> ids = new ArrayList<>();
         for (String projectId : layout.projectIds()) {
-            ids.addAll(StorageLayout.childDirectoryNames(layout.jobsDir(projectId)));
+            ids.addAll(layout.jobIds(projectId));
         }
         return ids;
     }
@@ -107,7 +107,7 @@ public final class JobRepository {
         known.put("phase", status.phase() == null ? null : status.phase().value());
         known.put("prep_state", status.prepState() == null ? null : status.prepState().value());
         known.put("outcome", status.outcome() == null ? null : status.outcome().value());
-        known.put("evidence", status.evidence() == null ? null : Map.of("submitted", evidenceToMap(status.evidence())));
+        known.put("evidence", mergeEvidence(existing.get("evidence"), status.evidence()));
 
         Map<String, Object> merged = new LinkedHashMap<>(existing);
         merged.putAll(known);
@@ -146,6 +146,30 @@ public final class JobRepository {
         } catch (RuntimeException e) {
             throw new StorageFormatException(source, "job.md 的 frontmatter 不合法：" + e.getMessage(), e);
         }
+    }
+
+    /**
+     * 在已有的 {@code evidence} 上合并：只替换 {@code submitted} 里本段建模的字段，
+     * 其它证据类型和 {@code submitted} 里多出来的字段原样保留。
+     */
+    private static Map<String, Object> mergeEvidence(Object existing, Evidence submitted) {
+        Map<String, Object> merged = copyOf(existing);
+        if (submitted == null) {
+            merged.remove("submitted");
+        } else {
+            Map<String, Object> fields = copyOf(merged.get("submitted"));
+            fields.putAll(evidenceToMap(submitted));
+            merged.put("submitted", fields);
+        }
+        return merged.isEmpty() ? null : merged;
+    }
+
+    private static Map<String, Object> copyOf(Object value) {
+        Map<String, Object> copy = new LinkedHashMap<>();
+        if (value instanceof Map<?, ?> map) {
+            map.forEach((key, item) -> copy.put(key.toString(), item));
+        }
+        return copy;
     }
 
     static Map<String, Object> evidenceToMap(Evidence evidence) {

@@ -215,6 +215,20 @@
 
 不做：不把其它测试改名为 IT；不改变任何主代码的行为。
 
+## 追加：三方评审修复（用户确认，2026-10-22）
+
+三方评审提出 6 条问题，逐条对照代码后都属实。用户决定修复第 1–5 条，第 6 条（CRLF 换行的 frontmatter）不处理。每条都先补一个能复现问题的测试，看到它失败后再改代码。
+
+| # | 问题 | 修法 | 新测试 |
+| --- | --- | --- | --- |
+| 2 | 状态更新会整体覆盖 `evidence`，`evidence` 下本段没建模的子字段（如 `qualification`）和 `submitted` 里多出来的字段都会丢 | 写回时在已有的 `evidence` 上合并：只替换 `submitted` 里本段建模的字段，其余原样保留 | `JobLedgerTest.Leads`：手工加的嵌套证据字段在多次跳转后仍然存在 |
+| 3 | 用 `../` 形式的 ID 可以跨 Project 改到别的岗位 | 新增 `domain.Ids`，统一定义 project / job / session id 的格式；`StorageLayout` 拼路径时一律校验，不合法就报错；列目录时跳过不合规的目录名 | `JobLedgerTest.InputValidation`：带 `../` 的 jobId 和 projectId 被拒绝，另一个 Project 的文件不变；jobs 目录下放一个不合规的目录，不影响列出岗位 |
+| 1 | 自动提交会带上用户事先暂存的其他文件 | 只检查本次路径有没有变化；提交时用 JGit 的 `setOnly` 限定在本次路径，用户暂存的东西仍然留在暂存区 | `StorageGitTest`：事先暂存的文件不进本次提交，提交后仍处于暂存状态；本次路径没有变化时不产生提交 |
+| 4 | `actor` 为空时，报错前已经写出了 `job.md` | `JobLedger` 在写任何文件之前先检查参数、构造好事件；`JobEvent` 构造时要求 actor 和 type 不为空 | `JobLedgerTest.InputValidation`：actor、transition 为空时被拒绝，目录快照不变 |
+| 5 | 事实写入器能写出自己读不了的文件（重复 key） | 渲染前检查重复 key，有重复就报错，原文件不动 | `FactsFileTest`：重复 key 被拒绝，原文件内容不变 |
+
+不做：第 6 条；不改其它行为。
+
 ## 实际结果
 
 - 依赖：`backend/pom.xml` 新增 `org.eclipse.jgit:org.eclipse.jgit:7.8.0.202609011348-r`，并显式声明了 `org.yaml:snakeyaml`（解析为 2.6）和 `tools.jackson.core:jackson-databind`（解析为 3.1.5），这两项都不写版本号。
@@ -223,6 +237,7 @@
 - `jobapply.memory`：`ProfileResolver`、`ResolvedFact`、`ProfileResolutionException`。
 - 测试（第一次实现时）：在 `backend/` 执行 `mvn -B clean test`，退出码 0，Tests run: 166, Failures: 0, Errors: 0, Skipped: 0。各测试类：`ApplicationStateMachineTest` 127（其中 121 个是 prep_state 两两组合的跳转用例）、`JobLedgerLeadTest` 7、`ProfileResolverTest` 6、`StorageInitializerTest` 5、`FrontmatterFileTest` 4、`FactsFileTest` 4、`SessionRepositoryTest` 4、`TrackerWriterTest` 4、`StorageGitTest` 2、`JobLedgerAtomicityTest` 1、`JobLedgerNoGitTest` 1、`JobApplyApplicationTest` 1。
 - 测试（追加整理之后）：三个 JobLedger 测试类合并为 `JobLedgerTest`（`@Nested`：`Leads` 7、`Atomicity` 1、`WithoutGit` 1），用例数不变；新增 `MemoryLedgerScenarioIT` 1 个；`backend/pom.xml` 加入 `maven-failsafe-plugin`，`TestStorage` 加了 `isClean()`。在 `backend/` 执行 `mvn -B clean verify`，退出码 0；surefire 166 个、failsafe 1 个，均为 Failures: 0, Errors: 0, Skipped: 0。
+- 三方评审修复之后：第 1–5 条各补了一个复现测试，修复前 5 个全部失败（「不合规目录」那个测试修复前就能通过，它是新 ID 校验的回归保护）。主代码改动：新增 `domain.Ids`；`StorageLayout` 校验 id，列目录时跳过不合规的名字；`ProjectSpec` 改用 `Ids`；`JobEvent` 要求 actor 和 type；`JobLedger` 在写文件前检查参数并先构造事件；`JobRepository` 合并写回 `evidence`；`FactsFile` 渲染前检查重复 key；`StorageGit` 只看本次路径的变化，用 `setOnly` 提交。在 `backend/` 执行 `mvn -B clean verify`，退出码 0；surefire 172 个、failsafe 1 个，均为 Failures: 0, Errors: 0, Skipped: 0。
 - 人工抽查：保留了一次测试的临时目录，查看生成的 `job.md`、`applications.md`、`events.jsonl`、`session.md`、`git log`、`.gitignore`，内容与本文件的规则一致。看完后已删除这个目录。
 - 主仓库的 `storage/` 没有变化（只有 `.gitkeep` 和空的 `example.data/`，没有 `.git`）。
 
@@ -236,4 +251,5 @@
   - 项目内的 `applications.csv` 和全局的 `exports/applications.csv` 使用同一组列，其中包含 `lead_status` 和 `skip_reason`，因为全局表也要列出候选。
   - 额外增加了几个测试：已有文件不会被覆盖、事实条目的格式错误、按 URL 去重、未知 Session 被拒绝、手工加的键在写回后保留。
 - **`example.data` 的引用**：测试代码里有 3 处，都在 `StorageInitializerTest` 中，用来验证 `.gitignore` 和「`example.data/` 不进入提交」。这 3 处只是路径字符串，没有读取任何真实数据。
+- **三方评审**发现了我第一次实现时测试没有覆盖到的边界：嵌套字段的保留、非法 ID、参数缺失、用户事先暂存的文件、写入前的重复检查。修复见「追加：三方评审修复」。CRLF 换行的 frontmatter 按用户决定不处理，这类文件仍会被当成没有 frontmatter。
 - **已知限制**：工作单元只在校验阶段保证「失败时什么都不写」。如果写到一半发生磁盘错误，可能留下部分写入的文件。本段假定只有一个进程（见「ID」）。

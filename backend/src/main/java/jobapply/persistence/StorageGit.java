@@ -9,10 +9,13 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import org.eclipse.jgit.api.AddCommand;
+import org.eclipse.jgit.api.CommitCommand;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.Status;
+import org.eclipse.jgit.api.StatusCommand;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.PersonIdent;
@@ -23,7 +26,7 @@ import org.eclipse.jgit.treewalk.TreeWalk;
 
 /**
  * {@code storage/.git}：可选的本地版本记录。{@code .git} 存在即视为开启；没有开启时提交是空操作。
- * 只提交调用方给出的路径，不做 {@code git add -A}。不设远程。
+ * 只提交调用方给出的路径（等同 {@code git commit --only}）：用户自己暂存的其它文件不会被带进来，提交后仍留在暂存区。不设远程。
  */
 public final class StorageGit {
 
@@ -57,13 +60,22 @@ public final class StorageGit {
         if (!isEnabled() || paths.isEmpty()) {
             return false;
         }
+        List<String> relative = paths.stream().map(layout::relative).distinct().toList();
         try (Git git = Git.open(layout.root().toFile())) {
             AddCommand add = git.add();
-            for (Path path : paths) {
-                add.addFilepattern(layout.relative(path));
+            StatusCommand statusOfOurs = git.status();
+            for (String path : relative) {
+                add.addFilepattern(path);
+                statusOfOurs.addPath(path);
             }
             add.call();
-            return commitStaged(git, message);
+            if (!hasStagedChanges(statusOfOurs.call())) {
+                return false;
+            }
+            CommitCommand commit = newCommit(git, message);
+            relative.forEach(commit::setOnly);
+            commit.call();
+            return true;
         } catch (IOException | GitAPIException e) {
             throw new IllegalStateException("git 提交失败：" + message, e);
         }
@@ -73,7 +85,11 @@ public final class StorageGit {
     boolean commitAll(String message) {
         try (Git git = Git.open(layout.root().toFile())) {
             git.add().addFilepattern(".").call();
-            return commitStaged(git, message);
+            if (!hasStagedChanges(git.status().call())) {
+                return false;
+            }
+            newCommit(git, message).call();
+            return true;
         } catch (IOException | GitAPIException e) {
             throw new IllegalStateException("git 提交失败：" + message, e);
         }
@@ -126,20 +142,18 @@ public final class StorageGit {
         }
     }
 
-    private boolean commitStaged(Git git, String message) throws GitAPIException {
-        Status status = git.status().call();
-        if (status.getAdded().isEmpty() && status.getChanged().isEmpty() && status.getRemoved().isEmpty()) {
-            return false;
-        }
+    private static boolean hasStagedChanges(Status status) {
+        return !status.getAdded().isEmpty() || !status.getChanged().isEmpty() || !status.getRemoved().isEmpty();
+    }
+
+    private CommitCommand newCommit(Git git, String message) {
         PersonIdent ident = new PersonIdent(AUTHOR_NAME, AUTHOR_EMAIL, clock.instant(), clock.getZone());
-        git.commit()
+        return git.commit()
                 .setMessage(message)
                 .setAuthor(ident)
                 .setCommitter(ident)
                 .setSign(false)
-                .setNoVerify(true)
-                .call();
-        return true;
+                .setNoVerify(true);
     }
 
     private static Optional<String> read(Repository repository, RevCommit commit, String relativePath)

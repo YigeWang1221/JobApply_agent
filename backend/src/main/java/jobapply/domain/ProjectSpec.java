@@ -19,20 +19,17 @@ public record ProjectSpec(
     public static final String BASE = "base";
     public static final String LIVE = "live";
     private static final String PARENT_PREFIX = "projects/";
-    private static final Pattern ID = Pattern.compile("[a-z0-9]+(-[a-z0-9]+)*");
     private static final Pattern COMMIT = Pattern.compile("[0-9a-f]{7,40}");
 
     public ProjectSpec {
-        if (id == null || !ID.matcher(id).matches()) {
-            throw new IllegalArgumentException("project id 只允许小写字母、数字和 -：" + id);
-        }
+        Ids.requireProjectId(id);
         inherits = inherits == null ? List.of() : List.copyOf(inherits);
         if (!inherits.contains(BASE)) {
             throw new IllegalArgumentException("inherits 必须包含 base：" + id);
         }
         for (String entry : inherits) {
             if (!entry.equals(BASE)
-                    && !(entry.startsWith(PARENT_PREFIX) && ID.matcher(entry.substring(PARENT_PREFIX.length())).matches())) {
+                    && !(entry.startsWith(PARENT_PREFIX) && Ids.isProjectId(entry.substring(PARENT_PREFIX.length())))) {
                 throw new IllegalArgumentException("inherits 只能是 base 或 projects/<id>：" + entry);
             }
         }

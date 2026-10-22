@@ -4,9 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import jobapply.domain.Actor;
+import jobapply.domain.Evidence;
 import jobapply.domain.IllegalTransitionException;
 import jobapply.domain.Job;
 import jobapply.domain.JobEvent;
@@ -23,6 +26,24 @@ import org.junit.jupiter.api.io.TempDir;
 class JobLedgerTest {
 
     private static final String PROJECT = "fall-2026-v1";
+    private static final Evidence EVIDENCE = new Evidence("success-page", "投递成功（虚构原文）", null,
+            "2026-10-22T10:05:00-04:00", "2026-10-22T10:06:00-04:00");
+
+    private static void editFrontmatter(Path file, Consumer<Map<String, Object>> edit) {
+        FrontmatterFile.Document document = FrontmatterFile.read(file);
+        edit.accept(document.frontmatter());
+        FrontmatterFile.write(file, document);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> evidence(Map<String, Object> fm) {
+        return (Map<String, Object>) fm.get("evidence");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> submitted(Map<String, Object> fm) {
+        return (Map<String, Object>) evidence(fm).get("submitted");
+    }
 
     @Nested
     class Leads {
@@ -162,11 +183,103 @@ class JobLedgerTest {
         }
 
         @Test
+        void unmodeledNestedEvidenceSurvivesTransitions() {
+            Job job = ledger.addLead(PROJECT, session, Actor.AGENT, TestStorage.posting("示例公司甲", "JD-001"), null);
+            Path file = storage.layout.jobFile(PROJECT, job.id());
+            editFrontmatter(file, fm -> fm.put("evidence",
+                    new LinkedHashMap<>(Map.of("qualification", Map.of("text", "学历要求原文（虚构）")))));
+
+            for (Transition step : List.of(new Transition.MarkLead(LeadStatus.SHORTLISTED, null), new Transition.Convert(),
+                    new Transition.ChangePrepState(PrepState.PREPARING),
+                    new Transition.ChangePrepState(PrepState.AWAITING_REVIEW),
+                    new Transition.ChangePrepState(PrepState.USER_SUBMITTING),
+                    new Transition.MarkApplied(EVIDENCE))) {
+                ledger.transition(PROJECT, job.id(), session, Actor.USER, step);
+            }
+            editFrontmatter(file, fm -> submitted(fm).put("screenshot", "uploads/success.png"));
+            ledger.transition(PROJECT, job.id(), session, Actor.USER, new Transition.ChangePhase(Phase.INTERVIEW));
+
+            Map<String, Object> fm = FrontmatterFile.read(file).frontmatter();
+            assertThat(evidence(fm)).containsEntry("qualification", Map.of("text", "学历要求原文（虚构）"));
+            assertThat(submitted(fm)).containsEntry("kind", "success-page")
+                    .containsEntry("screenshot", "uploads/success.png");
+        }
+
+        @Test
         void unknownSessionIsRejected() {
             assertThatThrownBy(() -> ledger.addLead(PROJECT, "s-2026-10-22-999", Actor.AGENT,
                     TestStorage.posting("示例公司甲", "JD-001"), null))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("Session 不存在");
+        }
+    }
+
+    @Nested
+    class InputValidation {
+
+        @TempDir
+        Path root;
+
+        private TestStorage storage;
+        private JobLedger ledger;
+        private String sessionA;
+        private String sessionB;
+        private Job jobInB;
+
+        @BeforeEach
+        void setUp() {
+            storage = TestStorage.create(root, true);
+            storage.project("a", "live");
+            storage.project("b", "live");
+            sessionA = storage.session("a");
+            sessionB = storage.session("b");
+            ledger = storage.ledger();
+            jobInB = ledger.addLead("b", sessionB, Actor.AGENT, TestStorage.posting("示例公司甲", "JD-001"), null);
+        }
+
+        @Test
+        void pathTraversalIdsAreRejectedAndNothingChanges() {
+            Map<String, String> before = storage.snapshot();
+            Transition shortlist = new Transition.MarkLead(LeadStatus.SHORTLISTED, null);
+
+            assertThatThrownBy(() -> ledger.transition("a", "../../b/jobs/" + jobInB.id(), sessionA, Actor.USER, shortlist))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("job id");
+            assertThatThrownBy(() -> ledger.transition("a", jobInB.id(), "../../b/sessions/" + sessionB, Actor.USER,
+                    shortlist)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("session id");
+            assertThatThrownBy(() -> ledger.addLead("../b", sessionB, Actor.AGENT,
+                    TestStorage.posting("示例公司乙", "JD-002"), null))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("project id");
+
+            assertThat(storage.snapshot()).isEqualTo(before);
+        }
+
+        @Test
+        void missingArgumentsAreRejectedBeforeAnyWrite() {
+            Map<String, String> before = storage.snapshot();
+
+            assertThatThrownBy(() -> ledger.addLead("b", sessionB, null, TestStorage.posting("示例公司乙", "JD-002"), null))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("actor");
+            assertThatThrownBy(() -> ledger.addLead("b", sessionB, Actor.AGENT, null, null))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("posting");
+            assertThatThrownBy(() -> ledger.transition("b", jobInB.id(), sessionB, null, new Transition.Convert()))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("actor");
+            assertThatThrownBy(() -> ledger.transition("b", jobInB.id(), sessionB, Actor.USER, null))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("transition");
+
+            assertThat(storage.snapshot()).isEqualTo(before);
+        }
+
+        @Test
+        void strayDirectoriesAreIgnoredWhenListing() {
+            storage.write(storage.layout.jobsDir("b").resolve("notes/readme.md"), "用户自己的笔记");
+            storage.write(storage.layout.sessionsDir("b").resolve("draft/readme.md"), "草稿");
+            storage.write(storage.layout.projectsDir().resolve("Old Stuff/readme.md"), "旧东西");
+
+            Job next = ledger.addLead("b", sessionB, Actor.AGENT, TestStorage.posting("示例公司乙", "JD-002"), null);
+
+            assertThat(next.id()).isEqualTo("2026-10-22-002");
+            assertThat(new JobRepository(storage.layout).list("b")).hasSize(2);
+            assertThat(storage.session("b")).isEqualTo("s-2026-10-22-003");
         }
     }
 
