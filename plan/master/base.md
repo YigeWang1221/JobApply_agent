@@ -47,7 +47,7 @@ Spring AI ChatModel          Tools
 
 ## 后置
 
-- 模型供应商（Spring AI starter 选哪家）
+- ~~模型供应商（Spring AI starter 选哪家）~~ → 已定（2026-10-22）：由用户在设置页自己配置，支持 OpenAI 兼容和 Anthropic 两种格式（`spring-ai-openai`、`spring-ai-anthropic` 2.0.1，运行时创建，不用自动配置），见 ui.md「模型设置」与 C004-A
 - Chrome MCP 选型（倾向 `chrome-devtools-mcp`，见 design）
 - 存储选型、是否上向量检索
 - 前端框架与推送方式

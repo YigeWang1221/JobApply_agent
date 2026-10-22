@@ -80,7 +80,7 @@ Session 标签（research / apply / review）根据实际发生的事情自动�
 
 ### 密钥存放（用户已确认，2026-10-22：本地 `.env`）
 
-- API key 保存在本地 `.env` 文件：`storage/settings/.env`，文件权限 600。`settings/models.yaml` 里只写变量名。设置页保存 key 时由后端写入 `.env`，页面只显示末四位。
+- API key 保存在本地 `.env` 文件：`storage/settings/.env`，文件权限 600。`settings/models.yaml` 里只写占位符 `${变量名}`（`base_url` 也可以用占位符）。设置页保存 key 时，由后端在运行时写入 `.env`；程序运行时读取 `.env`（找不到再找进程的环境变量），把值填进请求，这是正常的运行流程（用户确认，2026-10-22）。页面只显示末四位。
 - `.env` 被主仓库的 `.gitignore`（整个 `storage/`）和 `storage/.gitignore` 同时忽略，不会进入任何 git 历史。
 - 开发时的代理（Claude）遵守 `dev-limit.md`：不读取、不修改这个文件；验证时只看变量名或退出码。
 - key 不进日志，不发给模型，不出现在任何 Markdown 文件里。
@@ -93,13 +93,13 @@ providers:
     preset: anthropic
     format: anthropic
     base_url: https://api.anthropic.com
-    api_key_env: ANTHROPIC_MAIN_API_KEY     # 值在 storage/settings/.env
+    api_key: ${ANTHROPIC_MAIN_API_KEY}      # 占位符；值在 storage/settings/.env
     models: [<模型名>]
   - id: local
     preset: ollama
     format: openai
     base_url: http://localhost:11434/v1
-    api_key_env: null
+    api_key: null                           # 本地模型不需要 key
     models: [<本地模型名>]
 assignments:
   main: { provider: anthropic-main, model: <模型名> }

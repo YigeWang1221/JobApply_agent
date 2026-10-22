@@ -44,7 +44,9 @@
 | [coding/C001-scaffold.md](coding/C001-scaffold.md) | base、architecture | 完成 |
 | [coding/C002-memory-ledger.md](coding/C002-memory-ledger.md) | workflow 里程碑 1、memory、tracking | 完成 |
 | [coding/C003-playwright-mcp.md](coding/C003-playwright-mcp.md) | workflow 里程碑 2、memory | 完成 |
-| [coding/C004-harness-guard.md](coding/C004-harness-guard.md) | workflow 里程碑 3 | 要点（待起草） |
+| [coding/C004-harness-guard.md](coding/C004-harness-guard.md) | workflow 里程碑 3（总表） | 已拆分 |
+| [coding/C004-A-model-guard.md](coding/C004-A-model-guard.md) | workflow 里程碑 3、ui、memory | 已确认，待施工 |
+| [coding/C004-B-harness-review.md](coding/C004-B-harness-review.md) | workflow 里程碑 3、memory | 已确认，待施工 |
 
 ## 参考（`reference/`）
 

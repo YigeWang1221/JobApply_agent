@@ -41,13 +41,13 @@
 ```text
 storage/                              # 整个目录被主仓库 .gitignore 忽略
 ├── .git/                             # 可选（用户开启时才有）：独立的本地 git，每次写入自动提交，只在本地保留版本，不设远程、不上传
-├── .gitignore                        # 忽略 settings/.env、uploads/、*.sqlite、.obsidian/、example.data/
+├── .gitignore                        # 忽略 settings/.env、uploads/、cache/、*.sqlite、.obsidian/、example.data/
 │
 ├── base/                             # 全局个人基础信息（所有 Project 继承）
 │   ├── facts.md                      # 身份、联系方式、教育、经历、技能、链接；每条带来源 / 确认日期 / 精度 / 有效期
 │   ├── conflicts.md                  # 待核对冲突与空缺
 │   ├── writing.md                    # 通用写作偏好
-│   ├── assets.md                     # 所有原件的索引（文件名、SHA-256、类型、适用方向）
+│   ├── assets.md                     # 原件索引：只登记用户上传的原件（键 a-YYYY-MM-DD-NNN、文件名、类型、大小、SHA-256、上传时间、说明），不登记副本、解析文本和日志
 │   └── originals/                    # 原件统一保存在这里（简历 docx/pdf、补充 PDF、照片等）；Project 只引用，不复制
 │
 ├── projects/<project-id>/            # 一个求职侧重
@@ -60,6 +60,7 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 │   │   ├── job.md                    # frontmatter = 岗位与申请的当前状态（单一事实来源）；正文 = JD 快照、资格映射、本次答案、授权、证据
 │   │   ├── rounds/<seq>-<type>.md    # 每一轮的记录与复盘（用户确认的原始内容）
 │   │   ├── events.jsonl              # 追加式事件；每条事件带 session 字段
+│   │   ├── run-log.jsonl             # 填写过程日志：工具、守卫结论、按钮用途、用户反馈；不记填写的值和快照全文
 │   │   └── fill-report.md            # 关卡 B 的填写报告
 │   ├── sessions/<session-id>/        # 一次对话：调研 / 投递 / 复盘的任意组合
 │   │   ├── session.md                # 标题、自动标签、涉及的 job 列表、结束时的交接摘要
@@ -71,9 +72,12 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 │   ├── companies/<company>.md        # 生成：某公司历次各轮问过什么
 │   └── lessons.md                    # 经验总结（候选经用户确认后写入）
 │
-├── playbook/                         # 流程记忆（跨 Project 共享，和个人侧重无关）
-│   ├── general.md
-│   └── sites/<site>/SKILL.md         # 一个站点类型一个 skill，格式兼容 Hermes / agentskills（见 research-hermes.md §5）
+├── playbook/                         # 流程记忆（跨 Project 共享，和个人侧重无关）；按「它是什么」组织，不按站点（用户确认，2026-10-22）
+│   ├── skills/                       # 格式兼容 Hermes / agentskills（见 research-hermes.md §5）；上下文里只放名字和描述，需要时读正文
+│   │   ├── apply-form/SKILL.md       # 通用：读快照、多页表单、保存并回读、按钮用途怎么判断
+│   │   ├── components/<name>/SKILL.md  # 按 UI 组件：级联城市、日期、只读下拉、上传、简历解析校正……任何公司官网都能用
+│   │   └── platforms/<name>/SKILL.md   # 按招聘系统：Moka、飞书、Workday……观察到再加
+│   └── sites/<host>.md               # 不是 skill：平台猜测、用户确认过的软边界按钮、观察记录
 ├── companies/<company>.md            # 公司记忆（跨 Project 共享）：招聘项目、额度规则及证据、已用额度、账号标识、排除原因
 ├── jobs-index.md                     # 生成：所有 Project 的岗位与申请总台账（防止跨 Project 重复投递）
 ├── settings/                         # 应用设置，见 ui.md「模型设置」
@@ -81,6 +85,7 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 │   └── .env                          # API key（用户确认：保存在本地 .env）；权限 600，被 storage/.gitignore 忽略，开发代理不读
 ├── browser/sites.md                  # 站点登录登记（全局，因为浏览器只有一个）
 ├── uploads/                          # MCP 允许读取的上传暂存区（等字节副本）
+├── cache/                            # 可以随时删除：web/（抽取结果）、playwright-mcp/（MCP 输出目录，每次连接和关闭时清空）
 ├── checkpoints.sqlite                # LangGraph4j 持久化 Checkpoint（sqlite-saver），按 session-id 区分
 ├── index.sqlite                      # 可重建的查询索引（台账、Dashboard、题库 FTS5），删掉也能从文件重建
 └── exports/                          # 全局台账的 csv（各 Project 的 csv 在各自 tracker/ 下）
@@ -200,7 +205,7 @@ status: active | archived
    - 站点观察
 2. 后端检查候选：是否重复、是否冲突、是否属于 C 级（是就丢弃），作用域是否正确。
 3. 候选**默认写回本 Project**（`candidates.md` → 你确认 → `overrides.md`）。要写进 `base/`，必须你明确同意。候选**不会横向复制到兄弟 Project**。
-4. 站点观察直接写进 `playbook/sites/`，标注 `observed_count`；在 ≥2 类站点上出现过、并经你同意后，才升级到 `general.md`。
+4. 站点特有的事实写进 `playbook/sites/<host>.md`；可以复用的经验修补对应的组件或平台 skill，标注 `observed_count`；在 ≥2 类站点上出现过、并经你同意后，才写进通用的 `skills/apply-form`。分工见 workflow.md「流程优化的安全边界 · 谁来改什么」。
 5. 开启 git 时，每次写入都在 `storage/.git` 中自动提交一次。
 
 ## Job 记录（`job.md` frontmatter）
@@ -282,7 +287,7 @@ blocker: <阻塞原因>
 
 ### 借鉴 Hermes 的约束（见 [research-hermes.md](../reference/research-hermes.md) §4、§5）
 
-- **字符预算**：`base/facts.md`、Project `overrides.md`、`playbook/general.md` 这些会注入上下文的文件各设字符上限；超出时提示整理，不让它们越写越长。
+- **字符预算**：`base/facts.md`、Project `overrides.md`、`playbook/skills/` 下的 skill 这些会注入上下文的文件各设字符上限；超出时提示整理，不让它们越写越长。
 - **写入前检测**：Memory 候选和 Playbook 修补在写入前检测注入指令和不可见 Unicode，来自 JD 或网页的内容尤其需要。
 - **冻结快照**：Session 开始时把有效资料冻结成快照放进上下文；中途确认的新事实从下一轮生效。
 - **事实与流程分开**：事实写进 Memory，流程写进 Playbook skill；写陈述句，不写命令句。
