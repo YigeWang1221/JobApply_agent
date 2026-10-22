@@ -25,7 +25,7 @@
 | --- | --- | --- |
 | [C000](plan/coding/C000-process.md) | 安装开发流程 | 完成 |
 | [C001](plan/coding/C001-scaffold.md) | 本地单模块脚手架 | 完成 |
-| C002 | workflow 里程碑第 1 段：Memory 与台账 | 未起草 |
+| [C002](plan/coding/C002-memory-ledger.md) | workflow 里程碑第 1 段：Memory 与台账 | 完成，待用户验收 |
 
 ## 参考（不是施工步骤）
 
@@ -36,7 +36,7 @@
 
 ## 停靠点
 
-Master Plan 已全部确认，plan 目录已按 Master / Coding 分类重排。等待用户指令起草 C002（Memory 与台账）。用户将删除 `storage/example.data/`。
+Master Plan 已全部确认，plan 目录已按 Master / Coding 分类重排。C002（Memory 与台账）已实现，`mvn -B clean verify` 通过（166 个单元测试 + 1 个场景测试），等待用户验收；下一份 Coding Plan（里程碑第 2 段：Playwright MCP 接通）等用户指令再起草。用户将删除 `storage/example.data/`。
 
 ### 新会话从这里接手
 

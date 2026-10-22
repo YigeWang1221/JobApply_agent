@@ -42,8 +42,7 @@
 | --- | --- | --- |
 | [coding/C000-process.md](coding/C000-process.md) | 流程本身 | 完成 |
 | [coding/C001-scaffold.md](coding/C001-scaffold.md) | base、architecture | 完成 |
-
-下一份是 `C002`，对应 workflow「里程碑」第 1 段（Memory 与台账），尚未起草。
+| [coding/C002-memory-ledger.md](coding/C002-memory-ledger.md) | workflow 里程碑 1、memory、tracking | 完成，待用户验收 |
 
 ## 参考（`reference/`）
 

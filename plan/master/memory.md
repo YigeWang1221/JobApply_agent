@@ -40,8 +40,8 @@
 
 ```text
 storage/                              # 整个目录被主仓库 .gitignore 忽略
-├── .git/                             # 独立的本地 git：每次写入自动提交，只在本地保留版本，不设远程、不上传
-├── .gitignore                        # 忽略 settings/.env、uploads/、*.sqlite、.obsidian/
+├── .git/                             # 可选（用户开启时才有）：独立的本地 git，每次写入自动提交，只在本地保留版本，不设远程、不上传
+├── .gitignore                        # 忽略 settings/.env、uploads/、*.sqlite、.obsidian/、example.data/
 │
 ├── base/                             # 全局个人基础信息（所有 Project 继承）
 │   ├── facts.md                      # 身份、联系方式、教育、经历、技能、链接；每条带来源 / 确认日期 / 精度 / 有效期
@@ -102,7 +102,7 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 id: ai-infra-2025
 title: AI Infra / 平台后端（2025 版信息）
 inherits: [base]                      # 也可以是 [base, projects/backend-2024]，形成时间线
-base_pin: live                        # live = 跟随 base 最新；或 storage git 的某个 commit / 日期，冻结在那一刻
+base_pin: live                        # live = 跟随 base 最新；或 storage git 的某个 commit / 日期，冻结在那一刻（只有开启 git 时可用）
 default_resume: resume-ai-2025        # 引用 base/assets.md 的键
 status: active | archived
 ```
@@ -117,9 +117,11 @@ status: active | archived
 ```
 
 - 每个字段在填写报告里**都标出来源层**，比如「来自 Project ai-infra-2025 / overrides，2026-10-13 确认」，方便你在关卡 B 一眼看出是哪一层给的值。
-- overrides 可以显式写 `unset`，表示「这个侧重下不要用 base 的这条」。
+- overrides 可以显式写 `unset`（条目里写 `- unset: true`），表示「这个侧重下不要用 base 的这条」。
+- 父 Project 这一层只取父 Project 的 `overrides.md`（当前版本）；base 这一层一律按**本 Project** 的 `base_pin` 取版本。`inherits` 必须包含 `base`，`base` 永远是最后一层（用户确认，2026-10-22）。
 - `base_pin` 固定到某个时间点时，就算 base 以后更新了，这个 Project 也不受影响，正好对应「这个 Project 用的是 2020 年那一版信息」。
 - 父子 Project 之间不允许出现循环继承，后端加载时要检测。
+- ID（用户确认，2026-10-22）：job id 为 `YYYY-MM-DD-NNN`，跨所有 Project 按日期编号，因为它也是申请线程的 thread id；session id 为 `s-YYYY-MM-DD-NNN`；project id 由用户给出，只允许小写字母、数字和 `-`。
 
 ## Session 与 Job
 
@@ -144,7 +146,7 @@ status: active | archived
    - 不同：和继承的值不一样（例如学位写法、项目日期）；
    - 相同：直接沿用。
 4. **核实**：用「带选项提问」逐组给你确认（参考 Hermes 的 clarify：每个问题给出选项，并且总有「其它」）。「不同」的条目由你选：写进本 Project 的 `overrides.md`（只影响这个 Project）、更新 base（影响所有跟随 base 的 Project）、或者写进 `conflicts.md` 以后再定。
-5. **写入**：确认后写文件，并在 `storage/.git` 提交一次。C 级内容（证件号、工作授权等）即使出现在文件里也**不提取、不写入**。
+5. **写入**：确认后写文件；开启 git 时在 `storage/.git` 提交一次。C 级内容（证件号、工作授权等）即使出现在文件里也**不提取、不写入**。
 
 ### 文档读取工具
 
@@ -199,7 +201,7 @@ status: active | archived
 2. 后端检查候选：是否重复、是否冲突、是否属于 C 级（是就丢弃），作用域是否正确。
 3. 候选**默认写回本 Project**（`candidates.md` → 你确认 → `overrides.md`）。要写进 `base/`，必须你明确同意。候选**不会横向复制到兄弟 Project**。
 4. 站点观察直接写进 `playbook/sites/`，标注 `observed_count`；在 ≥2 类站点上出现过、并经你同意后，才升级到 `general.md`。
-5. 每次写入都在 `storage/.git` 中自动提交一次。
+5. 开启 git 时，每次写入都在 `storage/.git` 中自动提交一次。
 
 ## Job 记录（`job.md` frontmatter）
 
@@ -265,7 +267,7 @@ blocker: <阻塞原因>
 | 生成视图（台账、题库、`dashboard.md`） | Markdown | 给你和 AI 看的，每次重新生成 |
 
 规则：
-- **写入顺序**：先写文件，再更新索引；然后提交到 `storage/.git`。索引和文件不一致时，以文件为准，重建索引。
+- **写入顺序**：先写文件，再更新索引；开启 git 时再提交到 `storage/.git`。索引和文件不一致时，以文件为准，重建索引。
 - **SQLite 驱动**：`org.xerial:sqlite-jdbc`（Maven Central 最新 3.53.4.0，施工时钉精确版本）。
 - **对话记忆**：Spring AI 2.0.1 有 `spring-ai-model-chat-memory-repository-jdbc`，可以把模型上下文窗口接到 SQLite；原文仍以 `transcript.jsonl` 为准。是否采用，施工时再定。
 - **Obsidian 兼容**（用户要求）：`storage/` 可以直接作为 Obsidian vault 打开浏览。
@@ -299,7 +301,7 @@ blocker: <阻塞原因>
 已确认（2026-10-22）：
 1. Project 创建时用 `inherits`（加 `base_pin`），再由用户上传文件或输入文字核实，见「新建 Project」。
 2. Session 类型改为自动打标签（见「修订：Session 与岗位解耦」）。
-3. `storage/` 用本地 git 保留版本，不设远程、不上传。
+3. `storage/` 用本地 git 保留版本，不设远程、不上传。**git 是可选项**（用户确认，2026-10-22）：用户可以开启或不开启；不开启时不用其他方式保留版本，`base_pin` 只能是 `live`，也无法回滚。
 4. B 级个人信息：Agent 能填的统一填完，再由用户在关卡 B 审核。
 5. 原件保存在 base（`base/originals/`），其它内容跟随各 Project 的 memory。
 

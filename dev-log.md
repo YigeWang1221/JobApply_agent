@@ -121,3 +121,44 @@
 - 结果：遗漏检查标为已确认，第 2、8 项写入 memory，第 5、7 项写入 ui，第 9、10 项写入 tracking。plan 目录重排：`plan/master/` 放 base、architecture、workflow（原 design）、memory、tracking、ui，状态标为已确认；`plan/coding/` 放 `C000-process.md`（原 00-process）、`C001-scaffold.md`（原 jobapply-scaffold），文首加「对应 Master」；两份调研移到 `plan/reference/`（research-codex、research-hermes）。所有文件内的相对链接已改到新路径。`plan/README.md` 重写为两类计划的定义、约定和索引；`dev-plan.md` 重写索引；`AGENTS.md` 的文档分工表、`.cursor/rules/dev-process.mdc`、`dev-limit.md` 同步。workflow 的「施工顺序」改名为「里程碑」，每段拆成 Coding Plan。未写代码，未提交。
 - 验证：用 grep 检查 `plan/`、`AGENTS.md`、`dev-limit.md`、`.cursor/` 中的旧文件名引用，已清零（`dev-log.md` 和 `dev-recoding.md` 中的旧路径是历史记录，保留原样）。
 - 偏差：用户只给了两类；另外设了 `plan/reference/` 放调研材料，因为它们既不是 Master 也不是 Coding。
+
+## 2026-10-22 · 起草 C002（Memory 与台账）
+
+- 日期：2026-10-22
+- 指令：按 `dev-plan.md`「新会话从这里接手」起草 C002，先只写 Coding Plan 交给用户确认。
+- 结果：新增 `plan/coding/C002-memory-ledger.md`（状态：待确认），内容包括目标、不做、依赖、要改的文件、关键规则、5 个切片、测试、验收标准，以及 12 项待确认。`dev-plan.md`、`plan/README.md` 的索引行指向该文件。未写代码，未改 Master。
+- 验证：只读查询 Maven Central，JGit 最新 release 为 `7.8.0.202609011348-r`；离线执行 `mvn dependency:tree`，确认 `snakeyaml` 2.6、`tools.jackson.core:jackson-databind` 3.1.5 已经在传递依赖中。没有运行测试（本步只有文档）。
+- 偏差：无。
+
+## 2026-10-22 · C002 依赖确认，git 改为可选项
+
+- 日期：2026-10-22
+- 指令：C002 依赖表：git 是可选项，可以开也可以不开，不开时不用其他方法；YAML、JSON / Map、CSV、测试四项都同意。
+- 结果：C002 的依赖表标为已确认。新增 git 开关的规则：`.git` 存在即视为开启，提供 `enableGit()`，不提供关闭方法；关闭 git 时 `base_pin` 只能是 `live`。测试表加入不开 git 的用例。按本次指令同步 Master：`memory.md`（storage 树、`base_pin`、新建 Project、Memory 写入、写入顺序、已确认第 3 项）、`workflow.md`（流程优化的回滚一行、里程碑 1），都改成「开启 git 时」。C002 待确认的第 3–12 项仍在等用户回复。
+- 验证：未运行。本步只有文档。
+- 偏差：无。
+
+## 2026-10-22 · C002 实现：Memory 与台账
+
+- 日期：2026-10-22
+- 指令：C002 文末待确认的各项「按建议」处理。
+- 结果：
+  - 文档：第 5–12 项回写到 Master。`workflow.md`：里程碑 1 改为 `applied`，补充 prep_state 规则；`memory.md`：`.gitignore` 加 `example.data/`，写明父 Project 层和 base_pin 的取法、`unset` 写法和 ID 格式；`tracking.md`：新增表 0（候选池栏目），岗位链接改为指向 `job.md`，复盘路径改为 `jobs/<job-id>/rounds/`。第 4 项定为 5 片一次做完。
+  - 代码：`backend/pom.xml` 新增 JGit `7.8.0.202609011348-r`，并显式声明 SnakeYAML 和 Jackson databind（不写版本号）。在 `domain`、`persistence`、`memory` 三个包里实现了 storage 初始化（git 可选）、frontmatter 与事实条目读写、候选池、状态机、事件日志、Session 记录、leads 和 applications 台账（md + csv）、`jobs-index.md`、`exports/applications.csv`、继承解析（`base_pin` 支持 live / commit / 日期，含循环检测）。清单见 C002「实际结果」。
+- 验证：在 `backend/` 执行 `mvn -B clean test`，退出码 0；Tests run: 166, Failures: 0, Errors: 0, Skipped: 0。保留了一次测试的临时目录并人工查看生成的文件，看完后已删除。主仓库的 `storage/` 没有变化。没有运行任何会访问网络的测试；本步唯一的网络操作是 Maven 下载 JGit 及其依赖。
+- 偏差：见 C002「偏差」（施工顺序、公司按码点排序、比计划多做的几处、已知限制）。未提交 git。
+
+## 2026-10-22 · C002 测试整理，README
+
+- 日期：2026-10-22
+- 指令：（1）把三个 JobLedger 测试合并为一个，用 `@Nested` 分组；（2）增加一个端到端场景测试。另外按 `plan/master/` 简单写一下 README。
+- 结果：
+  - 先把追加范围写进 C002「追加：测试整理」，再动代码。
+  - 新建 `JobLedgerTest`，删除 `JobLedgerLeadTest`、`JobLedgerAtomicityTest`、`JobLedgerNoGitTest`。
+  - 新增 `jobapply.MemoryLedgerScenarioIT`：一个 Project、两个 Session，从调研走到申请以 rejected 结束，并检查文件、事件、台账、继承解析和 git 历史；最后断言工作区是干净的。
+  - `backend/pom.xml` 加入 `maven-failsafe-plugin`（版本和执行配置由 Boot 父 POM 管理）。`TestStorage` 加了 `isClean()`。
+  - `AGENTS.md`「本机构建」改为 `mvn -B clean verify`。
+  - `README.md` 从一行标题改写为项目说明：核心原则、工作方式、技术栈、里程碑进度、目录、构建命令、设计文档链接。内容来自 6 份 Master，明确标注只完成了里程碑 1。
+  - 主代码行为没有改动。
+- 验证：在 `backend/` 执行 `mvn -B clean verify`，退出码 0；surefire Tests run: 166，failsafe Tests run: 1，Failures / Errors / Skipped 均为 0。README 没有可以执行的检查，属于人工撰写。
+- 偏差：无。未提交 git。
