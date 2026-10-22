@@ -18,6 +18,9 @@ target/
 # Logs
 *.log
 
+# Playwright MCP 自动写出的快照和 console 日志，里面可能有登录后的页面内容
+.playwright-mcp/
+
 # Secrets stay out of git. Do not commit values.
 .env
 .env.*

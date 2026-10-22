@@ -99,6 +99,16 @@ public record StorageLayout(Path root) {
         return projectDir(projectId).resolve("tracker");
     }
 
+    /** LangGraph4j Checkpoint（sqlite-saver）。 */
+    public Path checkpointsDb() {
+        return root.resolve("checkpoints.sqlite");
+    }
+
+    /** 站点登录登记（全局，因为浏览器只有一个）。 */
+    public Path browserSites() {
+        return root.resolve("browser").resolve("sites.md");
+    }
+
     public Path jobsIndex() {
         return root.resolve("jobs-index.md");
     }

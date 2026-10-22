@@ -43,7 +43,8 @@
 | [coding/C000-process.md](coding/C000-process.md) | 流程本身 | 完成 |
 | [coding/C001-scaffold.md](coding/C001-scaffold.md) | base、architecture | 完成 |
 | [coding/C002-memory-ledger.md](coding/C002-memory-ledger.md) | workflow 里程碑 1、memory、tracking | 完成 |
-| [coding/C003-playwright-mcp.md](coding/C003-playwright-mcp.md) | workflow 里程碑 2、memory | 进行中 |
+| [coding/C003-playwright-mcp.md](coding/C003-playwright-mcp.md) | workflow 里程碑 2、memory | 完成 |
+| [coding/C004-harness-guard.md](coding/C004-harness-guard.md) | workflow 里程碑 3 | 要点（待起草） |
 
 ## 参考（`reference/`）
 

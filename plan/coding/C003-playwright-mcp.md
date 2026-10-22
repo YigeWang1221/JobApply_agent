@@ -1,7 +1,7 @@
 # C003 · Playwright MCP 接通：连接本机 Chrome、交给用户登录、快照、身份核对、断开重连
 
 - 对应 Master：[workflow.md](../master/workflow.md)「里程碑」第 2 段；「Chrome MCP」「登录状态」「提交保护」（本段只开放打开页面和只读工具）「遗漏检查」第 6 项（故障恢复）；[memory.md](../master/memory.md)（`checkpoints.sqlite`、申请线程 thread id = job id、`browser/sites.md`）
-- 状态：**进行中**（用户已确认「待确认」各项与「回写 Master」，按建议，2026-10-22）。日期：2026-10-22。
+- 状态：**完成**（用户已验收，2026-10-22）。登录与身份的判断从 C004 起交给模型，`LoginPageDetector` 改为只作提示，见 [C004 要点](C004-harness-guard.md)。日期：2026-10-22。
 
 本文件只写这一次施工做什么、怎么做、怎么验收。设计依据在上面两份 Master，这里不重复。
 
@@ -43,7 +43,7 @@
 | npx | 同上目录 | 已有。后端从 IDE 启动时 PATH 里可能没有 nvm 的目录，所以命令可以配置成绝对路径（`jobapply.browser.mcp.command`） |
 | `@playwright/mcp` | 未全局安装 | **不全局安装**。用 `npx -y @playwright/mcp@0.0.83 --extension` 启动，第一次运行时 npx 会下载并缓存这个包（这是唯一的网络操作，只在手动冒烟时发生） |
 | Playwright 浏览器扩展 | 未知 | 用户在日常用的 Chrome 里安装（README 指向 `microsoft/playwright` 仓库的 `packages/extension`）。具体安装入口在冒烟时由用户确认，结果记到「实际结果」 |
-| Java / Maven | Homebrew `openjdk@21`，见 `AGENTS.md` | 已有 |
+| Java / Maven | 原来是 Homebrew `openjdk@21`；Maven 在非交互 shell 里实际跑在 `openjdk` 27 上 | **用户决定升到 Java 25 LTS（2026-10-22）**：`brew install openjdk@25`（25.0.5），`pom.xml` 的 `java.version` 改为 25，卸载 `openjdk@21`。`openjdk` 27 是 Homebrew Maven 的依赖，所以保留；Oracle JDK 19（`/Library/Java/JavaVirtualMachines/jdk-19.jdk`）需要 sudo，由用户自己删除 |
 
 从 `@playwright/mcp` 0.0.83 及其依赖 `playwright-core` 1.64.0-alpha 的源码中确认的事实（只读查看 npm 包）：
 - 扩展模式在打开连接页后，**只等 30 秒**；超时报错 `Playwright extension did not connect within 30s ...`。这个时长只能用测试用的环境变量 `PWTEST_EXTENSION_CONNECT_TIMEOUT` 修改，属于未公开的接口，**本段不使用**。超时就进入 `browser_disconnected`，由用户重试。
@@ -234,3 +234,80 @@ START → open_page → check_login ─┬─(登录页 / 验证 / 未确认)→
 6. **本地 HTTP 的防护**：只监听 127.0.0.1、拒绝 `Origin`、写接口必须是 JSON。建议：同意。
 7. **子进程环境**：用 `env -i` 只传 PATH 和 HOME。建议：同意。
 8. **冒烟方式**：用不会被自动运行的测试类在临时 storage 上启动应用，用户用 curl 发信号。建议：同意。
+
+## 追加：远程调试模式与新开标签页（用户确认，2026-10-22）
+
+用户在 Chrome 155 里打开了 `chrome://inspect/#remote-debugging` 的「Allow remote debugging for this browser instance」，冒烟改用 `--cdp-endpoint chrome` 连接（每次连接 Chrome 会弹窗确认）。读 `playwright-core` 1.64.0-alpha 源码发现：这种模式下 Playwright MCP 会把已打开的所有标签页都收进来，第一个成为当前标签页，于是 `browser_navigate` 会把用户已有的标签页换掉，重连后的快照也会读到那个标签页。这违反了 master「只操作它自己打开的标签页」。用户选择改成新开标签页：
+
+- 白名单：`browser_tabs` 除了 `action=list`，还允许 `action=new`，但必须带 `url`，并且只能是 http / https。`select`、`close` 仍然拒绝。`browser_navigate` 保留（只允许 http / https），第 3 段在自己的标签页里翻页时会用到；本段不再调用它。
+- 打开岗位：`open_page` 改用 `browser_tabs {action: new, url}` 新开标签页，新标签页随即成为当前标签页，后面的快照都只读这个标签页。
+- 重连：不再对重连后的「当前标签页」取快照（在远程调试模式下，那可能是用户自己的标签页），改为直接回到 `open_page` 新开一个岗位页，然后照常交给用户确认登录。`resume_to` 不再需要，删掉。
+- 每次开始或重连都会新开一个标签页，旧的留着，由用户自己关。
+- 扩展模式下 `browser_tabs new` 是否可用，要等扩展模式冒烟时再确认。
+- 测试：改 `BrowserToolPolicyTest`、`PlaywrightMcpClientTest`、`LoginHandoffRunnerTest`、`LoginHandoffScenarioIT` 的预期；假服务端支持 `browser_tabs new`。
+
+## 追加：评审修复（用户要求现在修，2026-10-22）
+
+三条评审意见逐条对照代码后都属实。每条先补一个复现测试，确认它失败，再修。
+
+1. **P1：重启后跨 Job 读取页面。** 原因：`BrowserSession` 只记「有没有自己的标签页」，不记是哪个 Job 的；`signal()` 只检查有没有在执行的线程，不检查另一个 Job 是否还在等待。A 在等待时应用重启，B 开始并新开了 B 的标签页；A 发 `logged_in` 后，`check_page` 读到的是 B 的页面，可能核对通过并返回 ready。修法：
+   - `BrowserSession` 记住标签页属于哪个 Job（`open(url, jobId)`）；`snapshot(jobId)` 遇到标签页不属于这个 Job 时拒绝。
+   - `check_page` 发现标签页不是本 Job 的（包括新连接上还没有标签页），回到 `open_page` 重新新开。
+   - `signal()` 和 `start()` 一样：另一个 Job 正在等待时返回 409。
+2. **P2：身份确认绕过了暂停。** 原因：只有 `start()` 检查 `prep_state`，`signal()` 和 `finish` 都不检查。修法：`signal()` 在写任何东西之前，先检查 Job 仍是 `phase=prep` 并且 `prep_state ∈ {preparing, needs_login}`，否则返回 409；`finish` 在写 `sites.md` 之前再检查一次，不符就让这次运行失败，不写登记。
+3. **P2：override 缺少审计事件。** 原因：只有 `prep_state` 真的变化时才写事件，Job 本来就是 `preparing` 时，用了 override 不会留下任何记录。修法：`JobEvent.Type` 新增 `login_override`；只要识别规则认为仍在登录页、而用户带了 override 继续，就由 `JobLedger.recordLoginOverride` 追加一条事件（from / to 都是当前状态，reason 写命中的规则），不改 `job.md`。Session 的自动标签把它算作 `apply`。C004 如果去掉 override，这类事件也随之不再产生，历史记录保留。
+
+结果（2026-10-22）：补了 3 个复现测试（`LoginHandoffRunnerTest` 的 `afterRestartAnotherJobsTabIsNeverReadForThisJob`、`signalsAreRejectedOnceTheJobLeftTheHandoffStates`、`overrideIsAuditedEvenWhenPrepStateDoesNotChange`），原有的 override 测试也加了审计事件的断言。修复前这 4 个按预期失败；修复后在 `backend/` 用 JDK 25 执行 `mvn -B clean verify`，退出码 0：surefire 256、failsafe 2，均无失败，没有调用 npx。改动：`BrowserSession`（`open(url, jobId)`、`snapshot(jobId)`、`ownsTab(jobId)`）、`OpenPageNode`、`CheckPageNode`、`FinishNode`、`PrepStateSync`（`requireHandoffState`、`recordOverride`）、`LoginHandoffRunner.signal`、`LoginHandoffGraph`、`JobEvent.Type.LOGIN_OVERRIDE`、`JobLedger.recordLoginOverride`、`SessionRepository`（`login_override` 算作 `apply`）；`PlaywrightMcpClientTest` 改用新签名，并加了「为另一个 Job 新开的标签页不能读」的断言。
+
+## 实际结果（2026-10-22）
+
+**代码**（5 片按顺序做完；每片结束时跑一次测试）
+- `pom.xml`：新增 `spring-boot-starter-webmvc`、`spring-ai-starter-mcp-client`（2.0.1，传递引入 MCP Java SDK 2.0.0）、`langgraph4j-sqlite-saver` 1.9.6（`sqlite-jdbc` 由 Boot 管理，实际解析为 3.53.2.1）。`java.version` 按用户要求从 21 改为 25（见「偏差」）。
+- `harness.policies`：`BrowserToolPolicy`、`ToolNotAllowedException`。
+- `tools`：`BrowserLaunch`、`PlaywrightMcpClient`、`BrowserSession`、`PageSnapshot`、`LoginPageDetector`、`BrowserException`（嵌套 `Disconnected`、`ToolFailed`）。
+- `workflow.state`：`LoginHandoffState`、`LoginHandoffStatus`、`LoginHandoffSignal`。`workflow.nodes`：`NodeIds`、`OpenPageNode`、`CheckPageNode`、`WaitIdentityNode`、`ReconnectNode`、`FinishNode`、`PrepStateSync`、`Nodes`。`workflow.graphs`：`LoginHandoffGraph`、`LoginHandoffRunner`、`LoginHandoffException`（嵌套 `NotFound`、`Conflict`）。`workflow.checkpoints`：`CheckpointStore`（用的是 `SQLiteSaver`，`createTables(true)`，已有数据保留）。
+- `persistence`：`SiteRegistry`；`StorageLayout` 加 `checkpointsDb()`、`browserSites()`。
+- `domain`：`Transition.ChangePrepState` 加可选的 `reason`（保留原来的单参数构造），`JobLedger` 把它写进事件。
+- `config`：`StorageProperties`、`BrowserMcpProperties`、`LoginHandoffConfiguration`；`application.yml` 写了默认值（`server.address: 127.0.0.1`、`npx -y @playwright/mcp@0.0.83 --extension`、`call-timeout: 60s`、`storage.root: ../storage`）。
+- `api`：`LoginHandoffController`、`ApiErrors`、`LocalRequestGuard`。
+- 测试：`BrowserToolPolicyTest`、`PageSnapshotTest`、`LoginPageDetectorTest`、`PlaywrightMcpClientTest`、`SiteRegistryTest`、`LoginHandoffRunnerTest`、`LoginHandoffControllerTest`、`LoginHandoffScenarioIT`；辅助类 `FakePlaywrightMcpServer`、`FakeBrowser`、`LocalApi`，`TestStorage` 加 `open()`。手动冒烟入口 `LoginHandoffManualSmoke`。
+
+**施工时确认的 LangGraph4j 行为**（先在会话临时目录写了小样验证，再动手）
+- `interruptBefore` 的节点每次走到都会中断，恢复后再次走到同一节点仍会中断；新建图实例、指向同一个 sqlite 文件，能读到中断点并继续（重启恢复）。
+- 图走到 END 后，`SQLiteSaver` 会释放这个线程的 Checkpoint，之后 `getState` 报 `Missing Checkpoint`。所以图在最后加了一个 `done` 等待点：线程停在那里就是 `ready`，重启后也能查到，第 3 段从这里接着走。
+- 同一线程再次 `invoke(新输入)` 会从 START 重新开始，但会合并上次的状态，所以 `LoginHandoffState.initial()` 给所有键都设了初值。
+
+**验证**
+- 在 `backend/` 用 JDK 25 执行 `mvn -B clean verify`，退出码 0：surefire Tests run: 251（原有 172 + 新增 79），failsafe Tests run: 2（原有 1 + `LoginHandoffScenarioIT`），Failures / Errors / Skipped 均为 0。`LoginHandoffManualSmoke` 没有被运行。
+- 构建日志里 30 次「启动浏览器 MCP」全部是 JDK 自带的 `java`（假服务端），没有一次是 `npx`；自动测试没有访问网络。
+- 白名单以外的工具一次都没有到达假服务端（`PlaywrightMcpClientTest`、`LoginHandoffScenarioIT` 用调用记录断言）。
+- **手动冒烟：已运行（2026-10-22，用户全程监控）**，见下一节。
+
+## 手动冒烟结果（2026-10-22，真实 Chrome）
+
+- 环境：Chrome 155.0.8059.86，用户打开了 `chrome://inspect/#remote-debugging` 的远程调试开关；`npx -y @playwright/mcp@0.0.83 --cdp-endpoint chrome`；测试网址由用户指定：`https://careers.oppo.com/university/oppo/campus`（OPPO 校园招聘首页）。登录、确认账号都由用户完成；代理只在用户告知后才发信号。
+- 第一次运行失败，还没有连接 Chrome：`jobapply.storage.root: ../storage` 在真实的 Web 应用里不能绑定成 `Path`（Spring 会把它当成 Servlet 资源路径）。在 `backend/` 下正常启动应用也会这样失败。原来的启动测试用的是 MOCK 环境，没有发现。修复：`StorageProperties` 改成用 String 绑定，再转成 `Path`；`JobApplyApplicationTest` 改用真实端口启动并断言根目录；冒烟类改用命令行参数传配置（builder 的 `properties()` 优先级低于 application.yml）。
+- 第二次运行通过（`BUILD SUCCESS`，492 秒）：
+  1. 开始：第一次 `browser_tabs` 用了 11.9 秒（包含 npx 启动和用户在 Chrome 里的确认），新开了一个标签页，标题解析正确，`detected: NONE`，停在 `waitingFor: login`。
+  2. 用户登录后发 `logged_in`：只读快照，登录检查通过；没填账号标识，所以停在 `waitingFor: identity`。登录后站点自己的标题变成了「… - undefined」。
+  3. 断开测试：用户在 Chrome 那边关掉的东西没有断开远程调试连接（再次开始时 745 ms 就新开了标签页）。代理随后结束了 MCP 子进程，模拟崩溃，然后发 `logged_in`：60 秒后识别为断开，停在 `waitingFor: reconnect`，`lastError` 是超时。
+  4. 发 `reconnected`：启动了新的 MCP 进程，新开了一个岗位页，回到 `waitingFor: login`。**这一次 Chrome 没有再弹出确认。**
+  5. `logged_in` → `identity_confirmed`（用户确认了账号）→ `ready`。`prep_state` 是 `prep:preparing`；`sites.md` 写入 `https://careers.oppo.com | — | … | logged_in | user_confirmed`；冒烟用的 storage 的 git 工作区干净；结束后没有残留的 MCP 进程。
+- 发现：
+  - 远程调试模式下，开关打开期间，**只有第一次连接要用户确认，之后的连接（包括重连）不再确认**。这和 master「断开后重新同意一次」不一致，只有扩展模式能做到。
+  - 新开标签页的改法有效：所有操作都在系统自己新开的标签页里（本次共新开 3 个），用户已有的标签页没有被换掉（需要用户确认）。
+  - 断开时的提示原来只写了「扩展」，已改成两种模式都适用的说法。
+  - 登录页识别：OPPO 校园首页登录前后都是 `NONE`，因为这个页面本身不要求登录。真实登录页的识别这次没有测到。
+  - 扩展模式没有测（用户没有装扩展）；扩展模式下 `browser_tabs new` 能不能用，仍然未知。
+- 用户决定（2026-10-22）：远程调试模式作为正式支持的连接方式写进 master（workflow.md「Chrome MCP · 两种连接方式」「登录状态」），扩展模式仍是默认。
+
+## 偏差
+
+- **Java 21 → 25**：施工中用户要求升级本机 Java（2026-10-22）。代理装了 `openjdk@25`（25.0.5），改了 `pom.xml`、base.md、C001 备注、`AGENTS.md`、README，卸载了 `openjdk@21`。卸载时 Homebrew 顺带自动清掉了它判断已经没人用的几个包，日志里看得到的有 `fdk-aac`、`jpeg-xl`、`highway`；输出被截断，前面是否还有别的包不确定。`openjdk`（27）是 Homebrew Maven 的依赖，保留；Oracle JDK 19 需要 sudo，留给用户自己删。用户的 `~/.zshrc` 里 `JAVA_HOME` 和 `PATH` 还指向已卸载的 `openjdk@21`，需要用户手动改。
+- 节点类名：计划里的 `CheckLoginNode` 和 `CheckIdentityNode` 合并成了 `CheckPageNode`，因为两者要用同一次快照，而快照全文不能放进 Checkpoint；另外新增了处理身份信号的 `WaitIdentityNode`、和 `done` 等待点（原因见上）。
+- 信号枚举放在 `workflow.state`，不放在 `workflow.graphs`，这样节点就不依赖 graphs 包。
+- 「同一时间只允许一条在跑」的实现：执行中或在等待的线程都算在跑；对同一个 Job 重新开始可以丢弃它上一次的运行；还没有取消接口，所以另一个 Job 一直在等待时，只能先把它走完（或重启应用）。
+- 控制器测试没用 MockMvc（Boot 4 要另加测试 starter），改用 JDK `HttpClient` 打随机端口，顺带测到了 127.0.0.1 上的真实监听。
+- 用户审阅后的调整（2026-10-22）：撤回了 8 个 `package-info.java` 的一行说明（它们仍写着「这一步没有类型」）；4 个异常类合并成 2 个文件，两种情况改为嵌套子类，调用方仍然按类型捕获。之后 `mvn -B clean verify` 退出码 0，surefire 251、failsafe 2，均无失败。
+- 已知限制：MCP 进程崩溃时，客户端要等到 `call-timeout`（默认 60 秒）才会判断为断开。扩展断开时 MCP 进程还在，会直接返回错误，不受这条影响。连接错误按 `@playwright/mcp` 0.0.83 源码里的报错片段识别，真实报错要冒烟时核对。
+

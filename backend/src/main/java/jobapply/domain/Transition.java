@@ -13,7 +13,12 @@ public sealed interface Transition {
     record Convert() implements Transition {
     }
 
-    record ChangePrepState(PrepState to) implements Transition {
+    /** {@code reason} 可选，写进事件，例如登录接力里用户 override 的说明。 */
+    record ChangePrepState(PrepState to, String reason) implements Transition {
+
+        public ChangePrepState(PrepState to) {
+            this(to, null);
+        }
     }
 
     /** 凭证据进入 {@code phase=applied}。 */

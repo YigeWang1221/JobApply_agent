@@ -200,3 +200,83 @@
 - 结果：C003「关键规则 · 身份核对」改为：标识可选，不区分是哪一种；只校验去掉首尾空格后不超过 128 个字符、不含换行或 `|`（避免写坏 `sites.md` 的表格）；留空或页面上没有显示时，交给用户确认；`sites.md` 原样保存，标识不写进日志。`sites.md` 示例、目标第 1 条、Controller 测试、待确认第 5 项都已同步。按本次指令回写 `plan/master/workflow.md`「登录状态」：删掉「只写邮箱或手机号末四位」，改为「可选，由用户自己填写」。
 - 验证：未运行。本步只有文档。
 - 偏差：原草案的上限是 32 个字符，因为当时假定只填打码形式；现在允许填完整邮箱，所以放宽到 128 个字符。
+
+## 2026-10-22 · C003 确认、Java 升到 25、C003 实现
+
+- 日期：2026-10-22
+- 指令：C003「待确认」其余各项和「回写 Master」3 项「按照建议」。施工中又追加两条：本机 Java 也升级（选了 Java 25 LTS）；卸载本地旧的 JDK。
+- 结果：
+  - 文档：C003 状态改为进行中；回写 workflow.md（主流程「用户登录」一行改为本地 HTTP 信号加 override；Chrome MCP 版本复查；扩展只等 30 秒）、architecture.md（`api` 只监听 127.0.0.1、拒绝 Origin）。
+  - Java：`brew install openjdk@25`（25.0.5）；`pom.xml` 的 `java.version` 改为 25；base.md、C001 备注、`AGENTS.md`「本机构建」、README 同步。`brew uninstall openjdk@21`；Homebrew 顺带自动清掉了它判断已经没人用的 `fdk-aac`、`jpeg-xl`、`highway`（输出被截断，前面可能还有别的包）。`openjdk` 27 是 Maven 的依赖，保留。Oracle JDK 19 需要 sudo，没有删。`~/.zshrc` 没有改。
+  - 代码：清单见 C003「实际结果」。
+- 验证：升级后、写 C003 图之前，JDK 25 下跑 `mvn -B clean verify`，退出码 0（surefire 227，failsafe 1）。C003 完成后再跑 `mvn -B clean verify`，退出码 0：surefire Tests run: 251，failsafe Tests run: 2，Failures / Errors / Skipped 均为 0。构建日志里的 MCP 启动全部是假服务端，没有调用 npx，没有访问网络。手动冒烟：未运行。
+- 偏差：见 C003「偏差」。没有提交 git。
+
+## 2026-10-22 · C003 收拢文件
+
+- 日期：2026-10-22
+- 指令：撤回 `package-info.java` 的一行说明；合并 4 个异常类。
+- 结果：`git checkout` 撤回了 8 个 `package-info.java`（之前报告说是 9 个，这个数字是错的）。`BrowserDisconnectedException` 和 `BrowserToolException` 合并为 `tools.BrowserException`，原来的两个类改成嵌套子类 `Disconnected`、`ToolFailed`；`LoginHandoffConflictException` 和 `LoginHandoffNotFoundException` 合并为 `workflow.graphs.LoginHandoffException`，嵌套子类为 `Conflict`、`NotFound`。行为不变。`ToolNotAllowedException` 属于 `harness.policies` 这一层，没有并进来。
+- 验证：在 `backend/` 用 JDK 25 执行 `mvn -B clean verify`，退出码 0；surefire Tests run: 251，failsafe Tests run: 2，Failures / Errors / Skipped 均为 0。
+- 偏差：无。没有提交 git。
+
+## 2026-10-22 · 边界：允许在用户监控下实体机调试
+
+- 日期：2026-10-22
+- 指令：项目开发时，允许在用户监控下的实体机器上调试。
+- 结果：`dev-limit.md`「范围边界」新增「实体机调试」一条：在用户监控下，代理可以在本机真实环境里调试和冒烟（连接本机 Chrome、打开用户指定的测试网址、只读取快照）。登录、注册、填写、提交仍由用户完成；只在用户当次指定的网址上操作；登录信号只在用户告知后才代发。自动测试的边界不变。
+- 验证：未运行。本步只改文档。
+- 偏差：无。
+
+## 2026-10-22 · C003 远程调试模式、新开标签页、真实 Chrome 冒烟
+
+- 日期：2026-10-22
+- 指令：用户打开了 Chrome 的远程调试开关，要求用 `https://careers.oppo.com/university/oppo/campus` 测试；选择「改成新开标签页再测」；允许在用户监控下用本机真实 Chrome 调试。
+- 结果：
+  - C003 加了「追加：远程调试模式与新开标签页」，然后改代码：白名单允许 `browser_tabs new`（只允许 http / https）；`open_page` 改为新开标签页；重连后直接重新新开岗位页；`BrowserSession` 记住当前连接上有没有自己的标签页，没有就拒绝取快照；`check_page` 遇到新连接时回到 `open_page`；删掉 `resume_to`。
+  - 第一次冒烟暴露了配置问题：`storage.root` 的相对路径不能绑定成 `Path`。已修复，并把 `JobApplyApplicationTest` 改成用真实端口启动。冒烟类改用命令行参数传配置。
+  - 第二次冒烟通过，过程和发现见 C003「手动冒烟结果」。断开时的提示改成扩展模式和远程调试模式都适用的说法。
+- 验证：改成新开标签页后，`mvn -B clean verify` 退出码 0（surefire 252，failsafe 2）。修复 storage 配置后，`JobApplyApplicationTest` 和 `LoginHandoffControllerTest` 都通过（9 个）。真实 Chrome 冒烟 `BUILD SUCCESS`。改提示文字之后的全量 `mvn -B clean verify` 由用户转到后台执行，结果见下一条。
+- 偏差：冒烟时代理结束了自己启动的 MCP 子进程，用来模拟崩溃（用户说「你可能要重新启动一下 mcp 然后测试」）。没有提交 git。
+
+## 2026-10-22 · C003 冒烟后的全量回归
+
+- 日期：2026-10-22
+- 指令：（接上一条）改完断开提示的文字后跑全量回归。
+- 结果：没有新的改动。
+- 验证：在 `backend/` 用 JDK 25 执行 `mvn -B clean verify`，退出码 0；surefire Tests run: 253（加了 `JobApplyApplicationTest` 的根目录断言），failsafe Tests run: 2，Failures / Errors / Skipped 均为 0。28 次 MCP 启动全部是假服务端，没有调用 npx。
+- 偏差：无。
+
+## 2026-10-22 · 远程调试模式写进 master；清理
+
+- 日期：2026-10-22
+- 指令：「允许，然后 clean，update 文档」。
+- 结果：
+  - workflow.md「Chrome MCP」新增「两种连接方式」对照表（扩展模式是默认，远程调试模式要打开 `chrome://inspect` 的开关；确认次数、能看到哪些标签页、风险各不相同）；「登录状态」改为两种模式下 Agent 都只操作自己新开的标签页。C003 和 `dev-plan.md` 同步。
+  - 清理：执行 `mvn clean`，删掉了 `backend/target`（包括冒烟时建的 `target/smoke-*` storage）；删掉会话临时目录里的小样和下载的 npm 包。确认没有残留的 MCP 进程，8765 端口也没有在监听。npx 缓存（`~/.npm/_npx`）保留，之后冒烟还要用。用户 Chrome 里系统新开的 3 个 OPPO 标签页要用户自己关（白名单里没有关闭标签页的工具）。
+- 验证：未运行测试（本步只改文档、做清理）。最近一次全量回归见前一条。
+- 偏差：「允许」理解为回答「远程调试模式要不要写进 master」。C003 仍然等用户明确验收，没有标为完成。
+
+## 2026-10-22 · C003 验收；C004 要点
+
+- 日期：2026-10-22
+- 指令：用户同意对设计的解释，验收 C003（现在这版，带测试脚本）。C004 把「是否已登录」「登录的是不是正确的账号」交给模型判断，关键词识别只作提示；很多网站登录后不跳转，只是右上角多出头像或名字。一个 session 只做一份 Coding Plan，所以本次只在文档里写下 C004 要注意和更新的东西。
+- 结果：C003、`dev-plan.md`、`plan/README.md`、README 的状态改为完成。workflow.md「登录状态」新增「登录与身份由模型判断」（从里程碑第 3 段起），并写明登录后不跳转的情况。新增 `plan/coding/C004-harness-guard.md`（状态：要点），写了已说定的方向（图要粗、循环交给模型；系统只管模型不能绕过的东西；登录判断交给模型；上传走 `browser_file_upload`）、起草时要处理的事、C003 留下的已知问题。`dev-plan.md` 加了索引行，并重写了停靠点。没有写代码。
+- 验证：未运行（本步只改文档）。最近一次全量回归是 surefire 253 / failsafe 2 全部通过。
+- 偏差：无。没有提交 git。
+
+## 2026-10-22 · 清理 Playwright MCP 写出的文件
+
+- 日期：2026-10-22
+- 指令：（接「clean」）
+- 结果：冒烟后 `git status` 里出现了未跟踪的 `backend/.playwright-mcp/`：11 个文件，4 个 `page-*.yml`（其中 2 个是空的）和 7 个 `console-*.log`，是 Playwright MCP 在它的工作目录里自动写出的。代理只列了文件名和大小，没有打开内容，然后删掉了整个目录。在仓库 `.gitignore` 里加了 `.playwright-mcp/`。读 0.0.83 源码确认了原因（除 `browser_snapshot` 之外的工具默认会把附带的快照写成文件；console 消息也会写成文件）。根本的修法记进了 C004 要点「C003 留下的已知问题」第一条。
+- 验证：`git status` 里不再出现这个目录。没有运行测试（代码没有改动）。
+- 偏差：这是 C003 验收后才发现的问题。按「一个 session 一份 Coding Plan」的约定，本次只做了止损（删除文件、加忽略规则），修法留给 C004。
+
+## 2026-10-22 · C003 评审修复（3 条）
+
+- 日期：2026-10-22
+- 指令：评审提出 3 条问题（P1：重启后跨 Job 读取页面；P2：身份确认绕过了暂停状态；P2：override 缺少审计事件），用户要求现在就修。
+- 结果：先把范围写进 C003「追加：评审修复」，再动代码。标签页记住属于哪个 Job，`check_page` 遇到不属于本 Job 的标签页就重新新开；`signal()` 遇到另一个 Job 正在等待、或本 Job 已经不在 preparing / needs_login 时返回 409，不写任何东西；`finish` 在写 `sites.md` 之前再检查一次；新增 `login_override` 事件类型，用了 override 就记一条。
+- 验证：修复前，3 个新的复现测试加上补了断言的原有 override 测试共 4 个，按预期失败。修复后在 `backend/` 用 JDK 25 执行 `mvn -B clean verify`，退出码 0；surefire Tests run: 256，failsafe Tests run: 2，Failures / Errors / Skipped 均为 0；没有调用 npx。没有在真实 Chrome 上重新冒烟。
+- 偏差：对 C002 的领域代码做了一处小的扩展（`JobEvent.Type` 新增 `login_override`，`JobLedger` 新增 `recordLoginOverride`）。没有提交 git。

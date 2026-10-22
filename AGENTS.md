@@ -38,7 +38,7 @@
 
 ## 本机构建
 
-- 本机默认 JDK 是 Homebrew `openjdk@21`，`JAVA_HOME` 与 `PATH` 在 `~/.zshrc` 全局设置，项目内不再单独配置。
+- 项目用 Java 25（LTS），本机 JDK 是 Homebrew `openjdk@25`，`JAVA_HOME` 与 `PATH` 在 `~/.zshrc` 全局设置，项目内不再单独配置。Homebrew 的 Maven 依赖 `openjdk`（最新版），没设 `JAVA_HOME` 时会跑在那个版本上；代理的非交互 shell 不加载 `~/.zshrc`，所以跑 Maven 前要显式设置 `JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home`。
 - 在 `backend/` 执行 `mvn -B clean verify`（单元测试 + `*IT` 场景测试）。只跑单元测试时用 `mvn -B clean test`。
 
 ## 编码原则

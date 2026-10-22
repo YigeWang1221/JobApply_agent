@@ -87,6 +87,23 @@ public final class JobLedger {
         return next;
     }
 
+    /**
+     * 只追加一条 {@code login_override} 审计事件（from / to 都是当前状态），不改 job.md。
+     */
+    public synchronized void recordLoginOverride(String projectId, String jobId, String sessionId, Actor actor,
+            String reason) {
+        require(actor, "actor");
+        requireProjectAndSession(projectId, sessionId);
+        Job current = jobs.load(projectId, jobId);
+        JobEvent event = event(sessionId, actor, JobEvent.Type.LOGIN_OVERRIDE, current.status(), current.status(),
+                reason, null);
+
+        List<Path> written = new ArrayList<>();
+        written.add(appendEvent(current, event));
+        written.addAll(afterChange(projectId, sessionId));
+        git.commit("job " + jobId + "：登录识别被用户 override", written);
+    }
+
     public List<JobEvent> events(String projectId, String jobId) {
         return eventLog.readJobEvents(layout.jobEvents(projectId, jobId));
     }
@@ -140,6 +157,7 @@ public final class JobLedger {
     private static String reason(Transition transition) {
         return switch (transition) {
             case Transition.MarkLead mark -> mark.reason();
+            case Transition.ChangePrepState change -> change.reason();
             case Transition.Close close -> close.reason();
             default -> null;
         };

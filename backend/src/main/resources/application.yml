@@ -1,3 +1,21 @@
 spring:
   application:
     name: jobapply
+
+# 本地 HTTP 只监听本机（plan/master/architecture.md「api」）
+server:
+  address: 127.0.0.1
+
+jobapply:
+  storage:
+    # 在 backend/ 下启动时就是仓库的 storage/；只有调用接口时才会读写
+    root: ../storage
+  browser:
+    mcp:
+      # npx 不在 PATH 里时（例如从 IDE 启动），改成绝对路径
+      command: npx
+      args: ["-y", "@playwright/mcp@0.0.83", "--extension"]
+      # 可选：Chrome 的资料目录名，例如 "Profile 1"
+      profile-dir-name: ""
+      # 要长于扩展等待用户同意连接的 30 秒
+      call-timeout: 60s
