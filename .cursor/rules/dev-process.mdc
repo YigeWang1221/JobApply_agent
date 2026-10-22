@@ -1,0 +1,13 @@
+---
+description: JobApply 开发流程。动手前先读流程文档，计划细节只写在 plan/。
+alwaysApply: true
+---
+
+# 开发流程
+
+动手前先读 `AGENTS.md`、`dev-limit.md`、`dev-plan.md`。本步细节以 `dev-plan.md` 指向的 `plan/` 文件为准。
+
+- 只做用户点名的当前一步。计划里没写的不做。
+- `dev-plan.md` 只更新索引。架构、版本、完成定义写进 `plan/`。
+- 事实写入 `dev-log.md`。取舍写入 `dev-recoding.md`。新边界才改 `dev-limit.md`。
+- 不读、不改 `.env` 和其它秘密文件。
