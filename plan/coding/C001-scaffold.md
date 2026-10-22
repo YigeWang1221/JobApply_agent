@@ -20,7 +20,7 @@
 
 | 项 | 坐标或值 |
 | --- | --- |
-| 语言 | Java 21（`java.version` = 21；本机 Homebrew `openjdk@21` 21.0.13，在 `~/.zshrc` 设为全局默认） |
+| 语言 | Java 21（`java.version` = 21；本机 Homebrew `openjdk@21` 21.0.13，在 `~/.zshrc` 设为全局默认）。**2026-10-22 已升到 Java 25**，见 base.md 与 C003 |
 | 构建 | Maven 3.10.0（Homebrew）。单模块，`groupId` `jobapply`，`artifactId` `jobapply`，`version` `0.0.1-SNAPSHOT` |
 | Spring Boot | `org.springframework.boot:spring-boot-starter-parent:4.1.1` |
 | Spring AI | BOM `org.springframework.ai:spring-ai-bom:2.0.1`；直接依赖 `spring-ai-client-chat` |

@@ -27,7 +27,8 @@ public final class SessionRepository {
     static final String APPLY = "apply";
     private static final String HANDOFF_HEADING = "## 交接摘要";
     private static final Set<JobEvent.Type> APPLY_EVENTS = EnumSet.of(
-            JobEvent.Type.CONVERTED, JobEvent.Type.PREP_STATE_CHANGED, JobEvent.Type.PHASE_CHANGED, JobEvent.Type.CLOSED);
+            JobEvent.Type.CONVERTED, JobEvent.Type.PREP_STATE_CHANGED, JobEvent.Type.PHASE_CHANGED, JobEvent.Type.CLOSED,
+            JobEvent.Type.LOGIN_OVERRIDE);
 
     private final StorageLayout layout;
     private final Clock clock;

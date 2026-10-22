@@ -41,6 +41,11 @@ public final class TestStorage {
         return storage;
     }
 
+    /** 打开一个已经初始化过的临时 storage。 */
+    public static TestStorage open(Path root) {
+        return new TestStorage(root, TestClock.at(NOW));
+    }
+
     public ProjectRepository projects() {
         return new ProjectRepository(layout, clock);
     }
