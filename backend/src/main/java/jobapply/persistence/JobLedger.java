@@ -19,8 +19,8 @@ import jobapply.domain.Transition;
 
 /**
  * Job 写操作的唯一入口。一次调用是一个工作单元：
- * 状态机校验 → 写 job.md → 追加事件 → 更新 session.md → 重新生成台账 → git 提交（开启时）。
- * 校验失败时什么都不写。本段假定只有一个进程，同一实例内串行。
+ * 校验参数并构造事件 → 状态机校验 → 写 job.md → 追加事件 → 更新 session.md → 重新生成台账 → git 提交（开启时）。
+ * 所有校验都在第一次写文件之前完成，校验失败时什么都不写。本段假定只有一个进程，同一实例内串行。
  */
 public final class JobLedger {
 
@@ -45,6 +45,8 @@ public final class JobLedger {
 
     public synchronized Job addLead(String projectId, String sessionId, Actor actor, JobPosting posting,
             String jdSnapshot) {
+        require(actor, "actor");
+        require(posting, "posting");
         requireProjectAndSession(projectId, sessionId);
         String key = posting.dedupeKey();
         for (Job existing : jobs.list(projectId)) {
@@ -56,10 +58,11 @@ public final class JobLedger {
         Map<String, Object> extra = new LinkedHashMap<>();
         extra.put("tags", List.of("jobapply/job"));
         Job job = new Job(id, projectId, sessionId, posting, JobStatus.newLead(), extra);
+        JobEvent event = event(sessionId, actor, JobEvent.Type.LEAD_CREATED, null, job.status(), null, null);
 
         List<Path> written = new ArrayList<>();
         written.add(jobs.create(job, jdSnapshot));
-        written.add(appendEvent(job, sessionId, actor, JobEvent.Type.LEAD_CREATED, null, job.status(), null, null));
+        written.add(appendEvent(job, event));
         written.addAll(afterChange(projectId, sessionId));
         git.commit("job " + id + "：新增候选 " + posting.company() + " · " + posting.title(), written);
         return job;
@@ -67,15 +70,18 @@ public final class JobLedger {
 
     public synchronized Job transition(String projectId, String jobId, String sessionId, Actor actor,
             Transition transition) {
+        require(actor, "actor");
+        require(transition, "transition");
         requireProjectAndSession(projectId, sessionId);
         Job current = jobs.load(projectId, jobId);
         JobStatus nextStatus = ApplicationStateMachine.next(current.status(), transition, actor);
         Job next = current.withStatus(nextStatus);
+        JobEvent event = event(sessionId, actor, eventType(transition), current.status(), nextStatus,
+                reason(transition), evidence(transition));
 
         List<Path> written = new ArrayList<>();
         written.add(jobs.update(next));
-        written.add(appendEvent(next, sessionId, actor, eventType(transition), current.status(), nextStatus,
-                reason(transition), evidence(transition)));
+        written.add(appendEvent(next, event));
         written.addAll(afterChange(projectId, sessionId));
         git.commit("job " + jobId + "：" + current.status().label() + " → " + nextStatus.label(), written);
         return next;
@@ -94,12 +100,22 @@ public final class JobLedger {
         }
     }
 
-    private Path appendEvent(Job job, String sessionId, Actor actor, JobEvent.Type type, JobStatus from,
-            JobStatus to, String reason, Evidence evidence) {
+    private JobEvent event(String sessionId, Actor actor, JobEvent.Type type, JobStatus from, JobStatus to,
+            String reason, Evidence evidence) {
+        return new JobEvent(Timestamps.now(clock), sessionId, actor, type,
+                from == null ? null : from.label(), to.label(), reason, evidence);
+    }
+
+    private Path appendEvent(Job job, JobEvent event) {
         Path file = layout.jobEvents(job.project(), job.id());
-        eventLog.appendJobEvent(file, new JobEvent(Timestamps.now(clock), sessionId, actor, type,
-                from == null ? null : from.label(), to.label(), reason, evidence));
+        eventLog.appendJobEvent(file, event);
         return file;
+    }
+
+    private static void require(Object value, String name) {
+        if (value == null) {
+            throw new IllegalArgumentException(name + " 不能为空");
+        }
     }
 
     private List<Path> afterChange(String projectId, String sessionId) {

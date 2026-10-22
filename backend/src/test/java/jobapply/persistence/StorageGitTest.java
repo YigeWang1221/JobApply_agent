@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
+import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -27,6 +28,29 @@ class StorageGitTest {
         assertThat(storage.trackedFiles()).contains("projects/demo/a.md").doesNotContain("projects/demo/b.md");
         assertThat(storage.git().commit("没有变化", List.of(ours))).isFalse();
         assertThat(storage.commitCount()).isEqualTo(2);
+    }
+
+    @Test
+    void filesTheUserStagedStayOutOfOurCommit() throws Exception {
+        TestStorage storage = TestStorage.create(root, true);
+        Path manual = root.resolve("manual.md");
+        Path ours = root.resolve("projects/demo/ours.md");
+        storage.write(manual, "用户自己暂存的");
+        try (Git git = Git.open(root.toFile())) {
+            git.add().addFilepattern("manual.md").call();
+        }
+        int before = storage.commitCount();
+
+        assertThat(storage.git().commit("没有本次路径的变化", List.of(storage.layout.baseFacts()))).isFalse();
+        assertThat(storage.commitCount()).isEqualTo(before);
+
+        storage.write(ours, "ours");
+        assertThat(storage.git().commit("只提交 ours", List.of(ours))).isTrue();
+
+        assertThat(storage.trackedFiles()).contains("projects/demo/ours.md").doesNotContain("manual.md");
+        try (Git git = Git.open(root.toFile())) {
+            assertThat(git.status().call().getAdded()).containsExactly("manual.md");
+        }
     }
 
     @Test

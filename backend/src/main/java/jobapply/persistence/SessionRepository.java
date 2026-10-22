@@ -141,7 +141,7 @@ public final class SessionRepository {
     private List<String> allSessionIds() {
         List<String> ids = new ArrayList<>();
         for (String projectId : layout.projectIds()) {
-            ids.addAll(StorageLayout.childDirectoryNames(layout.sessionsDir(projectId)));
+            ids.addAll(layout.sessionIds(projectId));
         }
         return ids;
     }

@@ -78,6 +78,20 @@ class FactsFileTest {
     }
 
     @Test
+    void duplicateKeysAreRejectedBeforeWriting() {
+        Path file = root.resolve("overrides.md");
+        List<Fact> original = List.of(Fact.of("skills.languages", "Java", FactClass.A, null, null));
+        FactsFile.write(file, "overrides", original);
+
+        assertThatThrownBy(() -> FactsFile.write(file, "overrides", List.of(
+                Fact.of("skills.languages", "Java", FactClass.A, null, null),
+                Fact.of("skills.languages", "Go", FactClass.A, null, null))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("重复");
+        assertThat(FactsFile.read(file)).isEqualTo(original);
+    }
+
+    @Test
     void malformedEntriesAreReported() {
         assertThatThrownBy(() -> FactsFile.parse("## a\n- value: 1\n- class: A\n## a\n- value: 2\n- class: A\n", "f.md"))
                 .isInstanceOf(StorageFormatException.class).hasMessageContaining("重复");

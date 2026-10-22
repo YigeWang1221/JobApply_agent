@@ -67,6 +67,12 @@ public final class FactsFile {
     }
 
     public static String render(List<Fact> facts) {
+        Set<String> keys = new HashSet<>();
+        for (Fact fact : facts) {
+            if (!keys.add(fact.key())) {
+                throw new IllegalArgumentException("事实条目重复：" + fact.key());
+            }
+        }
         StringBuilder out = new StringBuilder();
         for (Fact fact : facts) {
             out.append("## ").append(fact.key()).append('\n');
