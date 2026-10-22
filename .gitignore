@@ -30,3 +30,11 @@ __pycache__/
 # Frontend
 node_modules/
 dist/
+
+# Personal data: profile, resume, tracker, application snapshots
+storage/*
+!storage/.gitkeep
+
+# Reference data from the user's previous Codex job-apply workflow.
+# Process research only. Never commit, upload, or copy its contents elsewhere.
+storage/example.data/

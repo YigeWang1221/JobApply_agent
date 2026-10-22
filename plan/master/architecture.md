@@ -1,6 +1,6 @@
 # JobApply 文件架构
 
-状态：草案，待确认。目录已按此建好，但每个包只有 `package-info.java`。日期：2026-10-22。
+状态：**已确认**（2026-10-22）。目录已按此建好，但每个包只有 `package-info.java`。日期：2026-10-22。
 
 参照 `../Eco_Agent/plan/afts-architecture.md` 精简而来：去掉了 Python 执行层（`execution/`、`python/`）和动态委托（`workflow/delegation`），因为 JobApply 目前没有这类需求。需要时再加回，并更新本文件。
 
@@ -48,6 +48,10 @@ JobApply_Agent/
 | `backend/observability` | 观测 | 追踪、审计 |
 | `backend/api` | 对外接口 | Web / API |
 | `frontend/` | 前端 | 产品界面 |
+
+## 领域对象（来自 2026-10-22 的设计）
+
+`domain` 至少会有 Project、Session、Application 状态、Fact（带作用域与来源）、Company 额度。Project / Session 的含义和 storage 布局见 [memory.md](memory.md)。`persistence` 负责把它们读写到 `storage/` 下的 Markdown / JSONL，并维护可重建的 `storage/index.sqlite`；LangGraph4j Checkpoint 存到 `storage/checkpoints.sqlite`。存储格式见 [memory.md](memory.md)「存储格式」。
 
 ## 暂不固定
 

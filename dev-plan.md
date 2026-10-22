@@ -2,26 +2,38 @@
 
 本文件只做**索引**：现在做什么、细节在 `plan/` 的哪一份。不写版本表、目录树、模块规格。那些一律在对应 plan 文件里。
 
-施工约定见 `AGENTS.md`。边界见 `dev-limit.md`。
+施工约定见 `AGENTS.md`。边界见 `dev-limit.md`。计划分类（Master Plan / Coding Plan）见 [plan/README.md](plan/README.md)。
 
 ## 现在做什么
 
-产品：**JobApply**（求职投递 Agent），放在本仓库。Spring Boot 在 `backend/`。一句话目标待用户确认；业务行为尚未开始。
+产品：**JobApply**（求职投递 Agent），放在本仓库。Spring Boot 在 `backend/`。按本地个人资料找岗位，用 Playwright MCP 在本机 Chrome 里代填申请，提交前停下由用户审阅并亲自提交，本地 md + csv 台账跟踪进度。业务行为尚未开始。
 
-## 现行 plan（细节在这些文件）
+## Master Plan（`plan/master/`，已全部确认）
 
-| 现在做什么 | 文件 | 状态 |
+| 内容 | 文件 |
+| --- | --- |
+| 产品目标、技术路线、边界 | [plan/master/base.md](plan/master/base.md) |
+| 逻辑目录与模块职责 | [plan/master/architecture.md](plan/master/architecture.md) |
+| 主流程与里程碑 | [plan/master/workflow.md](plan/master/workflow.md) |
+| Memory 与 storage 结构 | [plan/master/memory.md](plan/master/memory.md) |
+| 追踪、Dashboard、复盘 | [plan/master/tracking.md](plan/master/tracking.md) |
+| 界面与模型设置 | [plan/master/ui.md](plan/master/ui.md) |
+
+## Coding Plan（`plan/coding/`）
+
+| 编号 | 内容 | 状态 |
 | --- | --- | --- |
-| 产品目标、技术路线、边界 | [plan/jobapply-base.md](plan/jobapply-base.md) | 技术路线已确认；产品目标待确认 |
-| 逻辑目录与模块职责 | [plan/jobapply-architecture.md](plan/jobapply-architecture.md) | 草案，待确认 |
-| 本地脚手架（`backend/` 单模块） | [plan/jobapply-scaffold.md](plan/jobapply-scaffold.md) | 完成 |
-| 安装开发流程文档 | [plan/00-process.md](plan/00-process.md) | 完成 |
-| `plan/` 目录说明 | [plan/README.md](plan/README.md) | 完成 |
+| [C000](plan/coding/C000-process.md) | 安装开发流程 | 完成 |
+| [C001](plan/coding/C001-scaffold.md) | 本地单模块脚手架 | 完成 |
+| C002 | workflow 里程碑第 1 段：Memory 与台账 | 未起草 |
 
 ## 参考（不是施工步骤）
 
-`../Eco_Agent/`：同栈参考仓库，只读。
+- `../Eco_Agent/`：同栈参考仓库，只读。
+- [plan/reference/research-codex.md](plan/reference/research-codex.md)：旧 Codex 投递工作区复盘。
+- [plan/reference/research-hermes.md](plan/reference/research-hermes.md)：Hermes Agent 设计参考。
+- Dashboard 与界面示意页（虚构数据）：https://claude.ai/artifact/4K6eE85i51GvrLUGz8cARD
 
 ## 停靠点
 
-流程文档与脚手架已就位。等待用户给出 JobApply 的一句话目标和第一段要跑通的可观察行为。
+Master Plan 已全部确认，plan 目录已按 Master / Coding 分类重排。等待用户指令起草 C002（Memory 与台账）。用户将删除 `storage/example.data/`。
