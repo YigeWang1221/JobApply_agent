@@ -1,12 +1,35 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorText, type Asset } from "../api";
+import Sources from "./Sources";
 
 interface Notice {
   kind: "ok" | "warn" | "error";
   text: string;
 }
 
+type Tab = "originals" | "sources";
+
+// 「资料」页的页签：原件（C004-A）和来源（C004-A-1）。整理与确认、事实与画像在 C004-A-2 加
 export default function Assets() {
+  const [tab, setTab] = useState<Tab>("originals");
+  return (
+    <>
+      <nav className="subtabs" role="tablist">
+        <button role="tab" aria-selected={tab === "originals"} className={tab === "originals" ? "active" : ""}
+          onClick={() => setTab("originals")}>
+          原件
+        </button>
+        <button role="tab" aria-selected={tab === "sources"} className={tab === "sources" ? "active" : ""}
+          onClick={() => setTab("sources")}>
+          来源
+        </button>
+      </nav>
+      {tab === "originals" ? <Originals /> : <Sources />}
+    </>
+  );
+}
+
+function Originals() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [notices, setNotices] = useState<Notice[]>([]);
   const [dragging, setDragging] = useState(false);

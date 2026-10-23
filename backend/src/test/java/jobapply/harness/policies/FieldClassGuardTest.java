@@ -61,4 +61,23 @@ class FieldClassGuardTest {
         assertThat(FieldClassGuard.check(index, "e2", "姓名")).isInstanceOf(GuardDecision.Allow.class);
         assertThat(FieldClassGuard.check(SnapshotIndex.empty(), "e2", null)).isInstanceOf(GuardDecision.Allow.class);
     }
+
+    @Test
+    void onlyClassCValuesAreRemovedBeforeSending() {
+        FieldClassGuard.Redacted redacted = FieldClassGuard.withoutClassC(String.join("\n",
+                "后端开发", "期望薪资：面议", "证件号 110101199001011234", "SSN: 123-45-6789", "Visa status: H-1B",
+                "Passport No. X1234567", "订单服务"));
+
+        assertThat(redacted.text()).isEqualTo(String.join("\n",
+                "后端开发", "期望薪资： [已省略]", "证件号 [已省略]", "SSN: [已省略]", "Visa status: [已省略]",
+                "Passport No. [已省略]", "订单服务"));
+        // 没有 C 级词，但有 18 位证件号
+        assertThat(FieldClassGuard.withoutClassC("联系人 11010119900101123X").text()).isEqualTo("联系人 [已省略]");
+        // 普通文字里的 C 级词不处理
+        for (String kept : new String[] {"项目：健康管理平台", "健康管理平台，日活 12000", "负责 visa applications 模块",
+                "QPS 12000，延迟 40ms", "签署保密声明后参与开发"}) {
+            assertThat(FieldClassGuard.withoutClassC(kept)).as(kept)
+                    .isEqualTo(new FieldClassGuard.Redacted(kept, 0));
+        }
+    }
 }

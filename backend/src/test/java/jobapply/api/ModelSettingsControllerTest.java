@@ -163,6 +163,48 @@ class ModelSettingsControllerTest {
     }
 
     @Test
+    void changingTheEndpointInvalidatesOldTests() {
+        putProvider("moving", server.openAiBase(), List.of("fake-large"));
+        record(api.putJson(BASE + "/providers/moving/key", Map.of("key", KEY)));
+        assertThat(post(BASE + "/providers/moving/test", Map.of("model", "fake-large")).json())
+                .containsEntry("supportsTools", true);
+
+        // 端点不变、只是写法不同（末尾多了 /）：测试结果保留；其它写法差异见 ModelSettingsServiceTest
+        putProvider("moving", server.openAiBase() + "/", List.of("fake-large", "fake-small"));
+        assertThat(testedModels("moving")).containsExactly("fake-large");
+        assertThat(record(api.putJson(BASE + "/assignments",
+                Map.of("main", Map.of("provider", "moving", "model", "fake-large")))).status()).isEqualTo(200);
+
+        // 真的换了端点：照常保存，用途分配不动，测试记录作废，重新分配主模型要先重测
+        assertThat(putProvider("moving", "http://127.0.0.1:9/v1", List.of("fake-large")).status()).isEqualTo(200);
+        assertThat(testedModels("moving")).isEmpty();
+        record(api.putJson(BASE + "/assignments", Map.of()));
+        LocalApi.Response stale = record(api.putJson(BASE + "/assignments",
+                Map.of("main", Map.of("provider", "moving", "model", "fake-large"))));
+        assertThat(stale.status()).isEqualTo(409);
+        assertThat(stale.get("error")).asString().contains("工具调用");
+
+        // 只换接口格式也一样
+        putProvider("fmt", server.openAiBase(), List.of("fake-large"));
+        record(api.putJson(BASE + "/providers/fmt/key", Map.of("key", KEY)));
+        post(BASE + "/providers/fmt/test", Map.of("model", "fake-large"));
+        Map<String, Object> body = new HashMap<>();
+        body.put("preset", "custom");
+        body.put("format", "anthropic");
+        body.put("baseUrl", server.openAiBase());
+        body.put("models", List.of("fake-large"));
+        assertThat(record(api.putJson(BASE + "/providers/fmt", body)).status()).isEqualTo(200);
+        assertThat(testedModels("fmt")).isEmpty();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Object> testedModels(String id) {
+        Map<String, Object> provider = ((List<Map<String, Object>>) record(api.get(BASE)).get("providers")).stream()
+                .filter(p -> id.equals(p.get("id"))).findFirst().orElseThrow();
+        return ((List<Map<String, Object>>) provider.get("tested")).stream().map(t -> t.get("model")).toList();
+    }
+
+    @Test
     void deletingAProviderInUseIsAConflictAndDeletingRemovesItsKey() {
         putProvider("gw", server.openAiBase(), List.of("fake-small"));
         record(api.putJson(BASE + "/providers/gw/key", Map.of("key", KEY)));

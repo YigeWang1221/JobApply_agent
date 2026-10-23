@@ -335,3 +335,15 @@ assignments:
 - **`models.yaml` 第一行**写了一句注释（Key 不在这里）。
 - **手动检查时修了两个缺陷**：带工具的请求用了 SDK 的默认模型名（`ModelFactory.withTools` 的参数从接口格式改成了端点）；资料说明的提示词示例带年份、引导模型推断版本（提示词改写）。见「实际结果」。
 
+
+## 代码审核修复（2026-10-22，C004-A-1 之后）
+
+用户找人审核代码，发现两个属于 C004-A 的问题，都先用测试在旧代码上复现，再修复：
+1. **原件分析把 C 级内容发给模型**：`AssetAnalyzer` 直接发送文件开头的文字，提示词里的「不要写个人信息」只管输出，管不了输入。修复：`FieldClassGuard` 新增 `withoutClassC(String)`，复用 C 级词表，另加 18 位证件号和 SSN 的号码格式，命中的整行换成「[已省略一行：可能含 C 级信息]」；`AssetAnalyzer` 发请求之前先过滤一遍；整段都被去掉时不调用模型，返回原因。测试：`AssetAnalyzerTest.classCLinesAreNeverSentToTheModel`、`filesThatAreAllClassCAreNotSentAtAll`，`FieldClassGuardTest.classCLinesAreRemovedBeforeSending`。
+2. **修改端点后旧的工具调用测试仍有效**：`ModelSettingsService.saveProvider` 只按模型名保留测试结果。修复：接口格式或 Base URL 变了，测试记录全部作废；提供方正被用作主模型时拒绝这次修改（409），提示先改用途分配，以免主模型在没测过的端点上继续运行。测试：`ModelSettingsControllerTest.changingTheEndpointInvalidatesOldTests`。
+
+**按用户指令放宽**（2026-10-22，用户：「过于严格」「太过于敏感了」；选「只看实际变化」）
+- 第 1 条改为只去掉 C 级的**值**，不再整行删除：「字段名：值」里字段名命中 C 级词表时只去掉值；18 位证件号、SSN 号码本身；没有冒号时「证件名 + 含数字的号码」（例如 `Passport No. X1234567`）里的号码。都换成「[已省略]」。普通文字里的 C 级词（例如「健康管理平台」「保密声明」）不处理；去掉了值以后照常调用模型。测试：`FieldClassGuardTest.onlyClassCValuesAreRemovedBeforeSending`、`AssetAnalyzerTest.classCValuesAreNeverSentToTheModel`。
+- 第 2 条去掉 409：修改端点照常保存，用途分配不动；只有端点**真的**变了才作废测试记录，末尾的 `/`、协议和主机名的大小写、默认端口这些写法差异不算变化（`ModelSettingsService.sameEndpoint`）。已经分配为主模型的不会被自动取消；重新分配主模型时仍要先通过工具调用测试。测试：`ModelSettingsControllerTest.changingTheEndpointInvalidatesOldTests`、`ModelSettingsServiceTest`。
+- 验证：`mvn -B clean verify` 退出码 0，surefire 541、failsafe 2，构建日志里没有测试 Key。
+

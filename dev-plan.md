@@ -29,7 +29,7 @@
 | [C003](plan/coding/C003-playwright-mcp.md) | workflow 里程碑第 2 段：Playwright MCP 接通 | 完成 |
 | [C004](plan/coding/C004-harness-guard.md) | workflow 里程碑第 3 段（总表：拆分、已定决定、回写 Master 清单） | 已拆分 |
 | [C004-A](plan/coding/C004-A-model-guard.md) | 模型接入、资料原件、设置页、提交守卫 | 完成 |
-| [C004-A-1](plan/coding/C004-A-1-profile-import.md) | 资料导入（一）：事实格式、按语言取值、来源扫描（不调用模型） | 已确认，待施工（求职表达规则已按用户指令修订） |
+| [C004-A-1](plan/coding/C004-A-1-profile-import.md) | 资料导入（一）：事实格式、按语言取值、来源扫描（不调用模型） | 施工完成，等手动检查 |
 | [C004-A-2](plan/coding/C004-A-2-profile-review.md) | 资料导入（二）：整理、确认、画像 | 已确认（在 C004-A-1 之后施工） |
 | [C004-B](plan/coding/C004-B-harness-review.md) | Harness 循环、skill、申请线程、关卡 B | 已确认（在 C004-A-2 之后施工） |
 
@@ -42,12 +42,12 @@
 
 ## 停靠点
 
-C004-A 完成，用户已验收（2026-10-22；手动检查中修了两个缺陷，见 C004-A「实际结果」）。**下一个 session 施工 C004-A-1。**用户决定（2026-10-22）：**在 C004-B 之前先做资料导入与画像**，设计写进 memory.md「资料导入与画像」，施工计划拆成两段（用户确认 2026-10-22：拆分，其余细节按建议）：[C004-A-1](plan/coding/C004-A-1-profile-import.md)（格式、按语言取值、来源扫描，不调用模型）和 [C004-A-2](plan/coding/C004-A-2-profile-review.md)（整理、确认、画像）。顺序：C004-A（完成）→ C004-A-1 → C004-A-2 → C004-B（一个 session 只做一份 Coding Plan）。
+C004-A-1 施工完成（2026-10-22），`mvn -B clean verify` 和 `npm run build` 通过，细节见 C004-A-1「实际结果」「偏差」。**等用户找人审核代码，然后做手动检查**：指定一个公开仓库做 GitHub 真实调用（只读、未认证），在「来源」页登记一个本地目录看估算；或者明确决定暂缓。之后施工 C004-A-2。顺序：C004-A（完成）→ C004-A-1（施工完成）→ C004-A-2 → C004-B（一个 session 只做一份 Coding Plan）。
 
 ### 新会话从这里接手
 
 1. 读 `AGENTS.md` → `dev-limit.md` → 本文件 → `plan/README.md`。
 2. 读 [C004 总表](plan/coding/C004-harness-guard.md)、[C004-A](plan/coding/C004-A-model-guard.md)、[C004-B](plan/coding/C004-B-harness-review.md)，以及它们列出的 Master 章节；参考已完成的 [C003](plan/coding/C003-playwright-mcp.md)（「实际结果」「手动冒烟结果」「偏差」）。
-3. C004-A 已施工，看它的「实际结果」「偏差」；顺序是 C004-A（完成）→ C004-A-1 → C004-A-2 → C004-B。
+3. C004-A、C004-A-1 已施工，看它们的「实际结果」「偏差」；顺序是 C004-A（完成）→ C004-A-1（施工完成）→ C004-A-2 → C004-B。
 4. 验证命令：在 `backend/` 执行 `JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home mvn -B clean verify`（代理的 shell 不加载 `~/.zshrc`）。
 5. 已知的一点：`dev-log.md`、`dev-recoding.md` 是历史记录，里面的旧路径不代表现状。

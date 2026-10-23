@@ -46,7 +46,7 @@
 | [coding/C003-playwright-mcp.md](coding/C003-playwright-mcp.md) | workflow 里程碑 2、memory | 完成 |
 | [coding/C004-harness-guard.md](coding/C004-harness-guard.md) | workflow 里程碑 3（总表） | 已拆分 |
 | [coding/C004-A-model-guard.md](coding/C004-A-model-guard.md) | workflow 里程碑 3、ui、memory | 完成 |
-| [coding/C004-A-1-profile-import.md](coding/C004-A-1-profile-import.md) | memory「资料导入与画像」、workflow 里程碑 3 的前置 | 已确认，待施工 |
+| [coding/C004-A-1-profile-import.md](coding/C004-A-1-profile-import.md) | memory「资料导入与画像」、workflow 里程碑 3 的前置 | 施工完成，等手动检查 |
 | [coding/C004-A-2-profile-review.md](coding/C004-A-2-profile-review.md) | memory「资料导入与画像」、workflow 里程碑 3 的前置 | 已确认，待施工（在 C004-A-1 之后） |
 | [coding/C004-B-harness-review.md](coding/C004-B-harness-review.md) | workflow 里程碑 3、memory | 已确认，待施工（在 C004-A-2 之后） |
 

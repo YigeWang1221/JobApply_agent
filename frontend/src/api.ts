@@ -1,5 +1,5 @@
 // 对后端接口的薄封装。出错时把后端返回的 {"error": "..."} 原样交给页面显示。
-// 写接口一律带 Content-Type: application/json（后端的本地请求防护要求这样，没有请求体时发 {}）；上传原件除外。
+// 写接口一律带 Content-Type: application/json（后端的本地请求防护要求这样，没有请求体时发 {}，DELETE 也一样）；上传原件除外。
 
 export class ApiError extends Error {
   constructor(
@@ -107,6 +107,60 @@ export interface UploadResult {
   analysisNote: string | null;
 }
 
+export interface Source {
+  key: string;
+  type: "dir" | "github";
+  location: string;
+  version: string;
+  registeredAt: string;
+  lastScannedAt: string;
+  fileCount: string;
+  description: string;
+}
+
+export interface RepoSummary {
+  fullName: string;
+  description: string;
+  fork: boolean;
+  archived: boolean;
+  pushedAt: string;
+}
+
+// 登记结果：只给 GitHub owner 时返回 owner 和它的公开仓库，不登记
+export type RegisterResult =
+  | { source: Source; duplicate: boolean }
+  | { owner: string; repositories: RepoSummary[] };
+
+export interface SourceScan {
+  version: string;
+  files: { path: string; kind: string; chars: number }[];
+  skipped: { path: string; reason: string }[];
+  chars: number;
+  commits: { count: number; firstAt: string | null; lastAt: string | null; ownPercent: number | null;
+    recentTitles: string[] } | null;
+  warnings: string[];
+  githubCalls: number;
+  overLimit: boolean;
+}
+
+export interface ImportRun {
+  id: string;
+  status: "estimated" | "running" | "reviewing" | "done" | "failed";
+  created_at: string;
+  updated_at: string;
+  sources: string[];
+  estimate: {
+    sources: { key: string; type: string; location: string; scan: SourceScan; modelCalls: number;
+      githubCallsPlanned: number }[];
+    chars: number;
+    modelCalls: number;
+    githubCallsUsed: number;
+    githubCallsPlanned: number;
+    warnings: string[];
+    overLimit: boolean;
+  } | null;
+}
+
 const MODELS = "/api/settings/models";
 
 export const api = {
@@ -130,6 +184,13 @@ export const api = {
   },
   describe: (key: string, description: string) =>
     request<Asset>("PATCH", `/api/assets/${encodeURIComponent(key)}`, { description }),
+
+  sources: () => request<{ sources: Source[] }>("GET", "/api/sources"),
+  registerSource: (type: "dir" | "github", location: string) =>
+    request<RegisterResult>("POST", "/api/sources", { type, location }),
+  deleteSource: (key: string) => request<{ deleted: string }>("DELETE", `/api/sources/${encodeURIComponent(key)}`),
+  estimate: (sources: string[]) => request<ImportRun>("POST", "/api/import-runs", { sources }),
+  importRun: (id: string) => request<ImportRun>("GET", `/api/import-runs/${encodeURIComponent(id)}`),
 };
 
 export function errorText(error: unknown): string {

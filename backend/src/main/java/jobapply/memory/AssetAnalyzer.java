@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
+import jobapply.harness.policies.FieldClassGuard;
 import org.apache.tika.Tika;
 import org.apache.tika.exception.TikaException;
 import org.apache.tika.metadata.Metadata;
@@ -24,6 +25,7 @@ import org.springframework.ai.chat.prompt.Prompt;
  * 原件的轻量分析：用 Tika 把文件转成文字（只在内存里用，不写文件），取开头 {@value #MAX_CHARS} 个字符交给辅助模型
  * （没有就用主模型），要一句不超过 {@value #MAX_DESCRIPTION} 个字的说明。没有配置模型时跳过；读不出文字的 PDF
  * 写「没有文字层，可能是扫描件」。完整的事实提取不在这里（memory.md「新建 Project」）。
+ * 发给模型之前去掉 C 级的值（{@link FieldClassGuard#withoutClassC(String)}），C 级内容不外发。
  * 日志只记文件类型和结果长度，不记文字内容。
  */
 public final class AssetAnalyzer {
@@ -81,6 +83,8 @@ public final class AssetAnalyzer {
             return "application/pdf".equals(type) ? new Analysis(SCANNED, null)
                     : new Analysis("", "文件里没有可读的文字");
         }
+        // C 级的值（证件号、薪资、工作授权等）不发给模型：提示词里的「不要写」只管输出，管不了输入
+        text = FieldClassGuard.withoutClassC(text).text();
         Optional<ChatModel> chat;
         try {
             chat = model.get();

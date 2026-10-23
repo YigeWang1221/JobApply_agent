@@ -6,6 +6,7 @@ import jobapply.config.ModelRegistry;
 import jobapply.config.SettingsException;
 import jobapply.persistence.EnvFile;
 import jobapply.persistence.ModelSettingsFile;
+import jobapply.tools.GitHubPublicReader;
 import jobapply.workflow.graphs.LoginHandoffException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,6 +57,16 @@ class ApiErrors {
     @ExceptionHandler(EnvFile.MissingVariableException.class)
     ResponseEntity<Map<String, String>> missingKey(EnvFile.MissingVariableException e) {
         return error(HttpStatus.BAD_REQUEST, e.getMessage() + "，先填 Key");
+    }
+
+    @ExceptionHandler(GitHubPublicReader.GitHubException.class)
+    ResponseEntity<Map<String, String>> github(GitHubPublicReader.GitHubException e) {
+        HttpStatus status = switch (e.kind()) {
+            case NOT_FOUND, EMPTY -> HttpStatus.BAD_REQUEST;
+            case RATE_LIMITED -> HttpStatus.TOO_MANY_REQUESTS;
+            case UPSTREAM -> HttpStatus.BAD_GATEWAY;
+        };
+        return error(status, e.getMessage());
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)

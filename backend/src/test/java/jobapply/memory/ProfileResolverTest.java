@@ -6,8 +6,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import jobapply.domain.Fact;
 import jobapply.domain.FactClass;
+import jobapply.domain.Language;
 import jobapply.domain.ProjectSpec;
 import jobapply.persistence.FactsFile;
 import jobapply.persistence.FrontmatterFile;
@@ -125,6 +127,113 @@ class ProfileResolverTest {
         assertThatThrownBy(() -> resolver(storage).resolve("live-one", List.of()))
                 .isInstanceOf(ProfileResolutionException.class)
                 .hasMessageContaining("需要开启 git");
+    }
+
+    @Test
+    void resolvesByLanguageWithUnreviewedMarksAndLocalFormats() {
+        TestStorage storage = TestStorage.create(root, true);
+        FactsFile.write(storage.layout.baseFacts(), "个人基础事实", List.of(
+                Fact.bilingual("experience.internship-1.role", "后端开发实习生", "Backend Engineering Intern",
+                        FactClass.A, "user-confirmed", "2026-10-22", Set.of(Language.ZH)),
+                Fact.bilingual("education.school", "示例大学", null, FactClass.A, "user-confirmed", "2026-10-22",
+                        Set.of(Language.ZH)),
+                Fact.of("education.start", "2024-09", FactClass.A, "user-confirmed", "2026-10-22"),
+                Fact.of("education.graduated_on", "2026-05-20", FactClass.B, "user-confirmed", "2026-10-22"),
+                Fact.of("contact.phone_tail", "0012", FactClass.B, "user-confirmed", "2026-10-22")));
+        storage.project("p", "live");
+
+        Map<String, ResolvedFact> zh = resolver(storage).resolve("p", List.of(), Language.ZH);
+        Map<String, ResolvedFact> en = resolver(storage).resolve("p", List.of(), Language.EN);
+
+        assertThat(zh.get("experience.internship-1.role").value()).isEqualTo("后端开发实习生");
+        assertThat(zh.get("experience.internship-1.role").unreviewed()).isFalse();
+        assertThat(zh.get("experience.internship-1.role").label()).isEqualTo("来自 base（pin live）");
+        assertThat(en.get("experience.internship-1.role").value()).isEqualTo("Backend Engineering Intern");
+        assertThat(en.get("experience.internship-1.role").unreviewed()).isTrue();
+        assertThat(en.get("experience.internship-1.role").label()).isEqualTo("来自 base（pin live）；en 文字未审阅");
+        // 没有英文时用中文代替，并标为未审阅
+        assertThat(en.get("education.school").value()).isEqualTo("示例大学");
+        assertThat(en.get("education.school").language()).isEqualTo(Language.ZH);
+        assertThat(en.get("education.school").unreviewed()).isTrue();
+
+        assertThat(zh.get("education.start").value()).isEqualTo("2024-09");
+        assertThat(zh.get("education.start").display()).isEqualTo("2024年9月");
+        assertThat(en.get("education.start").display()).isEqualTo("Sep 2024");
+        assertThat(zh.get("education.graduated_on").display()).isEqualTo("2026年5月20日");
+        assertThat(en.get("education.graduated_on").display()).isEqualTo("May 20, 2026");
+        assertThat(en.get("education.start").language()).isNull();
+        // 纯数字不格式化（电话尾号）
+        assertThat(en.get("contact.phone_tail").display()).isEqualTo("0012");
+    }
+
+    @Test
+    void projectCardsJoinTheBaseLayerAndFollowThePin() {
+        TestStorage storage = TestStorage.create(root, true);
+        writeBase(storage, "示例大学", "上海");
+        storage.write(storage.layout.baseProjectCard("demo"), card("12000"));
+        storage.git().commit("项目卡", List.of(storage.layout.baseProjectCard("demo")));
+        String v1 = storage.git().head().orElseThrow();
+        storage.write(storage.layout.baseProjectCard("demo"), card("15000"));
+        storage.git().commit("项目卡更新", List.of(storage.layout.baseProjectCard("demo")));
+        storage.project("live-one", "live");
+        storage.project("frozen", v1);
+        FactsFile.write(storage.layout.overrides("live-one"), "overrides", List.of(
+                Fact.bilingual("projects.demo.title", "示例项目（本侧重的写法）", null, FactClass.A, "user-confirmed",
+                        "2026-10-22", Set.of(Language.ZH))));
+
+        Map<String, ResolvedFact> en = resolver(storage).resolve("live-one", List.of(), Language.EN);
+        Map<String, ResolvedFact> zh = resolver(storage).resolve("live-one", List.of(), Language.ZH);
+
+        assertThat(en.get("projects.demo.facts.qps").display()).isEqualTo("15,000 QPS");
+        assertThat(en.get("projects.demo.sections.results").value()).isEqualTo("Reached 15,000 QPS.");
+        assertThat(en.get("projects.demo.sections.results").unreviewed()).isFalse();
+        assertThat(zh.get("projects.demo.sections.results").value()).isEqualTo("QPS 达到 15,000 QPS。");
+        assertThat(zh.get("projects.demo.stack").value()).isEqualTo("Java, Redis");
+        assertThat(zh.get("projects.demo.period.from").display()).isEqualTo("2025年1月");
+        assertThat(zh.get("projects.demo.links.code").value()).isEqualTo("https://github.com/example-owner/demo");
+        assertThat(zh.get("projects.demo.title").label()).startsWith("来自 Project live-one / overrides");
+        assertThat(resolver(storage).resolve("frozen", List.of(), Language.EN).get("projects.demo.facts.qps").display())
+                .isEqualTo("12,000 QPS");
+    }
+
+    @Test
+    void factsMdOverridingACardNumberAlsoOverridesItsDisplay() {
+        TestStorage storage = TestStorage.create(root, true);
+        storage.write(storage.layout.baseProjectCard("demo"), card("12000"));
+        FactsFile.write(storage.layout.baseFacts(), "个人基础事实", List.of(
+                Fact.of("projects.demo.facts.qps", "15000", FactClass.A, "user-confirmed", "2026-10-22")));
+        storage.project("p", "live");
+
+        ResolvedFact qps = resolver(storage).resolve("p", List.of(), Language.EN).get("projects.demo.facts.qps");
+
+        assertThat(qps.value()).isEqualTo("15000");
+        assertThat(qps.display()).isEqualTo("15000").doesNotContain("12");
+    }
+
+    private static String card(String qps) {
+        return """
+                ---
+                slug: demo
+                title: {zh: 示例项目, en: Demo project}
+                kind: personal
+                period: {from: 2025-01, to: 2025-05, precision: year-month}
+                stack: [Java, Redis]
+                links: [{kind: code, url: https://github.com/example-owner/demo}]
+                facts:
+                  qps: {value: "%s", unit: QPS}
+                reviewed: [zh, en]
+                ---
+
+                ## zh
+
+                ### 结果 {#results}
+                QPS 达到 {{fact:qps}}。
+
+                ## en
+
+                ### Results {#results}
+                Reached {{fact:qps}}.
+                """.formatted(qps);
     }
 
     private static ProfileResolver resolver(TestStorage storage) {

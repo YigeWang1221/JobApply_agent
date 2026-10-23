@@ -80,6 +80,26 @@ class AssetAnalyzerTest {
     }
 
     @Test
+    void classCValuesAreNeverSentToTheModel() throws Exception {
+        Path file = dir.resolve("mixed.txt");
+        Files.writeString(file, String.join("\n",
+                "虚构简历：后端开发方向",
+                "期望薪资：MARK-SALARY-01",
+                "身份证号：110101199001011234",
+                "Work authorization: MARK-AUTH-02",
+                "Passport No. MARK-PASS-03",
+                "SSN 123-45-6789",
+                "项目：健康管理平台"));
+        try (FakeModelServer server = FakeModelServer.start().toolCalls(false).reply("中文简历")) {
+            new AssetAnalyzer(() -> Optional.of(model(server))).analyze(file, "text/plain");
+
+            assertThat(server.last().body()).contains("虚构简历：后端开发方向").contains("项目：健康管理平台")
+                    .contains("期望薪资").doesNotContain("MARK-SALARY-01").doesNotContain("110101199001011234")
+                    .doesNotContain("MARK-AUTH-02").doesNotContain("MARK-PASS-03").doesNotContain("123-45-6789");
+        }
+    }
+
+    @Test
     void skipsWithoutAModel() {
         AssetAnalyzer analyzer = new AssetAnalyzer(Optional::empty);
 
