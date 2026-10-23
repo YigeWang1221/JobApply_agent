@@ -47,10 +47,15 @@ public final class FakeBrowser {
 
     /** 用当前 JVM 的 java 和测试 classpath 启动假服务端。 */
     public BrowserLaunch launch(Duration callTimeout) {
+        return launch(callTimeout, List.of(), null);
+    }
+
+    /** 同上，并声明 roots、管理输出目录。 */
+    public BrowserLaunch launch(Duration callTimeout, List<Path> roots, Path outputDir) {
         String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
         return new BrowserLaunch(java, List.of("-cp", System.getProperty("java.class.path"),
                 FakePlaywrightMcpServer.class.getName(), scenarioFile.toString(), callLog.toString()),
-                callTimeout, System.getenv("PATH"), System.getProperty("user.home"));
+                callTimeout, System.getenv("PATH"), System.getProperty("user.home"), roots, outputDir);
     }
 
     public BrowserLaunch launch() {
@@ -118,6 +123,15 @@ public final class FakeBrowser {
     /** 服务端收到的工具名，按顺序。 */
     public List<String> toolCalls() {
         return records().stream().filter(r -> "call".equals(r.get("event"))).map(r -> (String) r.get("tool")).toList();
+    }
+
+    /** 最近一次调用时，服务端从客户端拿到的 roots（URI）。 */
+    @SuppressWarnings("unchecked")
+    public List<String> lastRoots() {
+        return records().stream().filter(r -> "call".equals(r.get("event")))
+                .reduce((first, second) -> second)
+                .map(r -> (List<String>) r.get("roots"))
+                .orElse(List.of());
     }
 
     public int starts() {

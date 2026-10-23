@@ -26,8 +26,8 @@ public class LoginHandoffConfiguration {
     }
 
     @Bean(destroyMethod = "close")
-    BrowserSession browserSession(BrowserMcpProperties properties) {
-        return new BrowserSession(properties.toLaunch());
+    BrowserSession browserSession(BrowserMcpProperties properties, StorageLayout layout) {
+        return new BrowserSession(properties.toLaunch(layout));
     }
 
     @Bean(destroyMethod = "close")

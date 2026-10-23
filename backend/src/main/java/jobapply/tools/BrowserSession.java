@@ -1,15 +1,26 @@
 package jobapply.tools;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.stream.Stream;
 import jobapply.harness.policies.BrowserToolPolicy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 全局唯一的浏览器连接持有者（浏览器只有一个）。没有连接时，第一次调用会建立连接，用户需要在 Chrome 里同意一次。
  * 连接断开后丢弃这条连接，下一次调用或 {@link #reconnect()} 时重新建立。快照里的 ref 不跨连接使用。
  * 重连之后的「当前标签页」可能是用户自己的标签页，所以重连后要先 {@link #open(String, String)}，再取快照。
+ * 建立连接和关闭时清空 MCP 的输出目录（{@link BrowserLaunch#outputDir()}），里面可能有登录后的页面内容。
  */
 public final class BrowserSession implements AutoCloseable {
+
+    private static final Logger log = LoggerFactory.getLogger(BrowserSession.class);
 
     private final Function<BrowserLaunch, PlaywrightMcpClient> connector;
     private final BrowserLaunch launch;
@@ -56,7 +67,7 @@ public final class BrowserSession implements AutoCloseable {
     /** 关掉旧连接，建立新连接（用户需要再同意一次）。 */
     public synchronized void reconnect() {
         disconnect();
-        client = connector.apply(launch);
+        connect();
     }
 
     public synchronized boolean isConnected() {
@@ -70,7 +81,7 @@ public final class BrowserSession implements AutoCloseable {
 
     private String call(String tool, Map<String, Object> args) {
         if (client == null) {
-            client = connector.apply(launch);
+            connect();
         }
         try {
             return client.call(tool, args);
@@ -80,12 +91,45 @@ public final class BrowserSession implements AutoCloseable {
         }
     }
 
+    private void connect() {
+        try {
+            clearOutputDir();
+            for (Path root : launch.roots()) {
+                Files.createDirectories(root);
+            }
+        } catch (IOException | UncheckedIOException e) {
+            throw new IllegalStateException("准备浏览器 MCP 的目录失败：" + e.getMessage(), e);
+        }
+        client = connector.apply(launch);
+    }
+
     private void disconnect() {
         tabOwner = null;
         if (client != null) {
             PlaywrightMcpClient old = client;
             client = null;
             old.close();
+        }
+        try {
+            clearOutputDir();
+        } catch (IOException | UncheckedIOException e) {
+            log.warn("清空浏览器 MCP 输出目录失败：{}", e.getMessage());
+        }
+    }
+
+    /** 删掉输出目录里的所有内容（不跟随符号链接），保留目录本身。 */
+    private void clearOutputDir() throws IOException {
+        Path dir = launch.outputDir();
+        if (dir == null) {
+            return;
+        }
+        Files.createDirectories(dir);
+        try (Stream<Path> walk = Files.walk(dir)) {
+            for (Path path : walk.sorted(Comparator.reverseOrder()).toList()) {
+                if (!path.equals(dir)) {
+                    Files.delete(path);
+                }
+            }
         }
     }
 }

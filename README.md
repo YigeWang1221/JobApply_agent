@@ -38,7 +38,7 @@ Project（一份资料版本 + 偏好）
 | 浏览器 | `@playwright/mcp`，以 `--extension` 模式连接本机 Chrome |
 | 搜索 | 后端直接调用搜索 API，免费来源优先，额度用完后切到 Brave（key 可选） |
 | 存储 | Markdown + YAML frontmatter（事实来源），JSONL（事件、对话），SQLite（可重建的索引、Checkpoint） |
-| 前端 | React + Vite（计划中） |
+| 前端 | React 19 + Vite 8 + TypeScript（目前只有「设置 · 模型」和「资料」两页） |
 | 模型 | 用户自配：OpenAI 兼容格式或 Anthropic 格式，支持本地模型 |
 
 ## 进度
@@ -47,7 +47,7 @@ Project（一份资料版本 + 偏好）
 | --- | --- | --- |
 | 1 | Memory 与台账：storage 布局、继承解析、候选池、状态机、台账生成、可选的本地 git | 已实现 |
 | 2 | Playwright MCP 接通：连接本机 Chrome、交给用户登录、身份核对 | 完成 |
-| 3 | 提交守卫与关卡 B（在 HTML 夹具上测试） | 未开始 |
+| 3 | 提交守卫与关卡 B（在 HTML 夹具上测试） | 进行中：模型接入、资料原件、设置页、守卫规则已实现（C004-A）；Harness 循环与关卡 B 未开始 |
 | 4 | 岗位搜索与核实 | 未开始 |
 | 5 | 匹配、额度与关卡 A | 未开始 |
 | 6 | 投递后追踪与复盘 | 未开始 |
@@ -58,7 +58,7 @@ Project（一份资料版本 + 偏好）
 
 ```text
 backend/    Spring Boot 应用（包：domain、persistence、memory、harness、workflow、tools 等）
-frontend/   前端（未开始）
+frontend/   前端（React + Vite；目前是设置页和资料页）
 storage/    本地数据（被 .gitignore 忽略，不进 Git）
 plan/       计划：master/（总体设计）、coding/（每次施工）、reference/（参考材料）
 docs/       文档
@@ -74,7 +74,27 @@ mvn -B clean verify    # 单元测试 + 端到端场景测试
 mvn -B clean test      # 只跑单元测试
 ```
 
-测试全部使用虚构数据，不访问网络。
+测试全部使用虚构数据，不访问网络，也不调用真实模型。
+
+## 前端
+
+需要 Node 20.19+ 或 22.12+。开发时用 Vite 开发服务器，`/api` 代理到后端，两者都只监听 127.0.0.1。
+
+```bash
+# 终端 1：后端（storage 默认是仓库的 storage/）
+cd backend
+mvn -B -q -DskipTests package && java -jar target/jobapply-0.0.1-SNAPSHOT.jar
+
+# 终端 2：前端
+cd frontend
+npm install
+npm run dev            # 打开 http://127.0.0.1:5173
+npm run build          # 类型检查 + 打包
+```
+
+- **设置 · 模型**：添加提供方（选预设，或自定义接口格式和 Base URL）→ 填 Key → 拉取模型列表（拉不到时手填）→ 逐个「测试」→ 分配主模型、辅助模型。Key 由后端写进 `storage/settings/.env`（权限 600），`storage/settings/models.yaml` 里只有占位符 `${变量名}`，页面上只显示末四位。没有通过工具调用测试的模型不能用作主模型。
+- **资料**：把简历等原件拖进来，保存在 `storage/base/originals/`，登记在 `storage/base/assets.md`；同一份文件不会重复保存。登记时会把文件开头的文字发给辅助模型，写一句说明（没有配置模型时跳过）。
+- 后端只接受来自 `http://127.0.0.1:5173`、`http://localhost:5173` 的网页请求（`jobapply.api.allowed-origins`），其它网页发来的请求一律 403。
 
 ## 设计文档
 

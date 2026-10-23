@@ -25,14 +25,15 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * 测试用的 Playwright MCP 服务端：用 MCP Java SDK 走真实的 stdio 协议，返回文本的格式模仿 @playwright/mcp 0.0.83。
  * 行为由场景文件（JSON，见 {@link FakeBrowser}）决定，每次调用前重新读取，测试可以在两次调用之间修改它。
- * 收到的每次调用和启动时看到的环境变量名（不含值）都追加到调用记录里。
+ * 收到的每次调用、调用时客户端声明的 roots，以及启动时看到的环境变量名（不含值）都追加到调用记录里。
  * 用法：{@code java -cp <classpath> jobapply.tools.FakePlaywrightMcpServer <场景文件> <调用记录>}
  */
 public final class FakePlaywrightMcpServer {
 
     static final List<String> TOOLS = List.of(
             "browser_navigate", "browser_snapshot", "browser_tabs", "browser_click", "browser_type",
-            "browser_fill_form", "browser_evaluate", "browser_run_code_unsafe", "browser_file_upload");
+            "browser_fill_form", "browser_select_option", "browser_file_upload", "browser_press_key",
+            "browser_wait_for", "browser_find", "browser_evaluate", "browser_run_code_unsafe");
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final Map<String, Object> ANY_OBJECT = Map.of("type", "object");
@@ -63,7 +64,7 @@ public final class FakePlaywrightMcpServer {
         for (String name : TOOLS) {
             if (!omitted.contains(name)) {
                 spec.toolCall(McpSchema.Tool.builder(name, ANY_OBJECT).build(),
-                        (exchange, request) -> fake.handle(request.name(), request.arguments()));
+                        (exchange, request) -> fake.handle(request.name(), request.arguments(), roots(exchange)));
             }
         }
         McpSyncServer server = spec.build();
@@ -77,9 +78,18 @@ public final class FakePlaywrightMcpServer {
         Runtime.getRuntime().halt(0);
     }
 
-    private synchronized McpSchema.CallToolResult handle(String tool, Map<String, Object> arguments) {
+    private static List<String> roots(io.modelcontextprotocol.server.McpSyncServerExchange exchange) {
+        try {
+            return exchange.listRoots().roots().stream().map(McpSchema.Root::uri).toList();
+        } catch (RuntimeException e) {
+            return List.of("error: " + e.getMessage());
+        }
+    }
+
+    private synchronized McpSchema.CallToolResult handle(String tool, Map<String, Object> arguments,
+                                                         List<String> roots) {
         Map<String, Object> args = arguments == null ? Map.of() : arguments;
-        record(Map.of("event", "call", "tool", tool, "args", args));
+        record(Map.of("event", "call", "tool", tool, "args", args, "roots", roots));
         Map<String, Object> scenario = scenario();
         if (Boolean.TRUE.equals(scenario.get("exitOnNextCall"))) {
             Map<String, Object> next = new LinkedHashMap<>(scenario);

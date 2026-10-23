@@ -46,8 +46,8 @@ JobApply_Agent/
 | `backend/domain` | 领域结构 | 业务数据结构 |
 | `backend/persistence` + `storage/` | Persistence | 任务、Session、产物 |
 | `backend/observability` | 观测 | 追踪、审计 |
-| `backend/api` | 对外接口 | Web / API。只监听 127.0.0.1，拒绝带 `Origin` 请求头的请求（用户确认，2026-10-22） |
-| `frontend/` | 前端 | 产品界面 |
+| `backend/api` | 对外接口 | Web / API。只监听 127.0.0.1；带 `Origin` 请求头的请求，只放行允许名单里的本机前端地址（默认 `127.0.0.1:5173`、`localhost:5173`），不带的照常放行（用户确认，2026-10-22；C003 时是一律拒绝） |
+| `frontend/` | 前端 | 产品界面。React + Vite + TypeScript；开发时用 Vite 开发服务器（只监听 127.0.0.1）代理 `/api`；由 Spring Boot 提供打包后的静态文件留到第 7 段 |
 
 ## 领域对象（来自 2026-10-22 的设计）
 

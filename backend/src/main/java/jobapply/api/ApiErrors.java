@@ -1,6 +1,11 @@
 package jobapply.api;
 
 import java.util.Map;
+import java.util.NoSuchElementException;
+import jobapply.config.ModelRegistry;
+import jobapply.config.SettingsException;
+import jobapply.persistence.EnvFile;
+import jobapply.persistence.ModelSettingsFile;
 import jobapply.workflow.graphs.LoginHandoffException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,9 +15,12 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 /**
- * 错误统一返回 {@code {"error": "<原因>"}}，不吞掉，也不返回 200。
+ * 错误统一返回 {@code {"error": "<原因>"}}，不吞掉，也不返回 200。原因里不会有 Key（各处的异常信息只带变量名）。
  */
 @RestControllerAdvice
 class ApiErrors {
@@ -27,6 +35,37 @@ class ApiErrors {
     @ExceptionHandler(LoginHandoffException.Conflict.class)
     ResponseEntity<Map<String, String>> conflict(LoginHandoffException.Conflict e) {
         return error(HttpStatus.CONFLICT, e.getMessage());
+    }
+
+    @ExceptionHandler({SettingsException.NotFound.class, NoSuchElementException.class})
+    ResponseEntity<Map<String, String>> settingNotFound(RuntimeException e) {
+        return error(HttpStatus.NOT_FOUND, e.getMessage());
+    }
+
+    @ExceptionHandler({SettingsException.Conflict.class, ModelSettingsFile.InUseException.class,
+            ModelRegistry.NotConfiguredException.class})
+    ResponseEntity<Map<String, String>> settingConflict(RuntimeException e) {
+        return error(HttpStatus.CONFLICT, e.getMessage());
+    }
+
+    @ExceptionHandler(SettingsException.Upstream.class)
+    ResponseEntity<Map<String, String>> upstream(SettingsException.Upstream e) {
+        return error(HttpStatus.BAD_GATEWAY, e.getMessage());
+    }
+
+    @ExceptionHandler(EnvFile.MissingVariableException.class)
+    ResponseEntity<Map<String, String>> missingKey(EnvFile.MissingVariableException e) {
+        return error(HttpStatus.BAD_REQUEST, e.getMessage() + "，先填 Key");
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    ResponseEntity<Map<String, String>> tooLarge(MaxUploadSizeExceededException e) {
+        return error(HttpStatus.CONTENT_TOO_LARGE, "文件超过 20MB");
+    }
+
+    @ExceptionHandler({MissingServletRequestPartException.class, MultipartException.class})
+    ResponseEntity<Map<String, String>> badUpload(Exception e) {
+        return error(HttpStatus.BAD_REQUEST, "上传请求不完整：需要 multipart/form-data 的 file 字段");
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

@@ -85,7 +85,8 @@ public final class FrontmatterFile {
         return (Map<String, Object>) map;
     }
 
-    private static Yaml yaml() {
+    /** 本仓库统一的 YAML 读写设置（块格式、Unicode、不识别时间戳）。 */
+    static Yaml yaml() {
         LoaderOptions loaderOptions = new LoaderOptions();
         DumperOptions dumperOptions = new DumperOptions();
         dumperOptions.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);

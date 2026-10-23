@@ -22,6 +22,7 @@
         <spring-ai.version>2.0.1</spring-ai.version>
         <langgraph4j.version>1.9.6</langgraph4j.version>
         <jgit.version>7.8.0.202609011348-r</jgit.version>
+        <tika.version>4.1.0</tika.version>
     </properties>
 
     <dependencyManagement>
@@ -52,6 +53,27 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-mcp-client</artifactId>
+        </dependency>
+        <!-- 模型：不用 starter 和自动配置，运行时按 settings/models.yaml 创建 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-openai</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-anthropic</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-core</artifactId>
+            <version>${tika.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-parsers-standard-package</artifactId>
+            <version>${tika.version}</version>
+            <!-- 4.x 起这个包是 pom，只汇总各个解析器模块 -->
+            <type>pom</type>
         </dependency>
         <dependency>
             <groupId>org.bsc.langgraph4j</groupId>

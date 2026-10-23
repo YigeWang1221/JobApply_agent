@@ -1,36 +1,65 @@
-# C004 · Harness 循环、提交守卫、关卡 B（要点）
+# C004 · Harness 循环、提交守卫、关卡 B（总表）
 
-- 对应 Master：[workflow.md](../master/workflow.md)「里程碑」第 3 段；「主流程」（逐页填写、集中问答、接力、保存并回读、关卡 B）「提交保护」「登录状态」「预算与停止条件」「流程优化的安全边界」；[base.md](../master/base.md)（Custom Harness、LangGraph4j 的分工）
-- 状态：**要点**（2026-10-22）。这不是完整的 Coding Plan。用户约定一个 session 只做一份 Coding Plan，所以本文件只记录 C003 结束时已经确定的方向和要注意的事，由下一个 session 扩写成完整草案（目标、不做、要改的文件、实现步骤、测试、验收标准、待确认），交给用户确认后再写代码。
+- 对应 Master：[workflow.md](../master/workflow.md)「里程碑」第 3 段；另见 A、B 两份各自列出的章节
+- 状态：**已拆分，全部已确认**（用户确认，2026-10-22）。施工内容只写在下面两份里，本文件记录拆分方式、两份共用的事实、已定决定和回写 Master 清单。
 
-## 已经和用户说定的方向（2026-10-22）
+| 份 | 内容 | 状态 |
+| --- | --- | --- |
+| [C004-A](C004-A-model-guard.md) | 模型接入（`models.yaml` + `.env`、两种接口格式、模型列表、测试连接）、资料原件（`assets.md`、拖拽上传、Tika 轻量分析）、前端设置页（React + Vite）、MCP 启动参数与输出目录、白名单与提交守卫（纯函数） | 已确认，待施工 |
+| [C004-B](C004-B-harness-review.md) | Harness 循环、预算与打转检测、skill 体系与加载、申请线程（改名、新等待点）、选择上传文件、关卡 B 与填写报告、过程日志、申请面板、真实 LLM 测试与真实站点冒烟 | 已确认；在 C004-A 完成后施工 |
 
-1. **图要粗，循环交给模型。** 图只放固定的产品关卡：打开页面 → 交给用户登录 → **填写（一个 Harness 循环）** → 关卡 B → 用户自己提交。各个站点流程不同（按钮、步骤、简历布局都不一样），这些**不写成代码分支**。在「填写」节点里，模型读快照，自己决定调用哪个工具，然后看结果、决定下一步（Model → Tool → Model）。站点经验写进 Playbook 的站点 skill（Markdown），不写进 Java。
-2. **系统只管模型不能绕过的东西。** 什么时候必须停下来等用户（登录、关卡 B、接力、集中问答）、提交守卫、工具白名单、预算与打转检测，由代码强制执行，不只写在提示词里。原因见 base.md 的原则：Agent 负责推理与决策，系统负责状态管理、权限校验和可靠执行。
-3. **登录与身份交给模型判断，`LoginPageDetector` 只作提示。** 用户发 `logged_in` 之后，由模型读快照，判断是否已经登录、登录的是不是正确的账号；拿不准时问用户（沿用 C003 的 `wait_identity`）。关键词识别的结果只写进给模型的上下文和给用户的提示，**不再拦流程**；`override` 是否还需要，起草时再定（C003 评审修复后，每次 override 都会留下 `login_override` 审计事件）。
-   - **用户指出的实际问题**：很多招聘网站登录后**不跳转**，只是右上角多出头像、名字、「我的投递」「退出登录」之类。所以不能靠「URL 变了」或「登录框消失了」来判断；给模型的提示要明确让它看页头这一块。C003 的冒烟（OPPO 校园首页）登录前后识别结果都是 `NONE`，正好说明了这一点。
-   - 身份核对同理：用户填的账号标识（可选）只是辅助，模型拿它和页面上能看到的账号信息比对，对不上或拿不准就问用户。
-4. **上传简历走 Playwright MCP 自带的 `browser_file_upload`**，在循环里由模型调用，不另写上传类。
+## 两份共用的事实（2026-10-22，只读查看本机 npx 缓存里的 `@playwright/mcp` 0.0.83 和 `~/.m2` 里的 Spring AI 2.0.1）
 
-## 起草时要处理的事
+**Playwright MCP 0.0.83**
+- 写操作工具的参数：`browser_click {target, element?, doubleClick?, button?, modifiers?}`；`browser_type {target, text, submit?, slowly?}`（`submit: true` 等于输完再按回车）；`browser_fill_form {fields: [{target, name, type: textbox|checkbox|radio|combobox|slider, value}]}`；`browser_select_option {target, values[]}`；`browser_press_key {key}`；`browser_file_upload {paths?[]}`（必须先有 file chooser 的 modal state）；`browser_handle_dialog {accept, promptText?}`；`browser_wait_for {time?, text?, textGone?}`；`browser_find {text?|regex?, filename?}`。
+- **`target` 可以是快照里的 ref，也可以是「唯一的元素选择器」**。守卫只接受最新快照里出现过的 ref。
+- **无障碍快照里看不到 `type=submit`**，只有角色和名字（例如 `button "提交" [ref=e12]`）。
+- `--snapshot-mode none`：写操作的返回里不附带快照（默认 `full` 会把快照写成文件）。`--output-dir`：自动命名的输出文件（包括 console 日志）写在这里。`--console-level error`。`--image-responses omit`。`--no-webmcp`：不收集页面通过 WebMCP 注册的工具。
+- 文件访问只允许 `output-dir` 和 workspace；**workspace 是 MCP 客户端声明的第一个 root**，没有声明 root 时是子进程的工作目录。
+- 网页弹出的确认框在快照的 `### Modal state` 小节里显示。
 
-- **工具白名单扩大**：点击、输入、`fill_form`、`select_option`、`file_upload`、按键（回车要拦）、在自己的标签页里 `navigate`。仍然不开放 `evaluate`、`run_code_unsafe`、坐标点击、存储类工具。每次点击和按键都要先过守卫：hardline 层、需确认层、允许名单层，规则见 workflow.md「提交保护」。被拒时明确告诉模型「不要重试」。
-- **上传文件的范围**：只允许上传 `storage/base/originals/`（或以后的 `uploads/`）下用户确认过的文件。还要查清 `@playwright/mcp` 0.0.83 对可访问文件目录的限制和参数。
-- **模型**：自动测试用脚本化的假模型（Spring AI `ChatModel` 的桩），在仓库内的 HTML 夹具上跑，结果每次一样。手动冒烟用哪家模型供应商要问用户（ui.md：模型由用户自己配置；密钥只走环境变量，代理不读）。
-- **HTML 夹具**（来自 master 里程碑 3）：多页表单、提交类按钮的各种文案、被解析覆盖的字段、只读下拉框、分组城市、安全验证弹窗。夹具放在仓库内，用本地文件或本地 HTTP 提供，不访问外部网站。
-- **预算与停止条件**：每页 120 次、整个申请 600 次工具调用，300 万 token；打转检测（同一元素连续失败 5 次、相同操作相同结果 4 次、页面连续 10 次没有变化）。数字见 workflow.md「预算与停止条件」。
-- **关卡 B 的填写报告**：每个字段的值、来源层、置信度；C 级字段只标「用户已填」；附件清单；未解决的问题。
-- **快照里的个人信息**：填表时快照会有简历内容，仍然不写进日志和 Checkpoint；发给模型的内容遵守 ui.md「隐私说明」（A / B 级会发给模型，C 级不发）。
+**Spring AI 2.0.1**
+- `ToolCallingChatOptions` 已经没有 `internalToolExecutionEnabled`；工具调用循环在 `ChatClient` 的 `ToolCallingAdvisor` 里。Harness **直接调用 `ChatModel`，不用 `ChatClient`、不挂 advisor**。交给模型的工具只有定义，`call()` 一律抛异常。提供方的 `ChatModel` 会不会自己执行工具，C004-A 第一步写小样核实。
+- token 用量从 `ChatResponse.getMetadata().getUsage()` 取。
 
-## C003 留下的已知问题
+**新依赖的版本**（2026-10-22 查 Maven Central 和 npm）
+- `spring-ai-openai`、`spring-ai-anthropic`：有 2.0.0 / 2.0.1 / 2.0.2，以及 2.1.0-RC1。跟着 BOM 用 2.0.1，和现有的 Spring AI 依赖对齐。
+- `tika-core`、`tika-parsers-standard-package`：4.1.0（2026-10-13 发布）。
+- 前端：`react` / `react-dom` 19.3.1（10-14），`vite` 8.3.4（10-08；最新的 8.3.5 是 10-21 才发布的，暂时不用），`@vitejs/plugin-react` 6.1.2（10-05），`typescript` 7.0.2（07-08），`@types/react` / `@types/react-dom` 19.3.0。Vite 8 要求 Node `^20.19 || >=22.12`，本机是 22.13.1。
 
-- 标签页按 Job 归属（C003 评审修复）：`BrowserSession.snapshot(jobId)` 只读这个 Job 自己新开的标签页。C004 的填写循环里，所有工具调用都要沿用这条约束，不能读写别的 Job 或用户自己的标签页。
+## 已定决定（三轮答复，2026-10-22）
 
-- **Playwright MCP 会往工作目录写文件（隐私问题，要优先处理）**：冒烟后在 `backend/.playwright-mcp/` 里发现了 `page-*.yml`（快照）和 `console-*.log`（页面 console），有些是用户登录之后写出的。读 0.0.83 源码确认：`browser_snapshot` 在不带 `filename` 时返回内联 YAML（C003 用的就是它）；但 `browser_tabs new`、点击、输入等其它工具默认会附带一份快照，并把它**写成文件**（`snapshot.mode` 默认是 `full`）。console 消息也会写成文件。C003 当时只删掉了这个目录，并在仓库 `.gitignore` 里加了 `.playwright-mcp/`，防止被误提交。C004 起草时要定下来：加 `--snapshot-mode none`（不附带快照，需要时显式调用 `browser_snapshot`）；用 `--output-dir` 把输出目录指到一个被忽略、并且会定期清理的位置（例如 `storage/cache/`，同时要把它加进 `storage/.gitignore`）；还要决定 console 日志怎么处理。
+| # | 决定 | 落在哪一份 |
+| --- | --- | --- |
+| 1 | C003 的登录接力图扩展成整条申请线程，`LoginHandoff*` 改名为 `Application*`，接口从 `/login-handoff` 改为 `/application`，旧路径删掉 | B |
+| 2 | 在这里正式做模型接入，并写一个简单的前端：可以填自定义 URL 和 Key，从列表里选模型。前端按 ui.md 用 React + Vite（`frontend/`），先只做设置页 | A |
+| 3 | 自动测试用仓库内的夹具；C004-B 再找一家「就算真投了也无所谓」的真实公司，在用户监控下跑到关卡 B 停下 | A 写夹具，B 跑真实站点 |
+| 4 | 保留 override，意义改成「模型判断错了」；C003 已经给它加了审计事件 | B |
+| 5 | **硬边界加软边界**。硬边界写在代码里：提交、提交申请、投递、立即申请、Submit、Apply 之类的按钮，以及回车、`type submit`，一律拒绝，由用户自己点。软边界：下一步、继续、保存之类的按钮，由模型按 skill 判断用途并说明依据，拿不准或者像是最后一步时问用户。其它按钮只要不碰硬边界词表就放行，靠「检测到疑似已提交的页面就立即停下」兜底 | A 写守卫，B 写 skill |
+| 6 | skill 按「它是什么」组织（通用 / 组件 / 平台），不按站点组织；站点只留一份事实记录，不算 skill。分工：代码和硬边界只能由开发代理改；skill 的具体内容由运行时的 LLM 提出候选、用户确认后写入；skill 的结构整理定期带着日志找开发代理做。本段只做过程日志，候选流程另写一份 Coding Plan | B |
+| 7 | 实现 `base/assets.md`，只登记用户上传的原件（不登记副本、解析出的文本和日志）。遇到上传框时列出可选文件问用户，再更新 `materials`；允许用户把文件拖进来，先做轻量分析（Tika 读出文字、模型给一句说明）再上传；完整的事实提取不在本段 | A 写原件登记与拖拽上传，B 写选择文件那一步 |
+| 8 | memory 的路径全部相对 `storage/`（由 `jobapply.storage.root` 决定，代码只从 `StorageLayout` 取路径）；已在对话里解答 | — |
+| 9 | 拆成 C004-A / C004-B；Key 由程序在运行时写入 `storage/settings/.env`；配置里用占位符 `${变量名}`；在用户监控下，代理可以运行调用真实 LLM 的测试（`dev-limit.md`「真实 LLM 测试」） | A |
 
-- MCP 进程崩溃时，要等到 `call-timeout`（默认 60 秒）才判断为断开（冒烟里实测正好 60 秒）。可以考虑同时监视子进程是否退出。
-- 扩展模式还没有在真机上测过；扩展模式下 `browser_tabs new` 能不能用仍然未知。
-- 白名单里没有关闭标签页的工具，每次开始或重连都会多一个标签页（冒烟时多了 3 个）。可以考虑允许**只关闭自己新开的**标签页。
-- 远程调试模式下重连不会再要用户确认（见 workflow.md「Chrome MCP · 两种连接方式」）。
-- 真实登录页的识别还没测过（冒烟用的页面本身不要求登录）。
-- 本机构建要显式设置 `JAVA_HOME` 为 `openjdk@25`（见 `AGENTS.md`「本机构建」）。
+## 回写 Master（用户确认，2026-10-22，已回写）
+
+回写时顺带改了 workflow.md「岗位搜索 · 数据源登记」里的旧路径 `playbook/sites/<site>.md`，跟着 Playbook 的新结构走。
+
+1. **workflow.md「提交保护」**：第 2、3 条改成「硬边界 + 软边界」（见决定 5）；删掉「元素是 `type=submit`」，写明无障碍快照看不到 `type`；删掉「没登记过的站点首次遇到『下一步 / 保存』都先问用户」（2026-10-22 那次的确认被决定 5 取代）；守卫只接受最新快照里的 ref。
+2. **workflow.md「提交保护」末尾**：补一句 Spring AI 2.0.1 的实现方式（直接调 `ChatModel`，不用 `ChatClient` 的 `ToolCallingAdvisor`）。
+3. **workflow.md「Chrome MCP」**：默认启动参数加上 `--snapshot-mode none --output-dir … --console-level error --image-responses omit --no-webmcp`；写明上传文件的范围由 MCP root 限定为 `storage/uploads/`。
+4. **workflow.md「主流程」**：「用户登录」一行的 override 改成「模型判断错了时由用户强制继续」；「上传与解析」一行补上「先列出可选文件问用户，可以当场拖入新文件」。
+5. **workflow.md「流程优化的安全边界」**：「以偏概全」一行改成「先写进 `sites/<host>.md`（事实）或修补组件 / 平台 skill」；补上决定 6 的分工。
+6. **memory.md「storage 目录」**：`playbook/` 改成 `skills/{apply-form, components/*, platforms/*}/SKILL.md` 加 `sites/<host>.md`；加上 `cache/`（写进 `storage/.gitignore`）；Job 目录加上 `run-log.jsonl`；`base/assets.md` 的栏目。memory.md「Memory 写入」第 4 条相应修改。
+7. **ui.md「密钥存放」**：`models.yaml` 的示例从 `api_key_env: <变量名>` 改成 `api_key: ${<变量名>}`；写明程序运行时由后端写入和读取 `.env`。
+8. **architecture.md「api」一行**：拒绝带 `Origin` 的请求，改成「只放行允许名单里的本机前端地址」；`frontend/` 一行写上 React + Vite。
+9. **base.md「后置」**：「模型供应商」改成已定：用户自己配置，支持 OpenAI 兼容和 Anthropic 两种格式。
+
+## C003 留下的已知问题（处理情况）
+
+- 标签页按 Job 归属：A、B 的所有工具调用都经过 `BrowserSession`，沿用 `ownsTab(jobId)` 的约束。
+- Playwright MCP 往工作目录写文件：C004-A 处理（启动参数、输出目录、清理、`.gitignore`）。
+- MCP 进程崩溃要等 60 秒才判断为断开：本段不处理。
+- 扩展模式没有在真机上测过：C004-B 冒烟时如果用户装了扩展就顺带测。
+- 不能关闭自己新开的标签页：本段不处理。
+- 真实登录页的识别：C004-B 真实站点冒烟时顺带测到。

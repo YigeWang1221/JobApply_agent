@@ -1,6 +1,6 @@
 # 设计：Project / Session 与本地 Memory 文件结构
 
-状态：**已确认**（2026-10-22）；未施工。日期：2026-10-22。
+状态：**已确认**（2026-10-22）；未施工。日期：2026-10-22。2026-10-22 追加「资料导入与画像」（用户确认四层、证据分级和中英双语）。
 
 主流程见 [workflow.md](workflow.md)。来源经验见 [research-codex.md](../reference/research-codex.md)。
 
@@ -41,13 +41,20 @@
 ```text
 storage/                              # 整个目录被主仓库 .gitignore 忽略
 ├── .git/                             # 可选（用户开启时才有）：独立的本地 git，每次写入自动提交，只在本地保留版本，不设远程、不上传
-├── .gitignore                        # 忽略 settings/.env、uploads/、*.sqlite、.obsidian/、example.data/
+├── .gitignore                        # 忽略 settings/.env、uploads/、cache/、*.sqlite、.obsidian/、example.data/
 │
 ├── base/                             # 全局个人基础信息（所有 Project 继承）
-│   ├── facts.md                      # 身份、联系方式、教育、经历、技能、链接；每条带来源 / 确认日期 / 精度 / 有效期
+│   ├── facts.md                      # 事实层：身份、联系方式、教育、经历、技能、链接；每条带来源 / 确认日期 / 精度 / 有效期；文字类字段中英双语
+│   ├── projects/<slug>.md            # 事实层：项目卡（见「资料导入与画像」）
+│   ├── profile.md                    # 画像层：方向、技能分组 → 依据、亮点、定位（由事实层推出，用户可改）
+│   ├── glossary.md                   # 中英术语对照（学校、公司、技术名词的固定译法）
+│   ├── ledger.md                     # 证据层：论断台账（只给经历、技能、项目成果、量化指标用）
+│   ├── evidence/<source-key>.md      # 证据层：每个来源一张清单卡（可以重新生成）
+│   ├── sources.md                    # 来源层：本地目录、GitHub 公开仓库的登记（上传的原件在 assets.md）
+│   ├── import-runs/<run-id>.json     # 一次整理的状态：来源、估算、进度、候选和用户的决定；不放原文
 │   ├── conflicts.md                  # 待核对冲突与空缺
 │   ├── writing.md                    # 通用写作偏好
-│   ├── assets.md                     # 所有原件的索引（文件名、SHA-256、类型、适用方向）
+│   ├── assets.md                     # 来源层：原件索引，只登记用户上传的原件（键 a-YYYY-MM-DD-NNN、文件名、类型、大小、SHA-256、上传时间、说明），不登记副本、解析文本和日志
 │   └── originals/                    # 原件统一保存在这里（简历 docx/pdf、补充 PDF、照片等）；Project 只引用，不复制
 │
 ├── projects/<project-id>/            # 一个求职侧重
@@ -60,6 +67,7 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 │   │   ├── job.md                    # frontmatter = 岗位与申请的当前状态（单一事实来源）；正文 = JD 快照、资格映射、本次答案、授权、证据
 │   │   ├── rounds/<seq>-<type>.md    # 每一轮的记录与复盘（用户确认的原始内容）
 │   │   ├── events.jsonl              # 追加式事件；每条事件带 session 字段
+│   │   ├── run-log.jsonl             # 填写过程日志：工具、守卫结论、按钮用途、用户反馈；不记填写的值和快照全文
 │   │   └── fill-report.md            # 关卡 B 的填写报告
 │   ├── sessions/<session-id>/        # 一次对话：调研 / 投递 / 复盘的任意组合
 │   │   ├── session.md                # 标题、自动标签、涉及的 job 列表、结束时的交接摘要
@@ -71,9 +79,12 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 │   ├── companies/<company>.md        # 生成：某公司历次各轮问过什么
 │   └── lessons.md                    # 经验总结（候选经用户确认后写入）
 │
-├── playbook/                         # 流程记忆（跨 Project 共享，和个人侧重无关）
-│   ├── general.md
-│   └── sites/<site>/SKILL.md         # 一个站点类型一个 skill，格式兼容 Hermes / agentskills（见 research-hermes.md §5）
+├── playbook/                         # 流程记忆（跨 Project 共享，和个人侧重无关）；按「它是什么」组织，不按站点（用户确认，2026-10-22）
+│   ├── skills/                       # 格式兼容 Hermes / agentskills（见 research-hermes.md §5）；上下文里只放名字和描述，需要时读正文
+│   │   ├── apply-form/SKILL.md       # 通用：读快照、多页表单、保存并回读、按钮用途怎么判断
+│   │   ├── components/<name>/SKILL.md  # 按 UI 组件：级联城市、日期、只读下拉、上传、简历解析校正……任何公司官网都能用
+│   │   └── platforms/<name>/SKILL.md   # 按招聘系统：Moka、飞书、Workday……观察到再加
+│   └── sites/<host>.md               # 不是 skill：平台猜测、用户确认过的软边界按钮、观察记录
 ├── companies/<company>.md            # 公司记忆（跨 Project 共享）：招聘项目、额度规则及证据、已用额度、账号标识、排除原因
 ├── jobs-index.md                     # 生成：所有 Project 的岗位与申请总台账（防止跨 Project 重复投递）
 ├── settings/                         # 应用设置，见 ui.md「模型设置」
@@ -81,6 +92,7 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 │   └── .env                          # API key（用户确认：保存在本地 .env）；权限 600，被 storage/.gitignore 忽略，开发代理不读
 ├── browser/sites.md                  # 站点登录登记（全局，因为浏览器只有一个）
 ├── uploads/                          # MCP 允许读取的上传暂存区（等字节副本）
+├── cache/                            # 可以随时删除：web/（抽取结果）、playwright-mcp/（MCP 输出目录，每次连接和关闭时清空）
 ├── checkpoints.sqlite                # LangGraph4j 持久化 Checkpoint（sqlite-saver），按 session-id 区分
 ├── index.sqlite                      # 可重建的查询索引（台账、Dashboard、题库 FTS5），删掉也能从文件重建
 └── exports/                          # 全局台账的 csv（各 Project 的 csv 在各自 tracker/ 下）
@@ -141,7 +153,7 @@ status: active | archived
 
 1. **选继承**：选 `inherits`（base，或者 base 加某个已有 Project），选 `base_pin`（跟随最新，或固定在某个时间点）。
 2. **上传或输入**：上传这个 Project 要用的简历和资料（Word / PDF / Markdown / 纯文本），或者直接粘贴一段文字。上传的原件存进 `base/originals/`，登记到 `base/assets.md`；本 Project 的 `assets.md` 只引用它。
-3. **提取**：后端用文档读取工具把文件转成文本，Agent 从中提取候选事实（教育、经历、项目、技能、链接），并**和继承来的事实做对比**：
+3. **提取**（2026-10-22 起按下面「资料导入与画像」的四层流程做；这里的对比规则不变）：后端用文档读取工具把文件转成文本，Agent 从中提取候选事实（教育、经历、项目、技能、链接），并**和继承来的事实做对比**：
    - 新增：继承里没有的；
    - 不同：和继承的值不一样（例如学位写法、项目日期）；
    - 相同：直接沿用。
@@ -162,6 +174,67 @@ status: active | archived
 - 提取结果只用于生成候选，原文件不修改。
 - Hermes 的 `productivity/ocr-and-documents` skill 是 Python 实现，只作参考。
 
+## 资料导入与画像（用户确认，2026-10-22）
+
+用户可能丢进来很多东西：简历、成绩单、项目文档、本地的项目文件夹、GitHub 链接。这一节规定怎么把它们变成可以填表、写简历的事实和一份个人画像。分层参考了用户本地作品集的「外部证据 → 论断台账 → 结构化内容 → 输出」，以及旧投递工作区 `PROFILE.md` 的教训（一个文件按日期追加，事实、偏好、写作素材混在一起，只增不减）。
+
+### 四层（用户确认）
+
+| 层 | 文件 | 内容 | 谁写 | 是不是事实来源 |
+| --- | --- | --- | --- | --- |
+| 1 来源 | `base/assets.md` + `originals/`（上传的原件）；`base/sources.md`（本地目录、GitHub 公开仓库） | 原始材料。本地目录和 GitHub 只登记、只读，不复制进 storage | 系统登记 | 是（原始材料） |
+| 2 证据 | `base/evidence/<source-key>.md`（每个来源一张清单卡）；`base/ledger.md`（论断台账） | 清单卡：这个来源里有什么、涉及哪些项目和经历。台账：一条论断一行，出处可选 | 模型起草，系统检查，用户确认时更新状态 | 否；清单卡可以重新生成 |
+| 3 事实 | `base/facts.md`（原子事实）；`base/projects/<slug>.md`（项目卡）；`base/glossary.md` | 填表和写简历只从这一层取值 | 只有用户确认后才写入 | **是** |
+| 4 画像 | `base/profile.md`；各 Project 在 `preferences.md` 里选要突出的项目和顺序 | 方向、技能分组 → 依据、亮点、定位 | 模型生成，用户可改 | 否；由第 3 层推出 |
+| 输出 | `projects/<id>/`、`jobs/<id>/` | 简历版本、表单答案、填写报告 | 各流程 | — |
+
+Project 的 `overrides.md` 仍然覆盖第 3 层，继承规则不变（见「继承与解析」）。
+
+### 来源与使用：用户确认优先（用户修订，2026-10-22）
+
+求职表达遵循 [base.md](base.md)「求职表达与包装」。以下规则取代原先的强制证据链和措辞限制。
+
+| 字段 | 例子 | 要求 |
+| --- | --- | --- |
+| **基础信息** | 姓名、联系方式、链接、语言能力、教育的学校 / 学位 / 专业 / 起止时间 | **用户确认即可**。`source` 写 `user-confirmed` 或 `resume:<原件键>`，不建台账行 |
+| **求职内容** | 工作和实习经历（职责、时间、团队）、技能、项目成果、量化指标 | 用户确认后即可使用。`claim`、关联项目、出处和测试条件按已有材料补充，均为可选，不作为保存或使用门槛 |
+
+台账用于辅助整理，可写论断、类别（经历 / 技能 / 成果 / 指标）、来源、出处定位、值和条件、状态、用途。出处和条件允许留空；用户补充可记为 `user-confirmed`。
+
+- **状态**：`verified`（实现、提交历史或文档能支撑）、`partial`（只支撑一部分）、`owner_attested`（你本人确认，但仓库里找不到证据，例如团队项目、代码没保留）、`discrepancy`（材料之间矛盾，写进 `conflicts.md`，两边都不自动改）、`needs_verification`（尚待用户确认）。
+- **用途**：`forms_and_resume`（可以填表、写简历）、`interview_only`（只用来准备面试）、`none`。
+- **来源参考**：代码、提交历史、文档、测试、简历与本人补充用于互相补充，不设覆盖用户决定的固定优先级。状态描述材料情况；用户确认的内容默认可用于简历和填表，具体用途由用户调整。
+- **团队项目**：按目标岗位突出个人贡献，可使用「主导」「负责」「独立完成某模块」等用户认可的表述；团队人数可选。不以项目属于团队或包含特定措辞为由拒绝保存。
+
+### 中英双语：一份结构化事实，两种语言的描述（用户确认）
+
+以后既要填中国公司的中文网申，也要填英文申请表。两种语言共用同一份结构化事实，不维护两套数据：
+
+- **与语言无关的字段只存一份**：日期、数字和单位、团队人数、技术栈、链接、论断引用。
+- **文字字段成对保存**（`zh` / `en`）：职责、项目一句话介绍、成果描述等。专有名词（学校、公司、学位的官方中英文名）也成对保存，固定译法记进 `glossary.md`。
+- **数字表达**：可以直接在描述里写数字，也可以用 `{{fact:<键>}}` 复用结构化值；引用为可选。中英文的数字差异提示用户核对，不因直接写数字拒绝保存。中英文的小节仍须一一对应。
+- **另一种语言由模型起草，你确认**：没有确认过的译文标为未审阅，填写报告里会提示。
+- **填表时按页面语言取值**：中文页面取 `zh`，英文页面取 `en`，日期等格式按语言输出。
+
+### 来源和导入方式（用户确认）
+
+- **页面上传**：沿用 C004-A 的「资料」页，原件复制进 `base/originals/`。
+- **本地目录**：你指定一个目录，后端只读扫描，**不复制**；在 `sources.md` 里记下路径、扫描时间和读过的文件清单（带哈希）。代码仓库只读 README、文档、依赖清单和提交历史摘要。**一律跳过**：`.env*`、私钥和证书、`credentials*` / `secrets*` 一类的文件，`.git/` 内部对象，`node_modules/`、`dist/`、`build/` 等生成目录，以及大文件和二进制文件。
+- **GitHub**：**只读公开仓库**，按 `owner/repo` 读取，固定到读取时的 commit SHA；只读 README、仓库信息、语言、topics、文件列表、依赖清单和提交摘要。只访问 GitHub 的接口，不做通用的网页抓取。
+
+### 流程
+
+```text
+登记来源 → 每个来源做一张清单卡（材料多时先逐个文件摘要，再按来源合并）
+  → 拆成台账论断 + 候选事实 + 候选项目卡（按项目别名合并多个来源，去重）
+  → 分组请你确认：各类条目均可编辑和确认，有出处和状态时一并展示，不要求补齐证据才能确认
+  → 写入第 3 层（冲突进 conflicts.md）→ 重新生成第 4 层画像（作为候选，你确认后替换）
+```
+
+- 以后再加材料，只处理新增或变化的来源，结果和已有的事实对比（新增 / 不同 / 相同，规则同「新建 Project」）。
+- 导入前先估算会读多少文字、调用几次模型，请你确认再开始。
+- 发给模型的只有扫描出的文字，不带 Key；C 级内容不提取（同「新建 Project」第 5 条）。清单卡和台账只存出处和简短摘要，不存大段原文。
+
 ## 站点在线简历与备份（遗漏检查第 2、8 项，已确认）
 
 - **在线简历**：`companies/<company>.md` 里按账号记录这个账号在线简历的状态：最近一次完善和核对的时间、已核对的栏目（教育、项目、附件等）、已知的解析问题。同一账号再投时，先只读核对，只补差异，不重复全量填写。
@@ -171,9 +244,11 @@ status: active | archived
 
 ```markdown
 ## education.masters.program_name
-- value: <值>
+- value: <值>                        # 与语言无关的值；文字类字段改用下面两行
+- zh: <中文> / en: <English>          # 文字类字段成对保存（2026-10-22，见「资料导入与画像」）
 - class: A | B                       # 字段分级，C 级不允许出现在任何文件里
 - source: user-confirmed | resume:<键> | portfolio-meta:<路径> | site-observed
+- claim: <台账论断 id>                # 可选，关联已有台账论断
 - confirmed_at: 2026-10-13
 - valid_from / valid_to: 2025-01 / —  # 用于时间线：这条信息从什么时候起成立
 - precision: year-month               # 不补造精度
@@ -200,7 +275,7 @@ status: active | archived
    - 站点观察
 2. 后端检查候选：是否重复、是否冲突、是否属于 C 级（是就丢弃），作用域是否正确。
 3. 候选**默认写回本 Project**（`candidates.md` → 你确认 → `overrides.md`）。要写进 `base/`，必须你明确同意。候选**不会横向复制到兄弟 Project**。
-4. 站点观察直接写进 `playbook/sites/`，标注 `observed_count`；在 ≥2 类站点上出现过、并经你同意后，才升级到 `general.md`。
+4. 站点特有的事实写进 `playbook/sites/<host>.md`；可以复用的经验修补对应的组件或平台 skill，标注 `observed_count`；在 ≥2 类站点上出现过、并经你同意后，才写进通用的 `skills/apply-form`。分工见 workflow.md「流程优化的安全边界 · 谁来改什么」。
 5. 开启 git 时，每次写入都在 `storage/.git` 中自动提交一次。
 
 ## Job 记录（`job.md` frontmatter）
@@ -282,7 +357,7 @@ blocker: <阻塞原因>
 
 ### 借鉴 Hermes 的约束（见 [research-hermes.md](../reference/research-hermes.md) §4、§5）
 
-- **字符预算**：`base/facts.md`、Project `overrides.md`、`playbook/general.md` 这些会注入上下文的文件各设字符上限；超出时提示整理，不让它们越写越长。
+- **字符预算**：`base/facts.md`、Project `overrides.md`、`playbook/skills/` 下的 skill 这些会注入上下文的文件各设字符上限；超出时提示整理，不让它们越写越长。
 - **写入前检测**：Memory 候选和 Playbook 修补在写入前检测注入指令和不可见 Unicode，来自 JD 或网页的内容尤其需要。
 - **冻结快照**：Session 开始时把有效资料冻结成快照放进上下文；中途确认的新事实从下一轮生效。
 - **事实与流程分开**：事实写进 Memory，流程写进 Playbook skill；写陈述句，不写命令句。
@@ -304,5 +379,6 @@ blocker: <阻塞原因>
 3. `storage/` 用本地 git 保留版本，不设远程、不上传。**git 是可选项**（用户确认，2026-10-22）：用户可以开启或不开启；不开启时不用其他方式保留版本，`base_pin` 只能是 `live`，也无法回滚。
 4. B 级个人信息：Agent 能填的统一填完，再由用户在关卡 B 审核。
 5. 原件保存在 base（`base/originals/`），其它内容跟随各 Project 的 memory。
+6. 资料导入与画像（2026-10-22）：保留四层（来源 / 证据 / 事实 / 画像）；只有经历、技能、项目成果、量化指标走证据链，基础信息由用户确认即可；中英双语共用一份结构化事实；支持页面上传、本地目录和 GitHub 公开仓库；在 C004-B 之前施工，拆成两段：[C004-A-1](../coding/C004-A-1-profile-import.md)（格式、按语言取值、来源扫描，不调用模型；具体格式写在这里）和 [C004-A-2](../coding/C004-A-2-profile-review.md)（整理、确认、画像）。用户确认（2026-10-22）：拆分，其余细节按建议。
 
 待用户决定：无。

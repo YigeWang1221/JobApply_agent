@@ -1,12 +1,23 @@
 spring:
   application:
     name: jobapply
+  servlet:
+    multipart:
+      # 原件上传的上限（plan/coding/C004-A-model-guard.md）
+      max-file-size: 20MB
+      max-request-size: 21MB
 
 # 本地 HTTP 只监听本机（plan/master/architecture.md「api」）
 server:
   address: 127.0.0.1
+  tomcat:
+    # 超过上传上限时仍读完请求体，才能把 413 返回给客户端，而不是直接断开连接
+    max-swallow-size: 64MB
 
 jobapply:
+  api:
+    # 带 Origin 请求头的请求只放行这些本机前端地址（Vite 开发服务器）
+    allowed-origins: ["http://127.0.0.1:5173", "http://localhost:5173"]
   storage:
     # 在 backend/ 下启动时就是仓库的 storage/；只有调用接口时才会读写
     root: ../storage
@@ -14,7 +25,10 @@ jobapply:
     mcp:
       # npx 不在 PATH 里时（例如从 IDE 启动），改成绝对路径
       command: npx
-      args: ["-y", "@playwright/mcp@0.0.83", "--extension"]
+      # 写操作的返回不附带快照、不写快照文件；console 只留错误；不返回图片；不收集页面注册的 WebMCP 工具。
+      # --output-dir（storage/cache/playwright-mcp）由程序按 storage 追加；不加 --caps
+      args: ["-y", "@playwright/mcp@0.0.83", "--extension", "--snapshot-mode", "none", "--console-level", "error",
+             "--image-responses", "omit", "--no-webmcp"]
       # 可选：Chrome 的资料目录名，例如 "Profile 1"
       profile-dir-name: ""
       # 要长于扩展等待用户同意连接的 30 秒
