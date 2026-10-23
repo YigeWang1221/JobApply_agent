@@ -42,7 +42,7 @@
 | 接力 | Agent 停止写操作，用户在浏览器里操作；用户交回后，Agent 先重新取快照、只读核对，不覆盖用户填的内容 | 暂停 / 恢复 |
 | 保存并回读 | 保存后刷新或重新进入页面，回读关键字段、附件名与大小、已选城市标签 | Chrome MCP |
 | 关卡 B | 生成填写报告：每个字段的值、**来源层**、置信度，C 级字段只标注「用户已填」，附件清单，未解决的问题 | 暂停 / 恢复 |
-| 只读核验 | 用户说已提交后，读成功页和官方历史，记录官网原文、官网时间和本地时间；没有证据就不记为已提交 | Chrome MCP |
+| 只读核验 | 用户说已提交（或点了确认）就记为已提交，用户的确认就是证据（`user-reported`，2026-10-23）；标签页上正好是成功页时顺手只读一次，记下官网原文和时间 | Chrome MCP（可选） |
 | 写入台账 | 更新 `job.md` 和事件日志，重新生成本 Project 的 md 台账和 csv | 自研 Tool |
 | 流程优化与内容更新 | 用户审阅通过后，从本次过程中提出候选：站点 skill 的修补、通用经验、个人事实。用户确认后写入。规则见下方「流程优化的安全边界」 | 模型 + 自研 Tool |
 
@@ -224,7 +224,7 @@ Agent（Spring AI Tool Calling）
 discovered → matched → selected → preparing ──→ awaiting_review → user_submitting
                ↘ skipped / monitoring   ↕                     ↘ verification_pending
                                 needs_input / needs_login / handoff_user / failed
-user_submitting / verification_pending → 有证据 → phase=applied；只有口述 → unconfirmed
+user_submitting / verification_pending → 有证据 → phase=applied（用户在对话里说已提交、或点了确认，就算有效证据 `user-reported`，用户选定 2026-10-23）；用户自己说不确定提交成功没有 → unconfirmed
 任意未提交状态 → paused（用户暂停或转到下一家公司）
 ```
 
@@ -254,7 +254,7 @@ user_submitting / verification_pending → 有证据 → phase=applied；只有�
 5. **匹配、额度与关卡 A**。
 6. **投递后追踪与复盘**：在 Session 对话里更新轮次，起草复盘并由用户确认；生成轮次表、题库、按公司汇总、`dashboard.md` 快照；静默检测。
 7. **前端**：类 Claude 界面，包括 Project / Session 侧栏、对话区、状态和报告面板、Project Dashboard。
-8. **状态查询**：去官网核验状态，更新 `last_checked_at`。
+8. **状态查询**（用户改，2026-10-23）：不让 Chrome MCP 登录官网或读邮箱去查。维护一张查看时间表（`next_check_at`，大约每 3–5 天），到时在应用里提醒用户去看邮箱 / 官网；用户在 Session 对话里反馈，Agent 更新阶段和 `last_checked_at`。投递成功由用户在对话里说或点确认记下。施工见 [C007-after-submit.md](../coding/C007-after-submit.md)。
 
 ## 待用户决定
 
