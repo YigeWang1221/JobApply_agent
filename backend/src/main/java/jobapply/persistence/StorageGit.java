@@ -10,11 +10,17 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Supplier;
 import org.eclipse.jgit.api.AddCommand;
 import org.eclipse.jgit.api.CommitCommand;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.RmCommand;
 import org.eclipse.jgit.api.Status;
 import org.eclipse.jgit.api.StatusCommand;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -54,22 +60,65 @@ public final class StorageGit {
         }
     }
 
+    /** 同一线程里正在合并的提交（{@link #inOneCommit}）：storage 根目录 → 收集到的路径。 */
+    private static final ThreadLocal<Map<Path, Set<Path>>> PENDING = new ThreadLocal<>();
+
     /**
-     * 提交给出的路径。没有开启 git、或这些路径没有变化时返回 false。
+     * 在 {@code work} 里发生的所有提交（不论来自哪个写文件的类）合并成一次，用 {@code message} 提交。
+     * {@code work} 抛出异常时不提交（已经写下的文件留在工作区，下一次提交会带上）。不能嵌套。
+     */
+    public <T> T inOneCommit(String message, Supplier<T> work) {
+        if (PENDING.get() != null) {
+            throw new IllegalStateException("inOneCommit 不能嵌套");
+        }
+        Map<Path, Set<Path>> pending = new LinkedHashMap<>();
+        PENDING.set(pending);
+        T result;
+        try {
+            result = work.get();
+        } finally {
+            PENDING.remove();
+        }
+        commit(message, pending.getOrDefault(layout.root(), Set.of()));
+        return result;
+    }
+
+    /**
+     * 提交给出的路径（已经删除的文件记为删除）。没有开启 git、或这些路径没有变化时返回 false。
+     * 在 {@link #inOneCommit} 里调用时只记下路径，最后一起提交。
      */
     public boolean commit(String message, Collection<Path> paths) {
         if (!isEnabled() || paths.isEmpty()) {
             return false;
         }
+        Map<Path, Set<Path>> pending = PENDING.get();
+        if (pending != null) {
+            pending.computeIfAbsent(layout.root(), root -> new LinkedHashSet<>()).addAll(paths);
+            return false;
+        }
         List<String> relative = paths.stream().map(layout::relative).distinct().toList();
         try (Git git = Git.open(layout.root().toFile())) {
             AddCommand add = git.add();
+            RmCommand rm = git.rm().setCached(true);
+            boolean added = false;
+            boolean removed = false;
             StatusCommand statusOfOurs = git.status();
             for (String path : relative) {
-                add.addFilepattern(path);
+                if (Files.exists(layout.root().resolve(path))) {
+                    add.addFilepattern(path);
+                    added = true;
+                } else {
+                    rm.addFilepattern(path);
+                    removed = true;
+                }
                 statusOfOurs.addPath(path);
             }
-            add.call();
+            if (added) {
+                add.call();
+            }
+            if (removed) {
+                rm.call();
+            }
             if (!hasStagedChanges(statusOfOurs.call())) {
                 return false;
             }

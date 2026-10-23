@@ -71,6 +71,23 @@ public final class FactsFile {
                 Map.of("tags", List.of("jobapply/facts")), "\n# " + title + "\n\n" + render(facts))));
     }
 
+    /**
+     * 改写全部事实条目，保留 frontmatter 和第一个条目之前的内容（标题等）。文件不存在时按 {@link #write} 新建。
+     */
+    public static void replace(Path path, String title, List<Fact> facts) {
+        if (!Files.exists(path)) {
+            write(path, title, facts);
+            return;
+        }
+        FrontmatterFile.Document document = FrontmatterFile.read(path);
+        String body = document.body();
+        int first = body.startsWith("## ") ? 0 : body.indexOf("\n## ");
+        String preamble = first < 0 ? body : body.substring(0, first);
+        preamble = preamble.isBlank() ? "\n# " + title + "\n\n" : preamble.stripTrailing() + "\n\n";
+        AtomicFiles.write(path, FrontmatterFile.render(new FrontmatterFile.Document(document.frontmatter(),
+                preamble + render(facts))));
+    }
+
     public static String render(List<Fact> facts) {
         Set<String> keys = new HashSet<>();
         for (Fact fact : facts) {

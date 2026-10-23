@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorText, type Asset } from "../api";
+import ImportReview from "./ImportReview";
+import Profile from "./Profile";
 import Sources from "./Sources";
 
 interface Notice {
@@ -7,24 +9,30 @@ interface Notice {
   text: string;
 }
 
-type Tab = "originals" | "sources";
+type Tab = "originals" | "sources" | "review" | "profile";
 
-// 「资料」页的页签：原件（C004-A）和来源（C004-A-1）。整理与确认、事实与画像在 C004-A-2 加
+const TABS: [Tab, string][] = [
+  ["originals", "原件"], ["sources", "来源"], ["review", "整理与确认"], ["profile", "事实与画像"],
+];
+
+// 「资料」页的页签：原件（C004-A）、来源（C004-A-1）、整理与确认和事实与画像（C004-A-2）
 export default function Assets() {
   const [tab, setTab] = useState<Tab>("originals");
+  const [run, setRun] = useState<string | null>(null);
   return (
     <>
       <nav className="subtabs" role="tablist">
-        <button role="tab" aria-selected={tab === "originals"} className={tab === "originals" ? "active" : ""}
-          onClick={() => setTab("originals")}>
-          原件
-        </button>
-        <button role="tab" aria-selected={tab === "sources"} className={tab === "sources" ? "active" : ""}
-          onClick={() => setTab("sources")}>
-          来源
-        </button>
+        {TABS.map(([id, label]) => (
+          <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "active" : ""}
+            onClick={() => setTab(id)}>
+            {label}
+          </button>
+        ))}
       </nav>
-      {tab === "originals" ? <Originals /> : <Sources />}
+      {tab === "originals" && <Originals />}
+      {tab === "sources" && <Sources onReview={(id) => { setRun(id); setTab("review"); }} />}
+      {tab === "review" && <ImportReview initialRun={run} />}
+      {tab === "profile" && <Profile />}
     </>
   );
 }

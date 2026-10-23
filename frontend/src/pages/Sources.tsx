@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, errorText, type ImportRun, type RepoSummary, type Source } from "../api";
+import { api, errorText, type DirectoryListing, type ImportRun, type RepoSummary, type Source } from "../api";
 
 const NOTICE =
   "秘密文件（.env、私钥、证书、credentials / secret 一类）按名字跳过，不会被读取；本地目录和 GitHub 仓库只读、不复制。" +
-  "这一步只扫描和估算，不调用模型；整理时（下一步），扫描出的文字会发给你配置的模型。";
+  "这一步只扫描和估算，不调用模型；开始整理以后，扫描出的文字会发给你配置的模型。";
 
 const KIND: Record<string, string> = {
   doc: "文档",
@@ -13,13 +13,15 @@ const KIND: Record<string, string> = {
   tree: "文件列表",
 };
 
-export default function Sources() {
+// onReview：估算以后去「整理与确认」页签确认并开始整理（C004-A-2）
+export default function Sources({ onReview }: { onReview: (runId: string) => void }) {
   const [sources, setSources] = useState<Source[]>([]);
   const [type, setType] = useState<"dir" | "github">("dir");
   const [location, setLocation] = useState("");
   const [repos, setRepos] = useState<{ owner: string; repositories: RepoSummary[] } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [run, setRun] = useState<ImportRun | null>(null);
+  const [listing, setListing] = useState<DirectoryListing | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "warn" | "error"; text: string } | null>(null);
 
@@ -55,6 +57,16 @@ export default function Sources() {
       setMessage({ kind: "error", text: errorText(e) });
     } finally {
       setBusy(false);
+    }
+  }
+
+  // 目录选择框：从输入框里的路径（没有就从主目录）开始，一层层点进去
+  async function browse(path?: string) {
+    try {
+      setListing(await api.browse(path));
+      setMessage(null);
+    } catch (e) {
+      setMessage({ kind: "error", text: errorText(e) });
     }
   }
 
@@ -102,10 +114,40 @@ export default function Sources() {
             <option value="github">GitHub 公开仓库</option>
           </select>
           <input value={location} onChange={(e) => setLocation(e.target.value)}
-            placeholder={type === "dir" ? "目录的绝对路径，例如 /Users/你/projects/demo"
+            placeholder={type === "dir" ? "目录的绝对路径，或者「文件来自于「/Users/你/projects/demo」」"
               : "https://github.com/owner/repo、owner/repo，或者只写 owner"} />
+          {type === "dir" && (
+            <button disabled={busy} onClick={() => void browse(location.trim() || undefined)}>浏览…</button>
+          )}
           <button disabled={busy || !location.trim()} onClick={() => void register(type, location)}>登记</button>
         </div>
+        {type === "dir" && listing && (
+          <div className="provider">
+            <div className="provider-head">
+              <span className="mono small">{listing.path}</span>
+              <span className="row">
+                {listing.parent && <button onClick={() => void browse(listing.parent!)}>上一级</button>}
+                <button disabled={busy || !listing.registrable}
+                  onClick={() => { setListing(null); void register("dir", listing.path); }}>
+                  {listing.registrable ? "登记这个目录" : "这个目录不能登记"}
+                </button>
+                <button onClick={() => setListing(null)}>关闭</button>
+              </span>
+            </div>
+            {listing.directories.length === 0 ? (
+              <p className="muted small">没有子目录（隐藏目录、node_modules 这类生成目录和秘密目录不列）。</p>
+            ) : (
+              <ul className="models">
+                {listing.directories.map((dir) => (
+                  <li key={dir.path}>
+                    <button onClick={() => void browse(dir.path)}>📁 {dir.name}</button>
+                    {!dir.registrable && <span className="muted small">不能登记（storage）</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
         {repos && (
           <ul className="models">
             {repos.repositories.map((repo) => (
@@ -154,12 +196,12 @@ export default function Sources() {
           </>
         )}
       </section>
-      {run && run.estimate && <Estimate run={run} />}
+      {run && run.estimate && <Estimate run={run} onReview={onReview} />}
     </>
   );
 }
 
-function Estimate({ run }: { run: ImportRun }) {
+function Estimate({ run, onReview }: { run: ImportRun; onReview: (runId: string) => void }) {
   const estimate = run.estimate!;
   return (
     <section className="card">
@@ -207,7 +249,9 @@ function Estimate({ run }: { run: ImportRun }) {
           </details>
         </div>
       ))}
-      <p className="muted small">「开始整理」在下一步（C004-A-2）加入。</p>
+      <div className="row">
+        <button disabled={estimate.overLimit} onClick={() => onReview(run.id)}>去「整理与确认」开始整理</button>
+      </div>
     </section>
   );
 }

@@ -4,6 +4,8 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import jobapply.config.ModelRegistry;
 import jobapply.config.SettingsException;
+import jobapply.memory.ImportRunner;
+import jobapply.memory.StructuredCall;
 import jobapply.persistence.EnvFile;
 import jobapply.persistence.ModelSettingsFile;
 import jobapply.tools.GitHubPublicReader;
@@ -51,6 +53,17 @@ class ApiErrors {
 
     @ExceptionHandler(SettingsException.Upstream.class)
     ResponseEntity<Map<String, String>> upstream(SettingsException.Upstream e) {
+        return error(HttpStatus.BAD_GATEWAY, e.getMessage());
+    }
+
+    @ExceptionHandler(ImportRunner.StateException.class)
+    ResponseEntity<Map<String, String>> importState(ImportRunner.StateException e) {
+        return error(HttpStatus.CONFLICT, e.getMessage());
+    }
+
+    /** 整理、起草译文、生成画像时模型调用失败或返回的 JSON 不对。 */
+    @ExceptionHandler(StructuredCall.StepFailed.class)
+    ResponseEntity<Map<String, String>> modelStep(StructuredCall.StepFailed e) {
         return error(HttpStatus.BAD_GATEWAY, e.getMessage());
     }
 

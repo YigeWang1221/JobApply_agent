@@ -74,7 +74,8 @@ class ImportEstimatorTest {
             assertThat(remote.scan().version()).isEqualTo(FakeGitHubServer.SHA);
             assertThat(estimate.githubCallsUsed()).isEqualTo(3);
             assertThat(estimate.githubCallsPlanned()).isEqualTo(5);
-            assertThat(estimate.modelCalls()).isEqualTo(2 + 2 + 1);
+            // 合并是确定性的，不调用模型（C004-A-2）
+            assertThat(estimate.modelCalls()).isEqualTo(2 + 2);
             assertThat(estimate.chars()).isEqualTo(local.scan().chars() + remote.scan().chars());
             assertThat(estimate.overLimit()).isFalse();
             assertThat(new ImportRunStore(storage.layout, storage.clock).require(run.id())).isEqualTo(run);

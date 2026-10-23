@@ -70,6 +70,26 @@ public final class LedgerFile {
         return claim;
     }
 
+    /** 一次给多条论断编号并追加（只写一次文件），按顺序返回编好号的论断。 */
+    public synchronized List<Claim> addAll(List<Claim> drafts) {
+        if (drafts.isEmpty()) {
+            return List.of();
+        }
+        Ledger ledger = load();
+        List<Claim> added = new ArrayList<>();
+        for (Claim draft : drafts) {
+            if (draft.id() != null) {
+                throw new IllegalArgumentException("新论断不能自带 id：" + draft.id());
+            }
+            ledger.last++;
+            Claim claim = draft.withId(String.format("c-%04d", ledger.last));
+            ledger.claims.add(claim);
+            added.add(claim);
+        }
+        save(ledger, "base：台账新增 " + added.getFirst().id() + " – " + added.getLast().id());
+        return added;
+    }
+
     /** 替换同一个 id 的论断（改状态、用途、出处等）。 */
     public synchronized Claim update(Claim claim) {
         Ledger ledger = load();
