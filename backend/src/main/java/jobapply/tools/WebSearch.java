@@ -23,9 +23,10 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * 多级搜索（workflow.md「已确认：分层 Web 工具 · search」，参考 Hermes）：免费来源优先，按顺序试，被限流、出错或没有结果
- * 就换下一级——DuckDuckGo（不要 key）→ 本机 SearXNG（配了地址才用）→ Brave（填了 key 才用，走它的免费额度）。
- * 都不行时返回空结果和每一级的原因，由模型改用抓取的办法（直接去招聘站、ATS 列表）。同一查询缓存 20 分钟。
+ * 搜索（workflow.md「已确认：分层 Web 工具 · search」，参考 Hermes）。可用的来源：DuckDuckGo（不要 key）、本机 SearXNG
+ * （配了地址才有）、Brave（填了 key 才有）。模型可以点名用哪一个（{@link #available()}）；不点名时免费的优先，按顺序试，
+ * 被限流、出错或没有结果就换下一个。都不行时返回空结果和每一个的原因，由模型自己换办法（换来源、直接读招聘站或搜索
+ * 引擎的结果页）。同一查询缓存 20 分钟。
  */
 public final class WebSearch {
 
@@ -33,9 +34,11 @@ public final class WebSearch {
     static final Duration CACHE_TTL = Duration.ofMinutes(20);
     private static final String USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
             + "(KHTML, like Gecko) Chrome/141.0 Safari/537.36";
-    private static final Pattern DDG_RESULT = Pattern.compile(
-            "<a[^>]+class=\"result__a\"[^>]+href=\"([^\"]+)\"[^>]*>(.*?)</a>.*?"
-                    + "(?:<a[^>]+class=\"result__snippet\"[^>]*>(.*?)</a>)?", Pattern.DOTALL);
+    /** 一条结果的标题链接。摘要在它和下一条标题之间找（{@link #DDG_SNIPPET}）。 */
+    private static final Pattern DDG_TITLE = Pattern.compile(
+            "<a[^>]+class=\"result__a\"[^>]+href=\"([^\"]+)\"[^>]*>(.*?)</a>", Pattern.DOTALL);
+    private static final Pattern DDG_SNIPPET = Pattern.compile(
+            "<(a|div|td)[^>]+class=\"result__snippet\"[^>]*>(.*?)</\\1>", Pattern.DOTALL);
     private static final Pattern TAG = Pattern.compile("<[^>]+>");
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -69,15 +72,33 @@ public final class WebSearch {
         this.braveKey = braveKey == null ? Optional::empty : braveKey;
     }
 
-    public synchronized Outcome search(String query) {
-        String key = query.strip().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+    /** 现在能用的来源名字，按不点名时试的顺序。 */
+    public List<String> available() {
+        return providers().stream().map(Provider::name).toList();
+    }
+
+    public Outcome search(String query) {
+        return search(query, null);
+    }
+
+    /**
+     * @param source 只用这个来源；为空或 {@code auto} 时按顺序试所有可用的来源
+     */
+    public synchronized Outcome search(String query, String source) {
+        String only = source == null || source.isBlank() || source.strip().equalsIgnoreCase("auto") ? null
+                : source.strip().toLowerCase(Locale.ROOT);
+        String key = (only == null ? "" : only + ":") + query.strip().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
         Cached cached = cache.get(key);
         if (cached != null && cached.at().plus(CACHE_TTL).isAfter(Instant.now())) {
             return cached.outcome();
         }
         List<String> tried = new ArrayList<>();
         Outcome outcome = new Outcome(List.of(), null, tried);
-        for (Provider provider : providers()) {
+        List<Provider> chosen = providers().stream().filter(p -> only == null || p.name().equals(only)).toList();
+        if (chosen.isEmpty()) {
+            tried.add(only + "：没有这个来源，或者没有配置（现在能用：" + String.join("、", available()) + "）");
+        }
+        for (Provider provider : chosen) {
             try {
                 List<Result> results = provider.search(query.strip());
                 if (results.isEmpty()) {
@@ -153,12 +174,22 @@ public final class WebSearch {
             throw new IOException("被限流（要求人机验证）");
         }
         List<Result> results = new ArrayList<>();
-        Matcher m = DDG_RESULT.matcher(response.body());
-        while (m.find() && results.size() < RESULTS) {
-            String url = ddgTarget(m.group(1));
-            if (url != null) {
-                results.add(new Result(text(m.group(2)), url, text(m.group(3))));
+        String body = response.body();
+        Matcher m = DDG_TITLE.matcher(body);
+        List<int[]> spans = new ArrayList<>();
+        List<String[]> titles = new ArrayList<>();
+        while (m.find()) {
+            spans.add(new int[] {m.start(), m.end()});
+            titles.add(new String[] {m.group(1), m.group(2)});
+        }
+        for (int i = 0; i < titles.size() && results.size() < RESULTS; i++) {
+            String url = ddgTarget(titles.get(i)[0]);
+            if (url == null) {
+                continue;
             }
+            int end = i + 1 < spans.size() ? spans.get(i + 1)[0] : body.length();
+            Matcher snippet = DDG_SNIPPET.matcher(body.substring(spans.get(i)[1], end));
+            results.add(new Result(text(titles.get(i)[1]), url, snippet.find() ? text(snippet.group(2)) : ""));
         }
         return results;
     }

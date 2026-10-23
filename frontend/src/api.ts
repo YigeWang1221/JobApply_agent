@@ -345,7 +345,129 @@ export interface ReplyBody {
   files?: string[];
 }
 
+// Project / Session / Job（C005）：候选池、对话 Agent、申请工作台
+export type LeadStatus = "new" | "shortlisted" | "skipped" | "converted";
+
+export interface JobView {
+  id: string;
+  project: string;
+  company: string;
+  title: string;
+  city: string[];
+  type: string | null;
+  url: string | null;
+  site: string | null;
+  source: string | null;
+  discoveredIn: string | null;
+  leadStatus: LeadStatus;
+  skipReason: string | null;
+  phase: string | null;
+  prepState: string | null;
+  label: string;
+  verified: "verified" | "not_found" | null;
+  officialUrl: string | null;
+  note: string | null;
+  // 申请线程的状态：running / waiting_user / ready / failed；还没有申请线程时为 null
+  application: string | null;
+}
+
+export interface SessionSummary {
+  id: string;
+  project: string;
+  title: string;
+  createdAt: string;
+  tags: string[];
+  jobs: string[];
+  handoff: string;
+  // 运行中标记（C006-agent）；没有时不显示
+  status?: "running" | "idle" | null;
+}
+
+export interface ProjectCounts {
+  leads: number;
+  shortlisted: number;
+  preparing: number;
+  waiting: number;
+  ready: number;
+  applied: number;
+}
+
+export interface ProjectSummary {
+  id: string;
+  title: string;
+  status: string;
+  sessions: SessionSummary[];
+  counts: ProjectCounts;
+}
+
+// 一次工具调用：名字、一句说明（取自参数）、结果的第一行
+export type StepStatus = "running" | "done" | "failed" | "rejected";
+
+// 现在后端只给 name / summary / 结果首行；args、完整结果、状态和时间由 C006-agent 补，有了就显示
+export interface ToolStep {
+  name: string;
+  summary: string;
+  result: string | null;
+  args?: Record<string, unknown> | null;
+  status?: StepStatus | null;
+  startedAt?: string | null;
+  endedAt?: string | null;
+}
+
+// C006-agent 的过程步骤（按时间排列）。thinking 只在模型供应商真的给了思考内容时出现
+export interface ProcessStep {
+  kind: "thinking" | "tool";
+  text?: string | null;
+  name?: string | null;
+  summary?: string | null;
+  args?: Record<string, unknown> | null;
+  result?: string | null;
+  status?: StepStatus | null;
+  startedAt?: string | null;
+  endedAt?: string | null;
+}
+
+export type ChatMessage =
+  | { role: "user"; text: string; at: string | null }
+  | { role: "assistant"; text: string | null; tools: ToolStep[]; steps?: ProcessStep[] | null; at: string | null };
+
+// 现在在做什么（C006-agent）；没有时前端退回「对话里最后一个工具」
+export interface Activity {
+  kind: "thinking" | "tool";
+  name?: string | null;
+  summary?: string | null;
+  since?: string | null;
+}
+
+export interface SessionView {
+  session: SessionSummary;
+  status: "running" | "idle";
+  error: string | null;
+  messages: ChatMessage[];
+  jobs: JobView[];
+  activity?: Activity | null;
+}
+
+export interface JobEventView {
+  at: string;
+  session: string | null;
+  actor: string;
+  type: string;
+  from: string | null;
+  to: string;
+  reason: string | null;
+}
+
+export interface JobDetail {
+  job: JobView;
+  events: JobEventView[];
+  application: ApplicationStatus | null;
+  steps: ChatMessage[];
+  activity?: Activity | null;
+}
+
 const MODELS = "/api/settings/models";
+const enc = encodeURIComponent;
 const jobPath = (jobId: string) => `/api/jobs/${encodeURIComponent(jobId)}/application`;
 
 export const api = {
@@ -392,6 +514,18 @@ export const api = {
   generateSummary: () => request<SummaryCandidate>("POST", "/api/profile/summary"),
   confirmSummary: (body: { zh: Record<string, string>; en: Record<string, string>; userEdited: string[];
     reviewed: string[] }) => request<ProfileSummary>("PUT", "/api/profile/summary", body),
+
+  projects: () => request<{ projects: ProjectSummary[] }>("GET", "/api/projects"),
+  createProject: (id: string, title: string) => request<ProjectSummary>("POST", "/api/projects", { id, title }),
+  project: (id: string) => request<{ project: ProjectSummary; jobs: JobView[] }>("GET", `/api/projects/${enc(id)}`),
+  createSession: (projectId: string, title?: string) =>
+    request<SessionView>("POST", `/api/projects/${enc(projectId)}/sessions`, title ? { title } : {}),
+  session: (id: string) => request<SessionView>("GET", `/api/sessions/${enc(id)}`),
+  sendMessage: (id: string, text: string) => request<SessionView>("POST", `/api/sessions/${enc(id)}/messages`, { text }),
+  stopSession: (id: string) => request<SessionView>("POST", `/api/sessions/${enc(id)}/stop`),
+  job: (id: string) => request<JobDetail>("GET", `/api/jobs/${enc(id)}`),
+  markLead: (id: string, status: "new" | "shortlisted" | "skipped", reason?: string) =>
+    request<JobView>("PATCH", `/api/jobs/${enc(id)}/lead`, reason ? { status, reason } : { status }),
 
   startApplication: (jobId: string, body: { project: string; session: string }) =>
     request<ApplicationStatus>("POST", jobPath(jobId), body),

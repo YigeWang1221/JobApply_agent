@@ -537,3 +537,38 @@
 - 指令：memory / storage 不再用 git、不做任何版本控制；有的 git 删掉；旧的多代理 worktree 有用的合并、没用的删掉；然后在当前分支提交一次。
 - 结果：删 `StorageGit` 和所有自动提交调用（21 个源文件）、`StorageInitializer` 不再建 `.git` 和 `.gitignore`、`StorageLayout` 去掉 git 路径；`base_pin` 只能是 `live`。jgit 依赖保留：只用于资料导入时只读扫描用户自己代码仓库的提交摘要（`LocalDirectoryScanner`），不是 storage 的版本控制。plan 里 memory.md、workflow.md、architecture.md、ui.md 同步改。`storage/` 下原本就没有 `.git`。5 个 `.claude/worktrees/agent-*`（C004-B 并行代理留下的）逐个比对：缺的文件都是已删的旧图流程，不同的文件主目录都是更新的版本，没有要合并的内容，已删除 worktree 和对应分支；主仓库 `.gitignore` 加 `.claude/`。
 - 验证：`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）；`npm run build` 通过。
+
+## 2026-10-23 · C005 调研 Agent + 界面（两个代理并行）
+
+- 指令：同时开发 C005 界面和调研 Agent 两份计划，用多个代理并行。
+- 结果：先定前后端共用的接口形状，再由两个代理分别改 `backend/`、`frontend/`。后端：对话 Agent（`ResearchAgent`、`ResearchTools`、`SessionLoop`、`SessionRunner`、`WebFetch`）、Project / Session / Job 只读接口、`POST /api/projects`、候选「开始申请」先转为申请、每个 Job / Session 一个标签页、两个调研 skill。前端：侧栏、全局、Project 主页（候选池）、对话视图、申请工作台、设置；旧「申请」调试页删除。细节见两份 C005 计划的「实际结果」。
+- 验证：`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）；`npm run build` 通过。后端代理在临时 storage 上启动应用调了一遍 Project / Session 接口，形状和约定一致；没配主模型时 Session 报「还没有配置主模型」。真实模型 + 真实搜索、官网核验、真实 Chrome、前端在浏览器里走一遍：未运行。
+- 偏差：没有提交 git。
+
+## 2026-10-23 · 去掉站点黑名单，搜索来源交给模型
+
+- 指令：代码只保护真正的安全边界，LLM 尽量自主；能合规读到的公开招聘信息直接读；搜索工具和来源由模型选；不因为网址是 LinkedIn、Google 就拦。
+- 结果：`WebUrlPolicy` 删掉站点黑名单，只留 http/https、疑似凭证的网址、内网/回环/云元数据；`WebSearch` 加 `available()` 和按名字选来源，`web_search` 加可选 `provider`（不写时仍是免费优先、自动换）；调研提示词和 broad-search skill 去掉「不许访问」的说法，改成模型自己选来源、碰到验证码或登录再请用户处理。workflow.md「安全检查」、C005 计划同步。
+- 追加（用户同一轮指令）：不要固定黑名单，下载、付款这类倾向用提示词交给模型判断。调研提示词加「只读：不下载、不安装、不付款、不开会员；广告和无关跳转不点」，申请提示词加「下载和付款」一条（遇到报名费、要下载 App 时问用户）。代码里没有新增任何拦截。
+- 验证：`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）。真实模型下的效果：未运行。没有提交 git。
+
+## 2026-10-23 · 网址检查照 Hermes
+
+- 指令：参考 Hermes，它怎么做就怎么做（黑名单默认关、用户自己配；SSRF 默认开；凭证防泄漏单独做；多个搜索来源）。
+- 结果：新增 `config/WebProperties`（`jobapply.web.blocklist.enabled` 默认 false、`domains` 默认空）；`WebUrlPolicy.check(url, blocklist)` 按用户名单拦，子域名也算；`WebFetch.checkUrl` 带上名单，重定向后再查；调研 Agent 的 `web_fetch` 和浏览器导航都走它。SSRF 和带凭证网址照旧一直拦。`research-hermes.md` 里「增加禁止自动化站点名单」那一行是我当时的偏差，已更正；workflow.md 同步。
+- 验证：`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）。没有提交 git。
+
+## 2026-10-23 · 修评审发现的 5 个问题
+
+- 指令：用户贴了一份评审结果（标签页串任务、URL 账号密码、初次连接失败反复重试、核验参数不对却已改状态、DuckDuckGo 摘要丢失）。
+- 结果：
+  1. `BrowserSession`：每个使用者记标签页序号和最近一次的网址；每次操作前列一次标签页核对（序号 + 网址对得上就用；对不上时按网址唯一匹配找回；标签页没变少时信序号；都不行就不操作、去掉这个使用者的标签页，下次运行重新打开）。当前标签页被关掉的情况也会发现。
+  2. `WebUrlPolicy`：`user:password@host` 形式的网址拒绝。
+  3. `BrowserSession.connect`：连接失败也记为 `needsUser`，之后不再自己去连。
+  4. `SessionLoop.updateLead`：先校验 status、verified、official_url，全部通过再写。
+  5. `WebSearch`：先找每条结果的标题，再在它和下一条标题之间找摘要（`a` / `div` / `td` 都认）。
+- 验证：`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）；改了 `BrowserSessionActTest`、`PlaywrightMcpClientTest` 里的调用序列（每次操作前多一次 `browser_tabs`）。用编译后的类手动核对：账号密码网址被拒绝；连接器抛错时连续调用两次只连 1 次、`needsUser=true`；DuckDuckGo 样例 HTML 第 1 条取到摘要、第 2 条没有摘要时为空。第 1 条（多标签页关掉前面的一个）和第 4 条：未运行（假浏览器只有一个标签页；第 4 条要搭 storage）。没有提交 git。
+
+## 2026-10-23 · C005 真实冒烟（用户执行）
+
+- 用户报告：真实模型 + 真实搜索、真实 Chrome 已经跑过，没有问题；`mvn -B clean verify`（surefire 611、failsafe 1）、`npm run build` 通过。代理没有在场观察，细节（用了哪个模型、哪些站点）未记录。

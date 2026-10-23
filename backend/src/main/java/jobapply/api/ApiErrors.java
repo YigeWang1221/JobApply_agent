@@ -4,6 +4,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import jobapply.config.ModelRegistry;
 import jobapply.config.SettingsException;
+import jobapply.domain.IllegalTransitionException;
 import jobapply.memory.ImportRunner;
 import jobapply.memory.StructuredCall;
 import jobapply.persistence.EnvFile;
@@ -37,6 +38,12 @@ class ApiErrors {
 
     @ExceptionHandler(ApplicationException.Conflict.class)
     ResponseEntity<Map<String, String>> conflict(ApplicationException.Conflict e) {
+        return error(HttpStatus.CONFLICT, e.getMessage());
+    }
+
+    /** 状态机不允许的变化（例如候选池里把「不投」改回「想投」）。 */
+    @ExceptionHandler(IllegalTransitionException.class)
+    ResponseEntity<Map<String, String>> illegalTransition(IllegalTransitionException e) {
         return error(HttpStatus.CONFLICT, e.getMessage());
     }
 

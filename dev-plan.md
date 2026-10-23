@@ -29,8 +29,10 @@
 | [C002](plan/coding/C002-memory-ledger.md) | workflow 里程碑第 1 段：Memory 与台账 | 完成 |
 | [C003](plan/coding/C003-playwright-mcp.md) | workflow 里程碑第 2 段：Playwright MCP 接通 | 完成 |
 | C004 | 里程碑第 3 段：模型接入、资料导入、申请 Agent。**已完成，不再开发。** 施工记录：[模型与资料](plan/coding/C004-A-model-guard.md)、[申请 Agent](plan/coding/C004-D-agent-loop.md)；B、C 是被推翻的旧做法，只留作历史 | 完成 |
-| [C005 调研 Agent](plan/coding/C005-research-agent.md) | 里程碑第 4 段：Session 对话 Agent，搜索、读 JD、候选池、开始申请 | 计划已写，等用户确认 |
-| [C005 界面](plan/coding/C005-ui.md) | 按示意页做应用：侧栏、Project 主页、对话视图、申请工作台、设置 | 计划已写，和调研 Agent 一起做 |
+| [C005 调研 Agent](plan/coding/C005-research-agent.md) | 里程碑第 4 段：Session 对话 Agent，搜索、读 JD、候选池、开始申请 | 完成（用户真实冒烟通过，2026-10-23） |
+| [C005 界面](plan/coding/C005-ui.md) | 按示意页做应用：侧栏、Project 主页、对话视图、申请工作台、设置 | 完成（用户真实冒烟通过，2026-10-23） |
+| [C006-front](plan/coding/C006-front.md) | 对话界面照 ChatGPT / Claude 重做：Markdown 渲染、思考和工具调用展开列表、正在做什么、输入框 | 施工中（用户确认计划和依赖，2026-10-23） |
+| [C006-agent](plan/coding/C006-agent.md) | 后端补真实思考、完整步骤、当前活动、按步推送、安全的重新生成（给 C006-front 用） | 计划已写，等用户同意再改后端 |
 
 ## 参考（不是施工步骤）
 
@@ -41,4 +43,4 @@
 
 ## 停靠点
 
-2026-10-23：C004 完成（申请 Agent 在 13 个夹具上用真实模型跑通，停在提交前）。下一步是 C005：调研 Agent + 界面，计划见上表。真实 Chrome 冒烟未运行。
+2026-10-23：C005 完成，用户跑过真实模型 + 真实搜索 + 真实 Chrome。下一步候选：投递后的「已投递」闭环、投递后追踪（第 6 段）、状态查询（第 8 段）、C006-front / C006-agent。

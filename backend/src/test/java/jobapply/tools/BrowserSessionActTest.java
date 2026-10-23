@@ -66,10 +66,12 @@ class BrowserSessionActTest {
             PageSnapshot read = session.act(JOB, BrowserToolPolicy.SNAPSHOT, Map.of(), model(back, url, null));
             assertThat(read).isEqualTo(back);
         }
+        // 每次操作前先列一次标签页，核对还是自己的那一页
         assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_snapshot",
-                "browser_fill_form", "browser_snapshot", "browser_type", "browser_snapshot",
-                "browser_select_option", "browser_snapshot", "browser_click", "browser_snapshot",
-                "browser_click", "browser_snapshot", "browser_snapshot");
+                "browser_tabs", "browser_fill_form", "browser_snapshot", "browser_tabs", "browser_type",
+                "browser_snapshot", "browser_tabs", "browser_select_option", "browser_snapshot", "browser_tabs",
+                "browser_click", "browser_snapshot", "browser_tabs", "browser_click", "browser_snapshot",
+                "browser_tabs", "browser_snapshot");
     }
 
     @Test
@@ -97,7 +99,8 @@ class BrowserSessionActTest {
                     .isInstanceOf(ToolNotAllowedException.class);
             assertThat(session.ownsTab("2026-10-23-002")).isTrue();
         }
-        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_snapshot");
+        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_snapshot", "browser_tabs",
+                "browser_tabs");
     }
 
     @Test
@@ -111,7 +114,8 @@ class BrowserSessionActTest {
 
             assertThat(found).contains("button \"下一步\" [ref=e9]").doesNotContain("姓名");
         }
-        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_snapshot", "browser_find");
+        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_snapshot", "browser_tabs",
+                "browser_find");
     }
 
     @Test

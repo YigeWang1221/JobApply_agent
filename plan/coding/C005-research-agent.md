@@ -33,7 +33,8 @@
 | `ask_user(message)` | 要用户做的事（例如在 Chrome 里登录某家公司的招聘站），结束这一次运行，用户回复后接着做 |
 | `read_skill(name)` | 读 skill（「撒网调研怎么想搜索词」「国内校招站怎么核验」等，施工时先写这两份） |
 
-- 安全检查（所有 `web_fetch` 和导航都要过）：只允许 http / https；拦截内网、回环、云元数据地址；带疑似密钥的 URL 拒绝；按域名限速。不去 Google、LinkedIn、BOSS 上自动搜索。
+- 安全检查（所有 `web_fetch` 和导航都要过）：只允许 http / https；拦截内网、回环、云元数据地址；带疑似凭证的 URL 拒绝；按域名限速。不按站点名单拦（2026-10-23 用户改）：去哪个站、用哪个搜索来源由模型决定，`web_search` 可带 `provider`。
+- 标签页（施工时补，2026-10-23）：`BrowserSession` 给每个 Job / Session 记一个标签页；轮到谁用就先切到它的标签页（`browser_tabs select`，只有系统能调）。调研 Agent 可以打开任意公开网址（过上面的安全检查），申请 Agent 仍只能在岗位站点内导航。
 - 不替用户登录：要登录的站点用 `ask_user` 请用户登录。浏览器同一时间只给一个任务用；申请 Agent 停在某页等用户时，调研 Agent 用新标签页，不动申请那一页。
 
 ## 提示词
@@ -56,4 +57,7 @@
 
 ## 实际结果
 
-（施工后填写）
+- 施工（2026-10-23，并行代理）：新增 `agents/ResearchAgent`、`tools/ResearchTools`、`tools/WebFetch`、`harness/runtime/SessionLoop`、`workflow/SessionRunner`、`config/SearchProperties`（`jobapply.search.searxng-url`；Brave key 运行时从 `.env` 的 `BRAVE_API_KEY` 读）、skill `research/broad-search`、`research/verify-official`。改：`BrowserSession`（每个 Job / Session 一个标签页）、`BrowserToolPolicy`（系统可 `select`）、`ApplicationRunner.start`（候选先转为申请）、`JobLedger.annotate`（核验结果、官方链接、备注写进 job.md）、`SessionRepository`（`list`、`appendTurn`、`readTurns`）、`AgentRun.Turn.NOTE`。
+- 和计划的出入：`web_fetch` 内容太少或抓取失败时用 Session 自己的标签页读；旧网页正文再发给模型时截到 1,500 字。
+- 验证：`mvn -B clean verify` 通过（surefire 611、failsafe 1）。真实模型 + 真实搜索、真实 Chrome：用户 2026-10-23 执行，报告没有问题。
+- 已知问题：用户关掉 Chrome 标签页后标签页位置可能错位；Session 状态只在内存；调研 skill 也出现在申请 Agent 的 skill 目录里。

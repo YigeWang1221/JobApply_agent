@@ -33,6 +33,15 @@ jobapply:
       profile-dir-name: ""
       # 要长于扩展等待用户同意连接的 30 秒
       call-timeout: 60s
+  search:
+    # 可选：本机 SearXNG 的地址（例如 http://127.0.0.1:8888）；不写时跳过这一级。Brave 的 key 在 storage/settings/.env 的 BRAVE_API_KEY
+    searxng-url: ""
+  web:
+    # 域名黑名单（照 Hermes 的 website_blocklist）：默认关、没有预设。打开后 web_fetch 和调研 Agent 的浏览器导航都不去这些域名，
+    # 子域名也算，重定向后再查。内网、本机、云元数据地址和带凭证的网址一直拦，不在这里配
+    blocklist:
+      enabled: false
+      domains: []
   harness:
     # Agent 循环的兜底上限：一次运行最多这么多次工具调用，到了让模型总结做到哪了，交给用户决定要不要继续
     tool-calls-per-run: 150

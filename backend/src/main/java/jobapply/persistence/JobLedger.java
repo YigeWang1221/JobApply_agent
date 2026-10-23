@@ -84,6 +84,19 @@ public final class JobLedger {
     }
 
     /**
+     * 改 job.md 里不属于状态的几个键（例如调研 Agent 记下的核验结果、官方链接、备注），然后重新生成台账。
+     * 不改状态，不写事件。
+     */
+    public synchronized Job annotate(String projectId, String jobId, String sessionId, Map<String, Object> changes) {
+        require(changes, "changes");
+        requireProjectAndSession(projectId, sessionId);
+        Job next = jobs.load(projectId, jobId).withExtra(changes);
+        jobs.update(next);
+        afterChange(projectId, sessionId);
+        return next;
+    }
+
+    /**
      * 只追加一条 {@code login_override} 审计事件（from / to 都是当前状态），不改 job.md。
      */
     public synchronized void recordLoginOverride(String projectId, String jobId, String sessionId, Actor actor,

@@ -23,6 +23,7 @@ import jobapply.config.HarnessProperties;
 import jobapply.domain.Actor;
 import jobapply.domain.AgentRun;
 import jobapply.domain.Job;
+import jobapply.domain.LeadStatus;
 import jobapply.domain.Phase;
 import jobapply.domain.PrepState;
 import jobapply.domain.Transition;
@@ -125,21 +126,29 @@ public final class ApplicationRunner implements AutoCloseable {
         this.runLog = new RunLog(layout, clock);
     }
 
-    /** 对一个已经转为申请的 Job 开始申请线程。对同一个 Job 再次开始会丢掉上一次的对话，重新开始。 */
+    /**
+     * 对一个 Job 开始申请线程。还是候选（新发现 / 想投）时先转为申请（C005：候选池和对话 Agent 都从这里开始）。
+     * 对同一个 Job 再次开始会丢掉上一次的对话，重新开始。
+     */
     public synchronized ApplicationStatus start(String jobId, String projectId, String sessionId) {
         requireSession(projectId, sessionId);
         if (!jobs.exists(projectId, jobId)) {
             throw new ApplicationException.NotFound("Job 不存在：" + projectId + "/" + jobId);
         }
         Job job = jobs.load(projectId, jobId);
-        if (job.status().phase() != Phase.PREP || !STARTABLE.contains(job.status().prepState())) {
-            throw new ApplicationException.Conflict("Job 现在是 " + job.status().label() + "，只有 prep 阶段可以开始申请线程");
+        LeadStatus lead = job.status().leadStatus();
+        boolean convert = lead == LeadStatus.NEW || lead == LeadStatus.SHORTLISTED;
+        if (!convert && (job.status().phase() != Phase.PREP || !STARTABLE.contains(job.status().prepState()))) {
+            throw new ApplicationException.Conflict("Job 现在是 " + job.status().label() + "，只有候选和 prep 阶段可以开始申请线程");
         }
         String url = job.posting().url();
         if (url == null || url.isBlank()) {
             throw new ApplicationException.Conflict("Job " + jobId + " 没有岗位链接");
         }
         requireBrowserFree(jobId);
+        if (convert) {
+            ledger.transition(projectId, jobId, sessionId, Actor.USER, new Transition.Convert());
+        }
 
         String opening = "开始申请：" + job.posting().company() + " · " + job.posting().title()
                 + "。先看页面：判断要不要登录、怎么进入申请表，然后按工作方法填写，停在最终提交之前。";
@@ -221,6 +230,16 @@ public final class ApplicationRunner implements AutoCloseable {
             stopRequested.add(jobId);
         }
         return status(jobId);
+    }
+
+    /** 这个 Job 有申请线程时返回它的状态；没有时为空（界面上的 Job 列表用）。 */
+    public synchronized Optional<ApplicationStatus> statusIfAny(String jobId) {
+        return runs.find(jobId).isPresent() ? Optional.of(status(jobId)) : Optional.empty();
+    }
+
+    /** 申请线程的对话（工作台显示每一步）；没有申请线程时为空。 */
+    public synchronized Optional<AgentRun> run(String jobId) {
+        return runs.find(jobId);
     }
 
     public synchronized ApplicationStatus status(String jobId) {

@@ -27,7 +27,9 @@ public final class PlaybookSeeder {
             "components/date-picker/SKILL.md",
             "components/readonly-select/SKILL.md",
             "components/file-upload/SKILL.md",
-            "components/resume-parse/SKILL.md");
+            "components/resume-parse/SKILL.md",
+            "research/broad-search/SKILL.md",
+            "research/verify-official/SKILL.md");
 
     private final StorageLayout layout;
 

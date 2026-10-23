@@ -1,62 +1,51 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api, ApiError, errorText, type ApplicationQuestion, type ApplicationStatus, type Asset, type FileSlot,
-  type ReplyBody,
+  type JobDetail, type ReplyBody,
 } from "../api";
+import { go } from "../route";
+import { APPLICATION, ChatLog, JobState, VerifiedChip } from "../status";
 
 const POLL_MS = 2000;
 
-const STATUS: Record<string, string> = {
-  running: "Agent 正在做",
-  waiting_user: "等你",
-  ready: "停在提交前，等你审阅",
-  failed: "失败",
-};
-
 const PLAN: Record<string, string> = { todo: "待做", doing: "进行中", done: "完成", blocked: "卡住" };
 
-// 申请面板（agent-runtime.md 7.1）：开始或载入一条申请线程，每 2 秒查一次状态。Agent 要你的时候显示它的话、
-// 问题和上传位置，你做完以后一次回复。完整的「申请工作台」以后按 ui.md 做。
-export default function Application() {
-  const [jobId, setJobId] = useState("");
-  const [project, setProject] = useState("");
-  const [session, setSession] = useState("");
-  const [active, setActive] = useState<string | null>(null);
-  const [status, setStatus] = useState<ApplicationStatus | null>(null);
-  const [busy, setBusy] = useState(false);
+// 申请工作台（C005-ui.md「页面」）：左边是 Agent 每一步做了什么和它的计划，右边是现在要你做的事。
+// Agent 停在最终提交前，不会替你点提交。申请线程在跑时每 2 秒查一次
+export default function JobPage({ id }: { id: string }) {
+  const [detail, setDetail] = useState<JobDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pollError, setPollError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const refresh = useCallback(async (id: string) => {
+  const load = useCallback(async () => {
     try {
-      setStatus(await api.application(id));
+      setDetail(await api.job(id));
       setPollError(null);
     } catch (e) {
       setPollError(describe(e));
     }
-  }, []);
+  }, [id]);
 
   useEffect(() => {
-    if (!active) {
+    void load();
+  }, [load]);
+
+  const running = detail?.application?.status === "running";
+  useEffect(() => {
+    if (!running) {
       return;
     }
-    const timer = window.setInterval(() => void refresh(active), POLL_MS);
+    const timer = window.setInterval(() => void load(), POLL_MS);
     return () => window.clearInterval(timer);
-  }, [active, refresh]);
+  }, [running, load]);
 
-  async function call(action: () => Promise<ApplicationStatus>, id: string) {
+  async function call(action: () => Promise<unknown>) {
     setBusy(true);
     setError(null);
     try {
-      const next = await action();
-      setStatus(next);
-      setActive(id);
-      if (!session.trim() && next.session) {
-        setSession(next.session);
-      }
-      if (!project.trim() && next.project) {
-        setProject(next.project);
-      }
+      await action();
+      await load();
     } catch (e) {
       setError(describe(e));
     } finally {
@@ -64,99 +53,120 @@ export default function Application() {
     }
   }
 
-  const id = jobId.trim();
+  if (!detail) {
+    return pollError ? <p className="error">{pollError}</p> : <p className="muted">读取中…</p>;
+  }
+  const { job, application: status, steps, events } = detail;
+  const plan = status?.plan ?? [];
+  const session = status?.session ?? job.discoveredIn;
+  const canStart = !status && (job.leadStatus === "new" || job.leadStatus === "shortlisted"
+    || (job.leadStatus === "converted" && job.phase === "prep"));
   const reply = async (body: Omit<ReplyBody, "session">) => {
-    if (!active) {
-      return;
+    if (!session) {
+      throw new Error("这个申请没有 Session");
     }
-    if (!session.trim()) {
-      throw new Error("先填 Session");
-    }
-    setStatus(await api.reply(active, { session: session.trim(), ...body }));
+    await api.reply(job.id, { session, ...body });
+    await load();
   };
 
   return (
     <>
-      <section className="card">
-        <h2>申请线程</h2>
-        <div className="form-grid">
-          <label>
-            Job
-            <input value={jobId} placeholder="job id" onChange={(e) => setJobId(e.target.value)} />
-          </label>
-          <label>
-            Project
-            <input value={project} placeholder="用哪个 Project 的资料" onChange={(e) => setProject(e.target.value)} />
-          </label>
-          <label>
-            Session
-            <input value={session} placeholder="session id" onChange={(e) => setSession(e.target.value)} />
-          </label>
+      <div className="top">
+        <div>
+          <h1>{job.company} · {job.title}</h1>
+          <p>
+            {[job.city.join("、"), job.type, job.site].filter(Boolean).join(" · ")}
+            {job.url && <> · <a href={job.url} target="_blank" rel="noreferrer">岗位链接</a></>}
+            {job.officialUrl && <> · <a href={job.officialUrl} target="_blank" rel="noreferrer">官方链接</a></>}
+          </p>
         </div>
         <div className="row">
-          <button disabled={busy || !id || !project.trim() || !session.trim()}
-            onClick={() => void call(() => api.startApplication(id, { project: project.trim(), session: session.trim() }), id)}>
-            开始申请
-          </button>
-          <button disabled={busy || !id} onClick={() => void call(() => api.application(id), id)}>载入状态</button>
-          {active && <span className="muted small">正在查看 {active}，每 2 秒刷新</span>}
-        </div>
-        {error && <p className="error">{error}</p>}
-        <p className="muted small">
-          Agent 停在最终提交前，不会替你点提交。填写报告和过程日志写在 storage/projects/&lt;project&gt;/jobs/&lt;job-id&gt;/ 下。
-        </p>
-      </section>
-      {status && active && (
-        <>
-          <StatusCard status={status} pollError={pollError}
-            onStop={() => void call(() => api.stop(active), active)} busy={busy} />
-          {(status.status === "waiting_user" || status.status === "ready" || status.status === "failed") && (
-            <ReplyPanel key={replyKey(status)} jobId={active} status={status} reply={reply} />
+          <VerifiedChip verified={job.verified} />
+          <JobState job={job} />
+          <button className="linkbtn" onClick={() => go({ kind: "project", id: job.project })}>回到 Project</button>
+          {job.discoveredIn && (
+            <button className="linkbtn" onClick={() => go({ kind: "session", id: job.discoveredIn! })}>发现它的 Session</button>
           )}
-        </>
-      )}
-    </>
-  );
-}
-
-function StatusCard({ status, pollError, onStop, busy }: {
-  status: ApplicationStatus;
-  pollError: string | null;
-  onStop: () => void;
-  busy: boolean;
-}) {
-  const plan = status.plan ?? [];
-  return (
-    <section className="card">
-      <h2>状态 · {status.job}</h2>
-      <dl className="facts">
-        <div><dt>状态</dt><dd>{STATUS[status.status] ?? status.status}</dd></div>
-        {status.prepState && <div><dt>prep_state</dt><dd>{status.prepState}</dd></div>}
-        {status.round && status.round > 1 && <div><dt>轮次</dt><dd>第 {status.round} 轮</dd></div>}
-      </dl>
-      {plan.length > 0 && (
-        <>
-          <strong>Agent 的计划</strong>
-          <ol className="questions">
-            {plan.map((item, index) => (
-              <li key={index}><span className="muted small">[{PLAN[item.status] ?? item.status}]</span> {item.text}</li>
-            ))}
-          </ol>
-        </>
-      )}
-      {status.usage && (
-        <div className="stats">
-          <div><strong>{status.usage.toolCalls.toLocaleString()}</strong><span className="muted small">工具调用</span></div>
-          <div><strong>{status.usage.modelCalls.toLocaleString()}</strong><span className="muted small">模型调用</span></div>
-          <div><strong>{status.usage.tokens.toLocaleString()}</strong><span className="muted small">token</span></div>
         </div>
-      )}
-      {status.status === "running" && (
-        <div className="row"><button className="danger" disabled={busy} onClick={onStop}>停止</button></div>
-      )}
-      {status.error && <p className="error">出错：{status.error}</p>}
+      </div>
+      {error && <p className="error">{error}</p>}
       {pollError && <p className="error">刷新失败：{pollError}</p>}
-    </section>
+      <div className="workbench">
+        <div className="panel">
+          <div className="ph">
+            <h2>Agent 做了什么</h2>
+            {status && <span className="muted small">{APPLICATION[status.status] ?? status.status}</span>}
+          </div>
+          {plan.length > 0 && (
+            <>
+              <strong className="small">计划</strong>
+              <ol className="questions">
+                {plan.map((item, index) => (
+                  <li key={index}><span><span className="muted small">[{PLAN[item.status] ?? item.status}]</span> {item.text}</span></li>
+                ))}
+              </ol>
+            </>
+          )}
+          <div className="chatlog">
+            {steps.length === 0 ? <p className="empty">还没有开始。</p> : <ChatLog messages={steps} />}
+            {running && <div className="thinking">Agent 正在做…</div>}
+          </div>
+          {status?.usage && (
+            <div className="stats">
+              <div><strong>{status.usage.toolCalls.toLocaleString()}</strong><span className="muted small">工具调用</span></div>
+              <div><strong>{status.usage.modelCalls.toLocaleString()}</strong><span className="muted small">模型调用</span></div>
+              <div><strong>{status.usage.tokens.toLocaleString()}</strong><span className="muted small">token</span></div>
+            </div>
+          )}
+        </div>
+        <div style={{ minWidth: 0 }}>
+          {!status && (
+            <section className="card">
+              <h2>开始申请</h2>
+              <p className="muted small">Agent 在你的 Chrome 里打开岗位页，替你填写，停在最终提交前。最终提交由你自己点。</p>
+              <div className="row">
+                <button className="primary" disabled={busy || !canStart || !session}
+                  onClick={() => void call(() => api.startApplication(job.id, { project: job.project, session: session! }))}>
+                  开始申请
+                </button>
+                {!session && <span className="muted small">没有可用的 Session</span>}
+                {!canStart && <span className="muted small">这个岗位现在不能开始申请</span>}
+              </div>
+            </section>
+          )}
+          {status && status.status === "running" && (
+            <section className="card">
+              <h2>Agent 正在做</h2>
+              <p className="muted small">它要你做什么时，这里会显示。</p>
+              <div className="row">
+                <button className="danger" disabled={busy} onClick={() => void call(() => api.stop(job.id))}>停止</button>
+              </div>
+            </section>
+          )}
+          {status && status.error && <p className="error">出错：{status.error}</p>}
+          {status && (status.status === "waiting_user" || status.status === "ready" || status.status === "failed") && (
+            <ReplyPanel key={replyKey(status)} jobId={job.id} status={status} reply={reply} />
+          )}
+          {status && status.status !== "ready" && status.report && (
+            <section className="card"><Report jobId={job.id} /></section>
+          )}
+        </div>
+      </div>
+      <div className="panel">
+        <h2>事件</h2>
+        {events.length === 0 ? <p className="empty">没有事件。</p> : (
+          <ul className="events">
+            {events.map((event, index) => (
+              <li key={index}>
+                <time>{event.at}</time>
+                {event.from ? `${event.from} → ` : ""}{event.to}
+                <span className="muted small"> · {event.actor}{event.reason ? ` · ${event.reason}` : ""}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </>
   );
 }
 

@@ -109,7 +109,8 @@ public record AgentRun(
     /**
      * 对话里的一条。
      *
-     * @param role    {@code user}（用户的回复或系统的说明）、{@code page}（系统自己取了页面）、{@code assistant}、{@code tool}
+     * @param role    {@code user}（用户的回复或系统的说明）、{@code note}（只给模型看的系统说明，界面上不显示）、
+     *                {@code page}（系统自己取了页面）、{@code assistant}、{@code tool}
      * @param text    文字；{@code tool} 时为 null
      * @param calls   {@code assistant} 的工具调用
      * @param results {@code tool} 的结果（不含快照全文）
@@ -117,6 +118,7 @@ public record AgentRun(
     public record Turn(String role, String text, List<ToolCall> calls, List<ToolResult> results) {
 
         public static final String USER = "user";
+        public static final String NOTE = "note";
         public static final String PAGE = "page";
         public static final String ASSISTANT = "assistant";
         public static final String TOOL = "tool";
@@ -128,6 +130,10 @@ public record AgentRun(
 
         public static Turn user(String text) {
             return new Turn(USER, text, null, null);
+        }
+
+        public static Turn note(String text) {
+            return new Turn(NOTE, text, null, null);
         }
 
         public static Turn page(String text) {
