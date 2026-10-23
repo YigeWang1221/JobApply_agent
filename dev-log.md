@@ -338,3 +338,71 @@
   - C004 总表、C004-A、C004-B 的状态改为已确认；`dev-plan.md`、`plan/README.md` 的索引行和停靠点已更新。
 - 验证：未运行（本步只改文档）。改完后用 grep 查过，Master 里没有残留的 `api_key_env`、`general.md`、`sites/<site>` 旧写法。
 - 偏差：C004-B「待确认」第 6 项（真实公司冒烟用哪个 Project 的资料）仍然留到冒烟前由用户决定。没有提交 git。
+
+## 2026-10-22 · C004-A 施工
+
+- 日期：2026-10-22
+- 指令：执行 C004-A 的开发工作。
+- 结果：按 7 个切片做完。小样核实（会话临时目录）：Spring AI 2.0.1 直接调用 `ChatModel` 时工具调用原样返回、不执行；OpenAI 格式的 Base URL 带 `/v1`，Anthropic 格式不带；两个 SDK 在 Key / Base URL 为 null 时会读进程环境变量，所以一律显式传值。守卫（`SnapshotIndex`、`SubmitWords`、`SubmitGuard`、`FieldClassGuard`、重写的 `BrowserToolPolicy`）；MCP 启动参数、roots、输出目录清理、`storage/.gitignore` 追加 `cache/`；`EnvFile`、`ModelSettingsFile`、`ModelPresets`（Base URL 按官方文档核对）、`ModelFactory`、`ModelRegistry`、`ModelCatalogClient`、`ConnectionTester`；`AssetRegistry`、`AssetAnalyzer`（Tika 4.1.0）；`ModelSettingsController`、`AssetController`、Origin 允许名单、20MB 上限；`frontend/`（React 19.3.1 + Vite 8.3.4 + TypeScript 7.0.2）的两页。细节和偏差写在 C004-A「实际结果」「偏差」。
+- 验证：`mvn -B clean verify` 退出码 0，surefire 486、failsafe 2，Failures / Errors / Skipped 均为 0；自动测试没有访问外部网络、没有调用 npx 和真实模型；构建日志里没有测试 Key。`npm run build` 通过。代理在会话临时目录的 storage 上把后端和 Vite 开发服务器串起来，用 curl 走了一遍主要接口（结果见 C004-A「实际结果」）。用户的手动检查：未运行。`ModelConnectionManualCheck`（真实 LLM）：未运行。
+- 偏差：`tika-parsers-standard-package` 要写 `<type>pom</type>`；计划外加了 `ModelSettingsService`、`SettingsException`、`SettingsConfiguration` 和测试辅助类 `FakeModelServer`；白名单和词表比计划更严的几处，见 C004-A「偏差」。没有读取或修改真实的 `storage/`；没有提交 git。
+
+## 2026-10-22 · 资料导入与画像：改计划
+
+- 日期：2026-10-22
+- 指令：用户问基础画像怎么构建；给出 `~/Desktop/remote_drop` 作为分层参考；决定只读 GitHub 公开仓库，页面上传和本地目录都支持；保留四层，但只有经历、技能、项目成果、量化指标走证据链，基础信息用户确认即可；中英双语共用一份结构化事实；改计划，在 C004-B 之前开发。
+- 结果：
+  - 只读查看了 `remote_drop/personal_portfolio`（content 模型、ARCHITECTURE、DECISIONS、AGENTS 的证据规则，`profile.yaml` / `meta.yaml` 只看了键名）和 `remote_drop/ApplyOnAi`（`PROFILE.md` 只看了标题结构）。没有读 `.env*`、压缩包和 `macair`；没有把个人内容写进任何文件。
+  - Master：memory.md 新增「资料导入与画像」（四层、证据分级、中英双语、来源与扫描规则、流程），storage 目录树加了 `projects/`、`profile.md`、`glossary.md`、`ledger.md`、`evidence/`、`sources.md`、`import-runs/`，「事实条目格式」加 `zh` / `en`、`claim`，「新建 Project」第 3 步指向新流程，「待用户决定」记下第 6 项。workflow.md 里程碑第 3 段写明前置。
+  - 新增 C005（待确认 6 项）；C004-B 的前置加上 C005；`dev-plan.md`、`plan/README.md` 的索引行和停靠点已更新；`dev-limit.md`「信息边界」加了 `remote_drop` 一条。
+- 验证：未运行（本步只改文档）。
+- 偏差：Master 的改动按用户这次给出的决定写；起草时补的细节（键前缀划分、默认用途、读取范围和上限、画像小节、是否拆分）都放在 C005「待确认」，等用户确认。没有写代码，没有提交 git。
+
+## 2026-10-22 · 资料导入的计划改名为 C004-A-1
+
+- 日期：2026-10-22
+- 指令：上一条里的 C005 应该叫 C004A-1；现在只改文档，不开发。
+- 结果：`plan/coding/C005-profile-import.md` 改名为 `C004-A-1-profile-import.md`；memory.md、workflow.md、C004-B、`dev-plan.md`、`plan/README.md`、`dev-limit.md` 里的引用一起改了；拆分建议里的两段改叫 C004-A-1 / C004-A-2；`plan/README.md` 的命名约定补了一句。上一条日志和 `dev-recoding.md` 里的「C005」是当时的记录，没有改写。
+- 验证：未运行（本步只改文档）。改完后用 grep 查过，`plan/` 和索引文件里没有残留的 C005 引用。
+- 偏差：无。没有写代码，没有提交 git。
+
+## 2026-10-22 · C004-A-1 拆分并确认
+
+- 日期：2026-10-22
+- 指令：同意拆分，其他的也同意；只改文档，不开发。
+- 结果：C004-A-1 拆成两份。`C004-A-1-profile-import.md`：第 1–4 片（事实格式与各文件的校验、按语言取值、来源扫描、GitHub 读取、估算）加「来源」页签，不调用模型。新增 `C004-A-2-profile-review.md`：整理、确认写入、译文起草、画像、「整理与确认」「事实与画像」两个页签、真实 LLM 测试入口。两份的状态都改为「已确认，待施工」，6 项写进各自的「已确认」：GitHub 接口在用户监控下用用户指定的公开仓库真实调用一次；手动检查的材料到时由用户当次决定（C004-A-1 的手动检查不调用模型）。memory.md「待用户决定」第 6 项、workflow.md 里程碑第 3 段、C004-B 的前置、`dev-plan.md`、`plan/README.md`、`dev-limit.md` 的引用已同步；顺带改正了 `dev-plan.md` 停靠点里上次改名留下的「C004-A-1-A / C004-A-1-B」。
+- 验证：未运行（本步只改文档）。用 grep 查过，没有残留「待确认」和错误的编号。
+- 偏差：C004-A-1 多了一个计划里没写的类 `ImportEstimator`（估算单独成类，C004-A-2 的「开始整理」直接用它的结果）；导入记录 `ImportRunStore` 放在 C004-A-1 建好。没有写代码，没有提交 git。
+
+## 2026-10-22 · 修订求职表达与资料使用规则
+
+- 日期：2026-10-22
+- 指令：删除或修改强制数据可验证、事实与包装分离及相关限制，按用户需求优化个人求职表达。
+- 结果：base.md 新增求职表达原则；memory.md 与 C004-A-1、C004-A-2 同步改为用户确认优先，来源、测试条件和论断引用可选，取消数字直接写入和团队贡献措辞拦截；本人确认的指标可用于简历和填表；同步计划中的测试及验收标准。dev-plan.md 更新对应索引，dev-recoding.md 标明历史取舍已被取代并记录本次变化。未修改代码。
+- 验证：检索开发与设计 Markdown 文档中的关联规则并逐项对照；本次改动的差异检查通过。应用构建与测试未运行（仅文档变更）。
+- 偏差：当前仓库未出现用户引用的两条原句；本次修改对应含义的规则及其测试、验收要求。
+
+## 2026-10-22 · C004-A 手动检查：修复「测试」用错模型名
+
+- 日期：2026-10-22
+- 指令：用户手动检查时，在自己的 OpenAI 兼容网关上「测试」得到 404，指出是我们的问题；同意修改。
+- 结果：带工具的单次请求选项没有写模型名，SDK 填了默认值（OpenAI 格式 `gpt-5-mini`，Anthropic 格式 `claude-haiku-4-5`），盖掉了选中的模型。`ModelFactory.withTools` 改为接收端点并显式写模型名；`ModelFactoryTest`、`ConnectionTesterTest` 加了请求体模型名的断言。排查时只读看过用户的 `~/Desktop/AI_website/Google_AI`（README、`src/` 的请求转换部分），没有读 `.env`，没有修改那个项目；之后用本机假服务抓包确认了原因。细节写在 C004-A「实际结果」。
+- 验证：新断言先在旧代码上跑，确认失败；修复后 `mvn -B clean verify` 退出码 0，surefire 486、failsafe 2；构建日志里没有测试 Key。抓包复核请求体模型名正确。用户重新点「测试」：未运行（等用户重启后端后操作）。
+- 偏差：排查中我先误判用户用的是 `Google_AI` 那个本地代理，后来按用户贴出的网关模型表改正。没有提交 git。
+
+## 2026-10-22 · C004-A 手动检查：修复资料说明的提示词，手动检查做完
+
+- 日期：2026-10-22
+- 指令：用户问自动说明为什么写成「2025 版」，要求修改；反馈其余手动检查项都通过。
+- 结果：`AssetAnalyzer` 的提示词抽成常量 `SYSTEM_PROMPT`，示例里不再放具体年份，写明只有原文明确写了版本号或更新日期才写、不从经历日期推断；`AssetAnalyzerTest` 加了两条断言。C004-A「实际结果」记下手动检查的过程和两个缺陷，状态改为「手动检查已做完，等用户确认验收」；`dev-plan.md`、`plan/README.md` 同步。代理没有看用户的简历内容。
+- 验证：`mvn -B clean verify` 退出码 0，surefire 488、failsafe 2。用户的手动检查：已做完（用户反馈）。`ModelConnectionManualCheck`：未运行（用户还没答复是否同意）。
+- 偏差：已经登记的那份简历不会自动重新分析，说明以用户手改的为准。没有提交 git。
+
+## 2026-10-22 · C004-A 验收
+
+- 日期：2026-10-22
+- 指令：用户说明之前已经告诉过所有测试都通过，不要反复确认。
+- 结果：按用户验收处理。C004-A 状态改为「完成」；`dev-plan.md`、`plan/README.md` 同步；C004-A-1 可以施工。`ModelConnectionManualCheck` 不再单独运行（用户已在页面上用真实模型测过连接），记为未运行。
+- 验证：未运行（本步只改文档）。
+- 偏差：无。没有提交 git。
+

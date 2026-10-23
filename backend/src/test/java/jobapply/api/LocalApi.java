@@ -1,5 +1,7 @@
 package jobapply.api;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
@@ -13,7 +15,7 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * 测试用：向本机端口发 HTTP 请求（和 curl 一样不带 Origin 请求头）。
+ * 测试用：向本机端口发 HTTP 请求（和 curl 一样不带 Origin 请求头；需要时由调用方加）。
  */
 public final class LocalApi {
 
@@ -53,6 +55,36 @@ public final class LocalApi {
             builder.header("Content-Type", contentType);
         }
         return send(builder);
+    }
+
+    public Response putJson(String path, Object body, String... headers) {
+        return send(request(path, headers).header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body))));
+    }
+
+    public Response patchJson(String path, Object body, String... headers) {
+        return send(request(path, headers).header("Content-Type", "application/json")
+                .method("PATCH", HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body))));
+    }
+
+    /** 写接口一律要求 JSON 的 Content-Type，DELETE 也一样（没有请求体）。 */
+    public Response delete(String path, String... headers) {
+        return send(request(path, headers).header("Content-Type", "application/json").DELETE());
+    }
+
+    /** {@code multipart/form-data}，一个文件字段。 */
+    public Response upload(String path, String field, String fileName, byte[] content, String... headers) {
+        String boundary = "----jobapply-test-" + System.nanoTime();
+        byte[] head = ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"" + field + "\"; filename=\""
+                + fileName + "\"\r\nContent-Type: application/octet-stream\r\n\r\n")
+                .getBytes(UTF_8);
+        byte[] tail = ("\r\n--" + boundary + "--\r\n").getBytes(UTF_8);
+        byte[] body = new byte[head.length + content.length + tail.length];
+        System.arraycopy(head, 0, body, 0, head.length);
+        System.arraycopy(content, 0, body, head.length, content.length);
+        System.arraycopy(tail, 0, body, head.length + content.length, tail.length);
+        return send(request(path, headers).header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body)));
     }
 
     /** 轮询登录接力的状态，直到它不再是 running。 */

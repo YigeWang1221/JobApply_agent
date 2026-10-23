@@ -2,7 +2,7 @@
 
 - 对应 Master：[ui.md](../master/ui.md)「模型设置」「密钥存放」「隐私说明」；[memory.md](../master/memory.md)「storage 目录」（`base/assets.md`、`base/originals/`、`settings/`）「文档读取工具」；[workflow.md](../master/workflow.md)「提交保护」「Chrome MCP」；[architecture.md](../master/architecture.md)（`api`、`frontend/`）
 - 总表：[C004](C004-harness-guard.md)（拆分方式、共用的事实、已定决定、回写 Master 清单）
-- 状态：**已确认，待施工**（用户确认，2026-10-22：「待确认」全部按建议；总表的「回写 Master」已回写）。
+- 状态：**完成**（用户验收，2026-10-22：手动检查全部通过）。手动检查中修了两个缺陷，`mvn -B clean verify` 全绿，`npm run build` 通过。`ModelConnectionManualCheck` 没有运行：用户已经在页面上用真实模型测过连接。
 
 ## 目标
 
@@ -259,3 +259,79 @@ assignments:
 5. **「立即申请 / Apply」也属于硬边界**：岗位详情页上的这个按钮，由用户自己点进申请表。好处是绝不误提交；坏处是每次申请开头多一次接力。**建议：同意。**
 6. **软边界的词表和参数**：词表按「关键规则」第 4 条；模型点击软边界按钮时必须给出 `purpose`、`final_step_suspected`、`evidence`。**建议：同意。**
 7. **Origin 允许名单**默认只放行 `127.0.0.1:5173` 和 `localhost:5173`。**建议：同意。**
+
+## 实际结果（2026-10-22）
+
+**切片 1：小样核实**（会话临时目录，没进仓库）
+- Spring AI 2.0.1 的 `OpenAiChatModel`、`AnthropicChatModel` 连本地的假 HTTP 服务端，`ChatModel.call()` 带一个 `call()` 会抛异常的测试工具：两种格式都把工具调用原样放在 `AssistantMessage.getToolCalls()` 里，工具没有被执行，也没有抛。读源码确认：两个 `ChatModel` 里的 `ToolCallingManager` 只用来 `resolveToolDefinitions`，不执行工具。
+- Base URL 约定：OpenAI 兼容格式的 Base URL **带** `/v1`（SDK 默认 `https://api.openai.com/v1`，在后面接 `chat/completions`）；Anthropic 格式**不带**（SDK 默认 `https://api.anthropic.com`，自己接 `v1/messages`）。
+- 两个 SDK 在 Key 或 Base URL 为 null 时会去读进程环境变量（`OPENAI_API_KEY`、`OPENAI_BASE_URL`、`AZURE_OPENAI_BASE_URL`、`ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_BASE_URL`）。所以 `ModelFactory` 一律显式传值：OpenAI 格式没有 Key 时传空字符串（SDK 的 no-auth 模式，不发 `Authorization`）；Anthropic 格式要求必须有 Key。
+- MCP Java SDK 2.0.0：`McpClient.sync(...).roots(...)` 声明 root，服务端用 `exchange.listRoots()` 能拿到。这一条在切片 3 用真实的 stdio 假服务端测试固定（`PlaywrightMcpClientTest.declaresRootsAndClearsTheOutputDirOnConnectAndClose`）。
+- 只读查看本机 npx 缓存里的 @playwright/mcp 0.0.83：ref 是 `e<n>`，iframe 里是 `f<n>e<n>`；快照行是 `- 角色 "JSON 转义的名字" [属性]… [ref=…]`，需要时整个键用单引号包起来；网页弹窗在 `### Modal state` 里写成 `- ["confirm" dialog with message "…"]: can be handled by browser_handle_dialog`，文件选择框写成 `- [File chooser]: …`；`browser_snapshot` 用的是 `explicit` 模式，`--snapshot-mode none` 只去掉写操作返回里的快照，不影响取快照。五个启动参数在 0.0.83 的 CLI 里都存在。
+
+**切片 2–7：代码**
+- `pom.xml`：`spring-ai-openai`、`spring-ai-anthropic`（跟着 BOM，2.0.1；传递引入 `openai-java-core` 4.49.0、`anthropic-java-core` 2.52.0）；`tika-core`、`tika-parsers-standard-package` 4.1.0（后者要写 `<type>pom</type>`，见「偏差」）。
+- `tools`：`SnapshotIndex`（新）；`BrowserLaunch` 加 `roots`、`outputDir`（保留 5 个参数的构造）；`PlaywrightMcpClient` 声明 roots，`REQUIRED_TOOLS` 加了 8 个写工具，新增 `call(tool, args, Context)`；`BrowserSession` 建立连接和关闭时清空输出目录、建好 root 目录。
+- `harness.policies`：`BrowserToolPolicy` 重写（`Caller`、`Context`，白名单表逐行实现）；新增 `SubmitWords`、`SubmitGuard`（含 `ClickIntent`）、`FieldClassGuard`、`GuardDecision`。
+- `persistence`：新增 `EnvFile`、`ModelSettingsFile`（记录类型 `Provider`、`TestResult`、`Assignment`、`Settings` 也在这里）、`AssetRegistry`；`StorageLayout` 加 `baseAssets()`、`settingsDir()`、`modelsYaml()`、`envFile()`、`uploadsDir()`、`cacheDir()`、`mcpOutputDir()`；`StorageInitializer` 的 `.gitignore` 加 `cache/`，已有的文件缺行时追加；`FrontmatterFile.yaml()` 改成包内可见，给 `ModelSettingsFile` 复用。
+- `domain`：`Ids.isAssetKey`（`a-YYYY-MM-DD-NNN`）。
+- `memory`：`AssetAnalyzer`。
+- `config`：`ModelPresets`、`ModelFactory`、`ModelRegistry`、`ModelCatalogClient`、`ConnectionTester`、`ApiProperties`，以及计划外的 `ModelSettingsService`、`SettingsException`、`SettingsConfiguration`（见「偏差」）；`BrowserMcpProperties.toLaunch(StorageLayout)` 追加 `--output-dir`、root；`LoginHandoffConfiguration` 相应修改。
+- `api`：`ModelSettingsController`、`AssetController`；`LocalRequestGuard` 改成允许名单，`POST /api/assets` 放行 multipart；`ApiErrors` 加 404 / 409 / 502 / 400 / 413 的映射。
+- `application.yml`：MCP 默认参数加 `--snapshot-mode none --console-level error --image-responses omit --no-webmcp`（`--output-dir` 由程序按 storage 追加）；`jobapply.api.allowed-origins`；multipart 上限 20MB（请求上限 21MB）；`server.tomcat.max-swallow-size: 64MB`。
+- `frontend/`：`package.json`（版本写死，并生成了 `package-lock.json`）、`vite.config.ts`、`tsconfig.json`、`index.html`、`src/main.tsx`、`src/App.tsx`、`src/api.ts`、`src/styles.css`、`src/pages/ModelSettings.tsx`、`src/pages/Assets.tsx`、`.gitignore`。
+- 测试：新增 `SnapshotIndexTest`、`SubmitGuardTest`、`FieldClassGuardTest`、`EnvFileTest`、`ModelSettingsFileTest`、`ModelFactoryTest`、`ModelCatalogClientTest`、`ConnectionTesterTest`、`ModelRegistryTest`、`AssetRegistryTest`、`AssetAnalyzerTest`、`ModelSettingsControllerTest`、`AssetControllerTest`；重写 `BrowserToolPolicyTest`；`PlaywrightMcpClientTest`、`StorageInitializerTest` 加用例。辅助类：新增 `FakeModelServer`（JDK `HttpServer`，127.0.0.1 随机端口）；`FakePlaywrightMcpServer` 加工具并记录 roots；`FakeBrowser.launch(timeout, roots, outputDir)`、`lastRoots()`；`LocalApi` 加 PUT / PATCH / DELETE / multipart。测试资源 `src/test/resources/assets/`：`resume-demo.pdf`（2 页英文）、`scanned-demo.pdf`（没有文字层）、`resume-demo.docx`、`notes-demo.txt`，内容全部虚构。真实 LLM 测试入口 `ModelConnectionManualCheck`。
+
+**预设 Base URL 的核对**（2026-10-22，各厂商官方文档）
+| 预设 | Base URL | 来源 |
+| --- | --- | --- |
+| OpenAI | `https://api.openai.com/v1` | developers.openai.com API reference（List models：`GET /v1/models`，Bearer） |
+| Anthropic | `https://api.anthropic.com` | platform.claude.com/docs/en/api/models/list（`GET /v1/models`）；`anthropic-version` 用 SDK 2.52.0 自己发的 `2023-06-01` |
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` | ai.google.dev/gemini-api/docs/openai |
+| DeepSeek | `https://api.deepseek.com` | api-docs.deepseek.com |
+| 通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1`（北京）；提示里写了新加坡 `dashscope-intl` | help.aliyun.com 百炼「Base URL 总览」。官方现在推荐生产环境用按 Workspace 的专属域名 `{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`，共享域名仍然可用 |
+| Moonshot / Kimi | `https://api.moonshot.cn/v1` | platform.kimi.com（原 platform.moonshot.cn）快速开始 |
+| 智谱 GLM | `https://open.bigmodel.cn/api/paas/v4/` | docs.bigmodel.cn OpenAI 兼容说明 |
+| OpenRouter | `https://openrouter.ai/api/v1` | openrouter.ai/docs/quickstart |
+| Ollama / LM Studio | `http://localhost:11434/v1`；提示里写了 LM Studio 的 `http://localhost:1234/v1` | docs.ollama.com/api/openai-compatibility、lmstudio.ai/docs/developer/openai-compat |
+
+**验证**
+- 在 `backend/` 用 JDK 25 执行 `mvn -B clean verify`，退出码 0：surefire Tests run: 486（原有 256 → 486），failsafe Tests run: 2，Failures / Errors / Skipped 均为 0。`ModelConnectionManualCheck`、`LoginHandoffManualSmoke` 没有被运行。
+- 自动测试不访问外部网络、不调用 npx、不调用真实模型：模型提供方都是 `FakeModelServer`，浏览器都是 `FakePlaywrightMcpServer`（JDK 自带的 `java`）。
+- Key：测试用的 4 个假 Key 在构建日志里出现 0 次；`ModelSettingsControllerTest` 断言每个响应体都不含 Key；`EnvFileTest` 断言权限 600、异常信息和 `toString()` 里没有值；`ModelCatalogClientTest`、`ConnectionTesterTest` 断言对方回显 Key 时原因里被遮成 `****`。
+- 被拒绝的调用没有到达 MCP 服务端（`PlaywrightMcpClientTest` 用调用记录断言，系统和模型两种调用方都测了）；仓库里没有 `.playwright-mcp/`。
+- 前端：`npm install`（24 个包），`npm run build`（`tsc -b` + `vite build`）通过。
+- 本机串起来跑了一次（代理自己做，没有访问外部网络，没有调用模型）：打包后的后端指向会话临时目录里的 storage，加上 `vite` 开发服务器；用 curl 经过 5173 的代理调用：页面 200；添加提供方、保存一个虚构的 Key → 只返回 `keyLast4`；拉取模型列表（指向一个关闭的端口）→ 502 和原因；上传一个测试资源 → 201，提示「还没有配置模型，跳过分析」；`Origin: https://evil.example.com` → 403。虚构的 Key 只出现在临时 storage 的 `settings/.env` 里（权限 `-rw-------`），日志里没有。两个服务已关闭。
+- **手动检查（用户在页面上走一遍）：已做完（2026-10-22）**。用户用自己的 OpenAI 兼容网关（自定义预设）走了一遍：添加提供方、保存 Key、拉取模型列表、测试（修复第一个缺陷之后通过）、用途分配、上传简历、重复上传、修改说明，用户反馈全部符合预期。过程中发现两个缺陷，见下面两节。 **`ModelConnectionManualCheck`（真实 LLM）：未运行**，要等用户配好模型、同意后再跑。
+
+**手动检查中发现并修复的缺陷（2026-10-22）**
+- 现象：用户的 OpenAI 兼容网关（模型 ID 形如 `antigravity-3.8-flash-high`，同一个 Base URL 和 Key 在 Cursor、酒馆里都能用），拉取模型列表正常，「测试」返回 `404 Requested entity was not found`。
+- 原因：`ModelFactory.withTools(...)` 为单次请求新建的带工具选项没有写模型名，SDK 填了自己的默认值，并且在合并时盖掉了创建模型时设的名字：OpenAI 格式变成 `gpt-5-mini`（网关不认，转到上游就是 404），Anthropic 格式变成 `claude-haiku-4-5`（不会报错，但测的是 Haiku，「是否支持工具调用」的结论是错的）。不带工具的请求（资料的一句说明）不受影响。代理在会话临时目录里起一个本机假服务，抓下 `ConnectionTester` 真实发出的请求体，确认了这一点（不经过用户的网关，不用用户的 Key）。
+- 修复：`withTools(Endpoint, tools)` 改成接收端点，显式写上 `model(endpoint.model())`，两种格式都改。
+- 测试：`ModelFactoryTest`、`ConnectionTesterTest` 加断言：带工具的请求体里 `model` 就是选中的名字，没有 `gpt-5-mini` / `claude-haiku`。先在旧代码上跑，确认新断言会失败，再放回修复。`mvn -B clean verify` 退出码 0，surefire 486、failsafe 2。再用抓包小样复核，请求体里的模型名是 `antigravity-3.8-flash-high`。
+- 当初为什么没抓到：小样核实和带工具的测试用例只检查了「工具调用原样返回、没有被执行」，没有检查请求里的模型名。
+
+**手动检查中发现并修复的第二个缺陷（2026-10-22）**
+- 现象：上传一份简历，自动写的说明是「中文软件开发简历，2025 版，1 页」，用户问为什么识别成了 2025 版。
+- 原因：`AssetAnalyzer` 的提示词里，示例原文就是「中文简历，2025 版，2 页」，又要求写「版本或年份」，模型容易照着示例补一个年份，或者从经历日期推断。页数是程序从文件元数据读的，这一项是准的。代理没有看简历内容。
+- 修复：提示词抽成常量 `SYSTEM_PROMPT`；示例里不放具体年份；写明只有文字里明确写了版本号或更新日期才照原文写，不从毕业、经历、项目的日期推断，拿不准就不写；给出了页数时才写页数。已经登记的简历不会自动重新分析，说明以用户手改的为准。
+- 测试：`AssetAnalyzerTest` 加两条：提示词里没有四位年份；发给模型的请求体里带着新的要求、没有「2025 版」。`mvn -B clean verify` 退出码 0，surefire 488、failsafe 2。
+
+## 偏差
+
+- **`tika-parsers-standard-package` 4.x 是 pom**：只写坐标解析不到 jar，加了 `<type>pom</type>`，坐标和版本没变。
+- **计划外的类**：`config.ModelSettingsService`（把 yaml、.env、`ModelRegistry`、模型列表、测试连接串起来，控制器只做转发）、`config.SettingsException`（404 / 409 / 502）、`config.SettingsConfiguration`（Bean）。职责都在计划列出的范围里，只是没有塞进控制器或 `ModelRegistry`。测试辅助类 `FakeModelServer`。
+- **`ModelRegistry` 是懒创建**：第一次取用途时按 yaml 创建模型并缓存，`reload()` 清掉缓存；效果就是「保存后立即生效」，应用启动时不读 storage。
+- **白名单比表格更严的几处**：`browser_click` 也拒绝 `doubleClick`；`browser_click` 允许带 `purpose`、`final_step_suspected`、`evidence`（由 `ClickIntent.strip` 去掉后再发）；`browser_snapshot` 的 `target` 也必须是 ref 格式；`browser_find` 只允许 `text`、`regex`；`browser_file_upload` 不带 `paths`（取消文件选择框）时允许，路径必须是绝对路径、不能是上传目录本身，存在时按真实路径再查一次（防符号链接）。`browser_navigate` 改成只有模型能调（C003 的系统调用里没有用到它）。
+- **registrable domain 是近似**：没有引入公共后缀表，取最后两段；常见的两段后缀（`com.cn`、`co.uk` 等 23 个）取最后三段；IP 和单段主机名原样比较。
+- **词表**：硬边界在计划列出的词之外加了「确定、递交、完成、发送」和 `complete`、`finalize`、`done`；软边界加了「存草稿、草稿」和 `proceed`、`draft`。中文按子串匹配并**忽略空白**（站点常把按钮写成「提 交」；全角空格经 NFKC 后也是空格）；英文按词首匹配，所以「My Applications」不会被当成 `apply`。没有名字的按钮按它的行尾文字判断（`- button: 提交`）。
+- **软边界的 `evidence` 也必须有**：`purpose` 是 `next_step` / `save_draft`、`final_step_suspected` 为 false，还要 `evidence` 不为空，才直接放行；按「缺少参数 → 问用户」处理。
+- **页面状态的风险**：安全验证词表里有「验证码」，申请表上常见的「短信验证码」输入框也会触发 `Handoff`。按「宁可多拦」保留，C004-B 在 HTML 夹具和真实站点上看实际效果再决定要不要细分。
+- **Key**：末四位只在 Key 不短于 12 个字符时显示，否则显示 `****`；Anthropic 格式必须有 Key（避免 SDK 读进程环境变量）。
+- **写接口都要求 JSON**：没有请求体的 `POST …/catalog` 和 `DELETE` 也要带 `Content-Type: application/json`（前端发 `{}`）。为了让超过 20MB 的上传能收到 413 而不是连接被断开，加了 `server.tomcat.max-swallow-size: 64MB`。
+- **修改提供方时**，如果去掉的模型正被某个用途使用，返回 409。
+- **轻量分析的结果**：跳过或失败时说明留空，原因作为 `analysisNote` 返回给页面（例如「还没有配置模型，跳过分析；可以手填说明」）；读不出文字的非 PDF 文件提示「文件里没有可读的文字」。发给模型的提示词要求不写姓名、电话等个人信息。
+- **测试资源的 docx**：Tika 带的 POI 缺少完整的 OOXML schema 类，没法用 POI 生成，改成直接写一个最小的 docx（zip + `document.xml`）。PDF 用 PDFBox 生成。内容全部虚构。
+- **`models.yaml` 第一行**写了一句注释（Key 不在这里）。
+- **手动检查时修了两个缺陷**：带工具的请求用了 SDK 的默认模型名（`ModelFactory.withTools` 的参数从接口格式改成了端点）；资料说明的提示词示例带年份、引导模型推断版本（提示词改写）。见「实际结果」。
+

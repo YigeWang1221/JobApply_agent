@@ -43,6 +43,40 @@ public record StorageLayout(Path root) {
         return baseDir().resolve("originals");
     }
 
+    /** 原件索引：只登记用户上传的原件。 */
+    public Path baseAssets() {
+        return baseDir().resolve("assets.md");
+    }
+
+    /** 应用设置，见 ui.md「模型设置」。 */
+    public Path settingsDir() {
+        return root.resolve("settings");
+    }
+
+    public Path modelsYaml() {
+        return settingsDir().resolve("models.yaml");
+    }
+
+    /** API key；被 storage/.gitignore 忽略。 */
+    public Path envFile() {
+        return settingsDir().resolve(".env");
+    }
+
+    /** 浏览器 MCP 允许读取的上传暂存区（MCP root）。 */
+    public Path uploadsDir() {
+        return root.resolve("uploads");
+    }
+
+    /** 可以随时删除的缓存。 */
+    public Path cacheDir() {
+        return root.resolve("cache");
+    }
+
+    /** 浏览器 MCP 的输出目录（{@code --output-dir}），每次连接和关闭时清空。 */
+    public Path mcpOutputDir() {
+        return cacheDir().resolve("playwright-mcp");
+    }
+
     public Path projectsDir() {
         return root.resolve("projects");
     }

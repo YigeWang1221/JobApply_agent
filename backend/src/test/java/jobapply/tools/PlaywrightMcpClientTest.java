@@ -3,12 +3,16 @@ package jobapply.tools;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import jobapply.config.BrowserMcpProperties;
+import jobapply.harness.policies.BrowserToolPolicy;
 import jobapply.harness.policies.ToolNotAllowedException;
+import jobapply.persistence.StorageLayout;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -75,6 +79,71 @@ class PlaywrightMcpClientTest {
             client.call("browser_tabs", Map.of("action", "list"));
         }
         assertThat(fake.toolCalls()).containsExactly("browser_tabs");
+    }
+
+    @Test
+    void modelCallsAreCheckedAgainstTheLatestSnapshotBeforeTheyAreSent() {
+        FakeBrowser fake = FakeBrowser.create(dir);
+        SnapshotIndex latest = SnapshotIndex.parse("""
+                - textbox "姓名" [ref=e2]
+                - button "下一步" [ref=e3]""");
+        BrowserToolPolicy.Context model = BrowserToolPolicy.Context.model(latest, List.of(JOB_URL), null);
+
+        try (PlaywrightMcpClient client = PlaywrightMcpClient.start(fake.launch())) {
+            assertThatThrownBy(() -> client.call("browser_click", Map.of("target", "e99"), model))
+                    .isInstanceOf(ToolNotAllowedException.class).hasMessageContaining("不要重试");
+            assertThatThrownBy(() -> client.call("browser_click", Map.of("target", "#submit"), model))
+                    .isInstanceOf(ToolNotAllowedException.class);
+            assertThatThrownBy(() -> client.call("browser_type",
+                    Map.of("target", "e2", "text", "x", "submit", true), model))
+                    .isInstanceOf(ToolNotAllowedException.class);
+            assertThatThrownBy(() -> client.call("browser_press_key", Map.of("key", "Enter"), model))
+                    .isInstanceOf(ToolNotAllowedException.class);
+            assertThatThrownBy(() -> client.call("browser_tabs", Map.of("action", "list"), model))
+                    .isInstanceOf(ToolNotAllowedException.class);
+            assertThatThrownBy(() -> client.call("browser_navigate", Map.of("url", "https://evil.example.org/"), model))
+                    .isInstanceOf(ToolNotAllowedException.class);
+
+            client.call("browser_type", Map.of("target", "e2", "text", "虚构姓名"), model);
+        }
+        assertThat(fake.toolCalls()).containsExactly("browser_type");
+    }
+
+    @Test
+    void declaresRootsAndClearsTheOutputDirOnConnectAndClose() throws Exception {
+        Path uploads = dir.resolve("storage/uploads");
+        Path output = dir.resolve("storage/cache/playwright-mcp");
+        Files.createDirectories(output.resolve("old"));
+        Files.writeString(output.resolve("old/console.log"), "旧连接留下的内容");
+        FakeBrowser fake = FakeBrowser.create(dir.resolve("fake"))
+                .page(JOB_URL, "Backend Engineer", FakeBrowser.jobPageSnapshot("u-1"));
+
+        try (BrowserSession session = new BrowserSession(fake.launch(Duration.ofSeconds(10), List.of(uploads), output))) {
+            session.open(JOB_URL, JOB);
+            assertThat(output).isEmptyDirectory();
+            assertThat(uploads).isDirectory();
+            assertThat(fake.lastRoots()).containsExactly(uploads.toUri().toString());
+
+            Files.writeString(output.resolve("page-1.yml"), "这次连接写出的快照");
+        }
+        assertThat(output).isEmptyDirectory();
+    }
+
+    @Test
+    void launchArgumentsKeepMcpFromWritingFilesElsewhere() {
+        StorageLayout layout = new StorageLayout(dir.resolve("storage"));
+        BrowserMcpProperties properties = new BrowserMcpProperties("npx",
+                List.of("-y", "@playwright/mcp@0.0.83", "--extension", "--snapshot-mode", "none", "--console-level",
+                        "error", "--image-responses", "omit", "--no-webmcp"), "", Duration.ofSeconds(60));
+
+        BrowserLaunch launch = properties.toLaunch(layout);
+
+        assertThat(launch.args()).containsSequence("--output-dir", layout.mcpOutputDir().toString());
+        assertThat(launch.args()).containsSequence("--snapshot-mode", "none").contains("--no-webmcp")
+                .doesNotContain("--caps");
+        assertThat(launch.roots()).containsExactly(layout.uploadsDir());
+        assertThat(launch.outputDir()).isEqualTo(layout.mcpOutputDir());
+        assertThat(layout.mcpOutputDir()).startsWithRaw(layout.root().resolve("cache"));
     }
 
     @Test

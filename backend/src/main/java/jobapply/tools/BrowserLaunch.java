@@ -1,5 +1,6 @@
 package jobapply.tools;
 
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 
@@ -11,8 +12,11 @@ import java.util.List;
  * @param callTimeout 单次调用的超时，要长于扩展等待用户同意连接的 30 秒
  * @param path        传给子进程的 PATH
  * @param home        传给子进程的 HOME
+ * @param roots       MCP 客户端声明的 root；@playwright/mcp 把第一个当作 workspace，文件访问只允许 workspace 和输出目录
+ * @param outputDir   MCP 的输出目录（{@code --output-dir}）；建立连接和关闭时清空。null 表示不管理
  */
-public record BrowserLaunch(String command, List<String> args, Duration callTimeout, String path, String home) {
+public record BrowserLaunch(String command, List<String> args, Duration callTimeout, String path, String home,
+                            List<Path> roots, Path outputDir) {
 
     public BrowserLaunch {
         if (command == null || command.isBlank()) {
@@ -24,5 +28,11 @@ public record BrowserLaunch(String command, List<String> args, Duration callTime
         }
         path = path == null ? "" : path;
         home = home == null ? "" : home;
+        roots = roots == null ? List.of() : roots.stream().map(root -> root.toAbsolutePath().normalize()).toList();
+        outputDir = outputDir == null ? null : outputDir.toAbsolutePath().normalize();
+    }
+
+    public BrowserLaunch(String command, List<String> args, Duration callTimeout, String path, String home) {
+        this(command, args, callTimeout, path, home, List.of(), null);
     }
 }

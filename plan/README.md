@@ -17,7 +17,7 @@
 ## 约定
 
 - **Master Plan** 至少写清：状态、需求或已确认决定、模块关系与接口契约、不做的事、待用户决定。改动 Master Plan 要经过用户确认。
-- **Coding Plan** 命名为 `C<三位编号>-<短名>.md`，编号只增不减。文首写明：
+- **Coding Plan** 命名为 `C<三位编号>-<短名>.md`，编号只增不减。一段拆成几份时用字母：`C004-A`、`C004-B`；插在某一份之后、属于同一段的追加工作用 `-<序号>`：`C004-A-1`（用户定的命名，2026-10-22）。文首写明：
   - 对应 Master：链接到一份或多份 Master Plan，以及其中的里程碑；
   - 状态：草案 / 待确认 / 进行中 / 完成 / 废弃。
 
@@ -32,7 +32,7 @@
 | [master/base.md](master/base.md) | 产品目标、技术路线、边界 | 已确认 |
 | [master/architecture.md](master/architecture.md) | 逻辑目录、模块职责、领域对象 | 已确认 |
 | [master/workflow.md](master/workflow.md) | 主流程、提交保护、流程优化边界、浏览器、登录、分层 Web 工具、匹配、额度、状态、预算与停止条件、里程碑、遗漏检查 | 已确认 |
-| [master/memory.md](master/memory.md) | Project / Job / Session / Company，storage 结构，继承，新建 Project，字段分级，存储格式，Obsidian 兼容 | 已确认 |
+| [master/memory.md](master/memory.md) | Project / Job / Session / Company，storage 结构，继承，新建 Project，资料导入与画像，字段分级，存储格式，Obsidian 兼容 | 已确认 |
 | [master/tracking.md](master/tracking.md) | 阶段与轮次、unknown 规则、台账栏目（md + csv）、Dashboard、面试复盘与题库 | 已确认 |
 | [master/ui.md](master/ui.md) | 界面结构、候选池、模型设置、密钥存放、首次使用引导、隐私说明 | 已确认 |
 
@@ -45,8 +45,10 @@
 | [coding/C002-memory-ledger.md](coding/C002-memory-ledger.md) | workflow 里程碑 1、memory、tracking | 完成 |
 | [coding/C003-playwright-mcp.md](coding/C003-playwright-mcp.md) | workflow 里程碑 2、memory | 完成 |
 | [coding/C004-harness-guard.md](coding/C004-harness-guard.md) | workflow 里程碑 3（总表） | 已拆分 |
-| [coding/C004-A-model-guard.md](coding/C004-A-model-guard.md) | workflow 里程碑 3、ui、memory | 已确认，待施工 |
-| [coding/C004-B-harness-review.md](coding/C004-B-harness-review.md) | workflow 里程碑 3、memory | 已确认，待施工 |
+| [coding/C004-A-model-guard.md](coding/C004-A-model-guard.md) | workflow 里程碑 3、ui、memory | 完成 |
+| [coding/C004-A-1-profile-import.md](coding/C004-A-1-profile-import.md) | memory「资料导入与画像」、workflow 里程碑 3 的前置 | 已确认，待施工 |
+| [coding/C004-A-2-profile-review.md](coding/C004-A-2-profile-review.md) | memory「资料导入与画像」、workflow 里程碑 3 的前置 | 已确认，待施工（在 C004-A-1 之后） |
+| [coding/C004-B-harness-review.md](coding/C004-B-harness-review.md) | workflow 里程碑 3、memory | 已确认，待施工（在 C004-A-2 之后） |
 
 ## 参考（`reference/`）
 

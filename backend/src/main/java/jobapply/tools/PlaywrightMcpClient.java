@@ -25,7 +25,10 @@ import org.slf4j.LoggerFactory;
 public final class PlaywrightMcpClient implements AutoCloseable {
 
     static final List<String> REQUIRED_TOOLS = List.of(
-            BrowserToolPolicy.NAVIGATE, BrowserToolPolicy.SNAPSHOT, BrowserToolPolicy.TABS);
+            BrowserToolPolicy.NAVIGATE, BrowserToolPolicy.SNAPSHOT, BrowserToolPolicy.TABS, BrowserToolPolicy.CLICK,
+            BrowserToolPolicy.TYPE, BrowserToolPolicy.FILL_FORM, BrowserToolPolicy.SELECT_OPTION,
+            BrowserToolPolicy.FILE_UPLOAD, BrowserToolPolicy.PRESS_KEY, BrowserToolPolicy.WAIT_FOR,
+            BrowserToolPolicy.FIND);
 
     /** 扩展连接失败或连接已断开时，@playwright/mcp 返回的错误里会出现的片段（0.0.83 源码）。 */
     private static final List<String> CONNECTION_ERRORS = List.of(
@@ -41,7 +44,7 @@ public final class PlaywrightMcpClient implements AutoCloseable {
     }
 
     /**
-     * 启动子进程并完成 MCP 初始化，检查必需的工具都在。失败时子进程已关闭。
+     * 启动子进程并完成 MCP 初始化（声明 {@link BrowserLaunch#roots()}），检查必需的工具都在。失败时子进程已关闭。
      */
     public static PlaywrightMcpClient start(BrowserLaunch launch) {
         List<String> args = new ArrayList<>();
@@ -58,6 +61,9 @@ public final class PlaywrightMcpClient implements AutoCloseable {
                 .requestTimeout(launch.callTimeout())
                 .initializationTimeout(launch.callTimeout())
                 .clientInfo(new McpSchema.Implementation("jobapply", "0.0.1"))
+                .roots(launch.roots().stream()
+                        .map(root -> new McpSchema.Root(root.toUri().toString(), root.getFileName().toString()))
+                        .toList())
                 .build();
         try {
             client.initialize();
@@ -79,11 +85,18 @@ public final class PlaywrightMcpClient implements AutoCloseable {
     }
 
     /**
-     * 调用一个工具，返回文本内容。不在白名单内时抛出 {@link jobapply.harness.policies.ToolNotAllowedException}。
+     * 系统自己的调用，返回文本内容。不在白名单内时抛出 {@link jobapply.harness.policies.ToolNotAllowedException}。
      */
     public String call(String tool, Map<String, Object> args) {
+        return call(tool, args, BrowserToolPolicy.Context.system());
+    }
+
+    /**
+     * 按给定的上下文（系统或模型）检查白名单，再调用。点击和填写的守卫由调用方先判断，这里只管白名单。
+     */
+    public String call(String tool, Map<String, Object> args, BrowserToolPolicy.Context context) {
         Map<String, Object> arguments = args == null ? Map.of() : args;
-        BrowserToolPolicy.check(tool, arguments);
+        BrowserToolPolicy.check(tool, arguments, context);
         long started = System.nanoTime();
         McpSchema.CallToolResult result;
         try {

@@ -25,7 +25,7 @@ class StorageInitializerTest {
         assertThat(layout.jobsIndex()).exists();
         assertThat(layout.exportsApplicationsCsv()).exists();
         assertThat(storage.read(layout.gitignore()).lines())
-                .contains("settings/.env", "uploads/", "*.sqlite", ".obsidian/", "example.data/");
+                .contains("settings/.env", "uploads/", "cache/", "*.sqlite", ".obsidian/", "example.data/");
         assertThat(layout.gitDir()).isDirectory();
         assertThat(storage.commitCount()).isEqualTo(1);
         assertThat(storage.trackedFiles()).contains(".gitignore", "base/facts.md", "jobs-index.md");
@@ -68,6 +68,41 @@ class StorageInitializerTest {
         new StorageInitializer(storage.layout, storage.clock).initialize(false);
 
         assertThat(storage.read(storage.layout.baseFacts())).isEqualTo("# 用户已经写过的内容\n");
+    }
+
+    @Test
+    void missingIgnoreLinesAreAppendedToAnExistingGitignore() {
+        storageWithOldGitignore("# 用户自己的注释\nsettings/.env\nuploads/\n*.sqlite\n.obsidian/\nexample.data/\nnotes-private/");
+
+        new StorageInitializer(layout, clock).initialize(false);
+
+        assertThat(read()).isEqualTo("# 用户自己的注释\nsettings/.env\nuploads/\n*.sqlite\n.obsidian/\nexample.data/\n"
+                + "notes-private/\ncache/\n");
+        new StorageInitializer(layout, clock).initialize(false);
+        assertThat(read()).endsWith("notes-private/\ncache/\n");
+    }
+
+    @Test
+    void completeGitignoreIsLeftAlone() {
+        String content = "settings/.env\nuploads/\ncache/\n*.sqlite\n.obsidian/\nexample.data/\n# 末尾的注释\n";
+        storageWithOldGitignore(content);
+
+        new StorageInitializer(layout, clock).initialize(false);
+
+        assertThat(read()).isEqualTo(content);
+    }
+
+    private StorageLayout layout;
+    private TestClock clock;
+
+    private void storageWithOldGitignore(String content) {
+        layout = new StorageLayout(root);
+        clock = TestClock.at(TestStorage.NOW);
+        AtomicFiles.write(layout.gitignore(), content);
+    }
+
+    private String read() {
+        return AtomicFiles.read(layout.gitignore());
     }
 
     @Test
