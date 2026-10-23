@@ -294,7 +294,11 @@ function Assignments({ settings, onSaved }: { settings: Settings; onSaved: () =>
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => setValues(initial(settings)), [settings]);
+  useEffect(() => {
+    setValues(initial(settings));
+  }, [settings]);
+
+  const assignment = (usage: Usage) => parse(values[usage]);
 
   const options = settings.providers.flatMap((provider) =>
     provider.models.map((model) => {
@@ -305,7 +309,7 @@ function Assignments({ settings, onSaved }: { settings: Settings; onSaved: () =>
 
   async function save() {
     try {
-      await api.assign(parse(values.main), parse(values.auxiliary), parse(values.cross_check));
+      await api.assign(assignment("main"), assignment("auxiliary"), assignment("cross_check"));
       setError(null);
       setSaved(true);
       onSaved();
@@ -320,20 +324,26 @@ function Assignments({ settings, onSaved }: { settings: Settings; onSaved: () =>
       <h2>用途分配</h2>
       <div className="form-grid">
         {USAGES.map(({ usage, label, hint }) => (
-          <label key={usage}>
-            {label}
-            <select value={values[usage]} onChange={(e) => { setSaved(false); setValues({ ...values, [usage]: e.target.value }); }}>
-              <option value="">（不分配）</option>
-              {options.map((option) => (
-                <option key={option.value} value={option.value} disabled={usage === "main" && !option.tools}>
-                  {option.label}{usage === "main" && !option.tools ? "（没有通过工具调用测试）" : ""}
-                </option>
-              ))}
-            </select>
-            <span className="muted small">{hint}</span>
-          </label>
+          <div key={usage} className="usage">
+            <label>
+              {label}
+              <select value={values[usage]} onChange={(e) => { setSaved(false); setValues({ ...values, [usage]: e.target.value }); }}>
+                <option value="">（不分配）</option>
+                {options.map((option) => (
+                  <option key={option.value} value={option.value} disabled={usage === "main" && !option.tools}>
+                    {option.label}{usage === "main" && !option.tools ? "（没有通过工具调用测试）" : ""}
+                  </option>
+                ))}
+              </select>
+              <span className="muted small">{hint}</span>
+            </label>
+          </div>
         ))}
       </div>
+      <p className="muted small">
+        思考过程：OpenAI 兼容的推理模型（例如 DeepSeek）返回了思考内容时，会显示在对话的「过程」里。
+        Anthropic 格式暂时不开启思考：现在用的 Spring AI 版本没法在工具调用的多轮对话里把思考原样发回给模型。
+      </p>
       <button onClick={save}>保存分配</button>
       {saved && <span className="ok"> 已保存，立即生效</span>}
       {error && <p className="error">{error}</p>}

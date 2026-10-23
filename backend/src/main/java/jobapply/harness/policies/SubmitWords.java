@@ -40,6 +40,9 @@ public final class SubmitWords {
             "captcha", "recaptcha", "hcaptcha", "verify you are human", "verify you're human", "i'm not a robot",
             "i am not a robot", "security check", "are you a robot");
 
+    /** 申请 Agent 结束时页面已经像投递成功了，给用户的话以这句开头（界面据此提示「确认一下」，C007）。 */
+    public static final String SUBMITTED_NOTICE = "页面显示已经投递了。";
+
     private SubmitWords() {
     }
 

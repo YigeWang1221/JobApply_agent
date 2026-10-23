@@ -20,6 +20,7 @@ import jobapply.domain.AgentRun;
 import jobapply.domain.Fact;
 import jobapply.domain.FactClass;
 import jobapply.domain.Language;
+import jobapply.domain.Timestamps;
 import jobapply.harness.context.Conversation;
 import jobapply.harness.context.FillContext;
 import jobapply.harness.context.SkillCatalog;
@@ -33,6 +34,7 @@ import jobapply.harness.policies.SubmitWords;
 import jobapply.harness.policies.ToolNotAllowedException;
 import jobapply.memory.ProfileResolver;
 import jobapply.memory.ResolvedFact;
+import jobapply.persistence.AttachmentStore;
 import jobapply.persistence.FillReportWriter;
 import jobapply.persistence.JobAnswers;
 import jobapply.persistence.LedgerFile;
@@ -86,6 +88,7 @@ public final class HarnessLoop {
     private final ChatModel model;
     private final BrowserSession browser;
     private final StorageLayout layout;
+    private final Clock clock;
     private final HarnessProperties limits;
     private final ProfileResolver resolver;
     private final JobAnswers answers;
@@ -101,6 +104,7 @@ public final class HarnessLoop {
         this.model = model;
         this.browser = browser;
         this.layout = layout;
+        this.clock = clock;
         this.limits = limits == null ? HarnessProperties.defaults() : limits;
         this.resolver = new ProfileResolver(layout, clock);
         this.answers = new JobAnswers(layout, clock);
@@ -119,11 +123,16 @@ public final class HarnessLoop {
      * @throws RuntimeException 主模型出错、重试也不行时（调用方记为失败）
      */
     public AgentRun run(AgentRun run, BooleanSupplier stop, Consumer<AgentRun> progress) {
+        return run(run, stop, progress, LoopObserver.NONE);
+    }
+
+    /** 同上；{@code observer} 收到「正在做什么」（调模型、执行工具）和每一步的结果。 */
+    public AgentRun run(AgentRun run, BooleanSupplier stop, Consumer<AgentRun> progress, LoopObserver observer) {
         if (!seeded) {
             seeder.seed();
             seeded = true;
         }
-        return new Round(run, stop, progress).go();
+        return new Round(run, stop, progress, observer == null ? LoopObserver.NONE : observer).go();
     }
 
     /** 一个 Job 的报告草稿：按「页面 + 字段」去重，后填的覆盖先填的。 */
@@ -176,6 +185,7 @@ public final class HarnessLoop {
         private final AgentRun run;
         private final BooleanSupplier stop;
         private final Consumer<AgentRun> progress;
+        private final LoopObserver observer;
         private final LoopDetector detector;
         private final List<AgentRun.Turn> turns;
         private final Draft draft = new Draft();
@@ -193,11 +203,12 @@ public final class HarnessLoop {
         /** 这次运行里守卫要求先问用户的软边界按钮；随 {@code ask_user} 交给用户。 */
         private String pendingButton;
 
-        Round(AgentRun run, BooleanSupplier stop, Consumer<AgentRun> progress) {
+        Round(AgentRun run, BooleanSupplier stop, Consumer<AgentRun> progress, LoopObserver observer) {
             this.run = run;
             this.stop = stop == null ? () -> false : stop;
             this.progress = progress == null ? ignored -> {
             } : progress;
+            this.observer = observer;
             this.detector = new LoopDetector(limits);
             this.turns = new ArrayList<>(run.conversation());
             this.plan = run.plan();
@@ -223,8 +234,15 @@ public final class HarnessLoop {
                     latest = browser.open(run.url(), run.job());
                     turns.add(AgentRun.Turn.page("系统打开了岗位链接 " + run.url() + "。"));
                 } else {
-                    latest = browser.snapshot(run.job());
-                    turns.add(AgentRun.Turn.page("系统取了一次当前页面。"));
+                    try {
+                        latest = browser.snapshot(run.job());
+                        turns.add(AgentRun.Turn.page("系统取了一次当前页面。"));
+                    } catch (BrowserException.ToolFailed e) {
+                        // 原来的标签页读不到了（被关掉、换了页面）：在新标签页重新打开岗位链接，不去问用户
+                        latest = browser.open(run.url(), run.job());
+                        turns.add(AgentRun.Turn.page("原来的标签页读不到了（" + e.getMessage() + "），系统在新标签页重新打开了岗位链接 "
+                                + run.url() + "。"));
+                    }
                 }
             } catch (BrowserException.Disconnected e) {
                 return disconnected(e.getMessage());
@@ -242,32 +260,42 @@ public final class HarnessLoop {
                 if (callsThisRun >= limits.toolCallsPerRun()) {
                     return limitReached();
                 }
-                AssistantMessage message = call();
+                ChatResponse response = call();
                 if (stop.getAsBoolean()) {
                     return waiting(STOPPED);
                 }
+                AssistantMessage message = ModelCaller.message(response);
+                String thinking = ModelCaller.thinking(response);
                 String text = message == null ? null : message.getText();
                 if (message == null || !message.hasToolCalls()) {
                     // 只回了文字：当成对用户说的话，等用户回复（OpenMAIC 的自动 cue）
-                    turns.add(AgentRun.Turn.assistant(text, List.of()));
+                    reply(AgentRun.Turn.assistant(text, List.of(), thinking));
                     return waiting(text == null || text.isBlank() ? "我没有想好下一步。请看一下页面，告诉我接下来做什么。"
                             : text.strip());
                 }
                 List<AgentRun.ToolCall> calls = message.getToolCalls().stream()
                         .map(call -> new AgentRun.ToolCall(call.id(), call.name(), call.arguments())).toList();
-                turns.add(AgentRun.Turn.assistant(text, calls));
+                reply(AgentRun.Turn.assistant(text, calls, thinking));
                 int toolTurn = turns.size();
                 List<AgentRun.ToolResult> results = new ArrayList<>();
                 UnaryOperator<AgentRun> end = null;
                 for (AgentRun.ToolCall call : calls) {
+                    String startedAt = Timestamps.now(clock);
                     if (end != null || stop.getAsBoolean()) {
-                        results.add(new AgentRun.ToolResult(call.id(), call.name(), "没有执行：这一次运行已经结束。"));
+                        AgentRun.ToolResult skipped = new AgentRun.ToolResult(call.id(), call.name(),
+                                "没有执行：这一次运行已经结束。").timed(startedAt, 0);
+                        results.add(skipped);
+                        observer.done(call, skipped);
                         continue;
                     }
                     callsThisRun++;
                     toolCalls++;
+                    observer.tool(call);
+                    long started = System.nanoTime();
                     Step step = handle(call);
-                    results.add(step.result());
+                    AgentRun.ToolResult result = step.result().timed(startedAt, (System.nanoTime() - started) / 1_000_000);
+                    results.add(result);
+                    observer.done(call, result);
                     if (step.page() != null) {
                         latestPage = new Conversation.LatestPage(step.page(), toolTurn, call.id());
                     }
@@ -282,11 +310,19 @@ public final class HarnessLoop {
         }
 
         /** 调主模型（{@link ModelCaller}：暂时出错时等一会儿再试）。 */
-        private AssistantMessage call() {
+        private ChatResponse call() {
+            observer.thinking();
             ChatResponse response = ModelCaller.call(model,
-                    new Prompt(FillContext.messages(inputs(), turns, latestPage), options()), stop);
+                    new Prompt(FillContext.messages(inputs(), turns, latestPage,
+                            new AttachmentStore(layout.jobAttachmentsDir(run.job()))), options()), stop);
             recordUsage(response);
-            return response == null || response.getResult() == null ? null : response.getResult().getOutput();
+            return response;
+        }
+
+        /** 模型回的一条：记下，再告诉观察的一方。 */
+        private void reply(AgentRun.Turn turn) {
+            turns.add(turn);
+            observer.replied(turn);
         }
 
         private ChatOptions options() {
@@ -320,9 +356,10 @@ public final class HarnessLoop {
             log(RunLog.Entry.budget(run.session(), step(), "run_limit", toolCalls, tokens));
             turns.add(AgentRun.Turn.user("系统：这一次运行已经用了 " + callsThisRun + " 次工具调用，到了上限。"
                     + "不要再调用工具，用几句话告诉用户：做到哪了、还剩什么、卡在哪里。"));
-            AssistantMessage message = call();
+            ChatResponse response = call();
+            AssistantMessage message = ModelCaller.message(response);
             String text = message == null || message.getText() == null ? "" : message.getText().strip();
-            turns.add(AgentRun.Turn.assistant(text, List.of()));
+            reply(AgentRun.Turn.assistant(text, List.of(), ModelCaller.thinking(response)));
             return waiting((text.isEmpty() ? "这一次运行做了很多步，到了上限。" : text) + "\n\n回复「继续」我接着做。");
         }
 
@@ -566,7 +603,7 @@ public final class HarnessLoop {
             log(RunLog.Entry.waiting(run.session(), step(), "finish", page(latest), null));
             // 页面已经像是投递成功了（例如「下一步」直接完成了投递）：不再说「最终提交由你自己点」
             String tail = latest != null && SubmitWords.looksSubmitted(latest.visibleText())
-                    ? "页面显示已经投递了。请在 Chrome 里核对投递状态和填写报告。"
+                    ? SubmitWords.SUBMITTED_NOTICE + "请在 Chrome 里核对投递状态和填写报告。"
                     : "请在 Chrome 里核对页面和填写报告，最终提交由你自己点。要修改时直接回复要改什么。";
             String message = (summary == null ? "能填的都填好了。" : summary) + "\n\n" + tail;
             return ended(call, "已结束，交给用户审阅。", current -> current.ready(message));
@@ -662,7 +699,7 @@ public final class HarnessLoop {
 
         private AgentRun disconnectedRun(AgentRun current, String reason) {
             log(RunLog.Entry.waiting(run.session(), step(), "reconnect", null, null));
-            return current.waiting("浏览器连接断开了（" + reason + "）。请确认 Chrome 开着、连接已经允许，然后回复，"
+            return current.waiting("浏览器连接断开了（" + reason + "）。请确认 Chrome 开着、chrome://inspect/#remote-debugging 里的远程调试开关已经打开，然后回复，"
                     + "我会重新连接并接着做。", List.of(), List.of(), true);
         }
 
@@ -675,7 +712,9 @@ public final class HarnessLoop {
         }
 
         private List<Path> stagedPaths() {
-            return run.files().stream().map(file -> layout.uploadsDir(run.job()).resolve(file.uploadName())).toList();
+            return run.files().stream().map(file -> file.attachment() == null
+                    ? layout.uploadsDir(run.job()).resolve(file.uploadName())
+                    : layout.jobAttachmentsDir(run.job()).resolve(file.attachment()).resolve(file.uploadName())).toList();
         }
 
         private List<String> siteUrls() {

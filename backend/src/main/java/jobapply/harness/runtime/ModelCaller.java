@@ -1,10 +1,14 @@
 package jobapply.harness.runtime;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 
 /**
@@ -54,6 +58,45 @@ public final class ModelCaller {
             }
         }
         return true;
+    }
+
+    /**
+     * 模型的回复：最后一个 generation。Anthropic 的回复里有 thinking 块时，Spring AI 把每个 thinking 块单独放成一个
+     * generation 排在前面（{@code AnthropicChatModel.buildGenerations}），带文字和工具调用的那条在最后；
+     * 没有 thinking 时只有一个，和 {@code getResult()} 一样。
+     */
+    public static AssistantMessage message(ChatResponse response) {
+        List<Generation> results = response == null ? List.of() : response.getResults();
+        return results.isEmpty() ? null : results.getLast().getOutput();
+    }
+
+    /**
+     * 供应商真的给出的思考原文；没有时为 null（C006-agent）。只读回复里实际存在的字段，不推测：
+     * <ul>
+     *   <li>Anthropic：前面那些带 {@code signature} 属性的 generation（thinking 块），文字就是思考原文；</li>
+     *   <li>OpenAI 兼容：Spring AI 把 {@code reasoning_content}（或 {@code reasoning}）放进 AssistantMessage 的
+     *       metadata {@code reasoningContent}（{@code OpenAiChatModel.getReasoningContent}），没有时是空字符串。</li>
+     * </ul>
+     */
+    public static String thinking(ChatResponse response) {
+        List<Generation> results = response == null ? List.of() : response.getResults();
+        if (results.isEmpty()) {
+            return null;
+        }
+        List<String> parts = new ArrayList<>();
+        for (Generation generation : results.subList(0, results.size() - 1)) {
+            AssistantMessage block = generation.getOutput();
+            if (block != null && block.getMetadata().containsKey("signature") && block.getText() != null
+                    && !block.getText().isBlank()) {
+                parts.add(block.getText().strip());
+            }
+        }
+        AssistantMessage last = results.getLast().getOutput();
+        if (last != null && last.getMetadata().get("reasoningContent") instanceof String reasoning
+                && !reasoning.isBlank()) {
+            parts.add(reasoning.strip());
+        }
+        return parts.isEmpty() ? null : String.join("\n\n", parts);
     }
 
     /** 这次调用的 token 数（输入 + 输出）；没有用量信息时为 0。 */

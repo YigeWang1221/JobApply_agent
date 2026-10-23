@@ -3,9 +3,12 @@ package jobapply.api;
 import java.time.Clock;
 import java.util.List;
 import jobapply.domain.Actor;
+import jobapply.domain.AgentRun;
 import jobapply.domain.Job;
 import jobapply.domain.JobEvent;
 import jobapply.domain.LeadStatus;
+import jobapply.domain.Outcome;
+import jobapply.domain.PrepState;
 import jobapply.domain.Transition;
 import jobapply.persistence.JobLedger;
 import jobapply.persistence.JobRepository;
@@ -17,9 +20,11 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * Job 详情（申请工作台用）和候选池上的「想投 / 不投」（C005）。Job id 全局唯一，按 id 找它所在的 Project。
@@ -34,14 +39,26 @@ public class JobController {
 
     /**
      * @param application 申请线程的状态；没有申请线程时为 null
-     * @param steps       申请线程每一步做了什么（工具名、说明、给用户的话；不含快照）
+     * @param steps       申请线程每一步做了什么（思考、工具参数和结果、给用户的话；不含快照）
+     * @param activity    申请线程现在在做什么；没在跑时为 null
      */
     public record JobDetail(Views.JobView job, List<EventView> events, ApplicationStatus application,
-                            List<Views.ChatMessage> steps) {
+                            List<Views.ChatMessage> steps, Views.Activity activity) {
     }
 
     /** @param status {@code new} / {@code shortlisted} / {@code skipped}；不投时 {@code reason} 必填 */
     public record LeadRequest(String status, String reason) {
+    }
+
+    /** 用户确认已经提交（C007）。{@code note} 是用户的话，可以为空。 */
+    public record SubmittedRequest(String note) {
+    }
+
+    /** 还没提交（{@code giveUp=false}，暂停）或不投了（{@code giveUp=true}，以 not_submitted 结束）（C007）。 */
+    public record PostingClosedRequest(String note) {
+    }
+
+    public record NotSubmittedRequest(Boolean giveUp, String note) {
     }
 
     private final StorageLayout layout;
@@ -61,7 +78,17 @@ public class JobController {
         Job job = find(id);
         List<EventView> events = ledger.events(job.project(), id).stream().map(JobController::event).toList();
         return new JobDetail(Views.job(job, applications), events, applications.statusIfAny(id).orElse(null),
-                applications.run(id).map(run -> Views.messages(run.conversation())).orElse(List.of()));
+                applications.run(id).map(run -> Views.messages(run.conversation(), applications.feed().inFlight(id),
+                                "/api/jobs/" + id + "/application/attachments"))
+                        .orElse(List.of()),
+                Views.activity(applications.feed().activity(id)));
+    }
+
+    /** 申请线程按步推送（C006-agent）。 */
+    @GetMapping(path = "/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter events(@PathVariable String id) {
+        find(id);
+        return EventStream.open(applications.feed(), id);
     }
 
     @PatchMapping(path = "/lead", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -80,6 +107,59 @@ public class JobController {
         Job next = ledger.transition(job.project(), id, job.discoveredIn(), Actor.USER,
                 new Transition.MarkLead(status, request.reason()));
         return Views.job(next, applications);
+    }
+
+    /** 用户在 Chrome 里亲自提交了：{@code awaiting_review → user_submitting → applied}（C007）。 */
+    @PostMapping(path = "/submitted", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Views.JobView submitted(@PathVariable String id, @RequestBody(required = false) SubmittedRequest request) {
+        Job job = find(id);
+        Job next = ledger.markSubmitted(job.project(), id, sessionOf(job), request == null ? null : request.note());
+        return Views.job(next, applications);
+    }
+
+    /** 还没提交：暂停；不投了：以 {@code closed:not_submitted} 结束（C007）。 */
+    @PostMapping(path = "/not-submitted", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Views.JobView notSubmitted(@PathVariable String id,
+                                      @RequestBody(required = false) NotSubmittedRequest request) {
+        Job job = find(id);
+        boolean giveUp = request != null && Boolean.TRUE.equals(request.giveUp());
+        String note = request == null || request.note() == null || request.note().isBlank() ? null
+                : request.note().strip();
+        Transition transition = giveUp
+                ? new Transition.Close(Outcome.NOT_SUBMITTED, note == null ? "用户说不投了" : note)
+                : new Transition.ChangePrepState(PrepState.PAUSED, note == null ? "用户说还没提交" : note);
+        Job next = ledger.transition(job.project(), id, sessionOf(job), Actor.USER, transition);
+        return Views.job(next, applications);
+    }
+
+    /**
+     * 岗位下线了：还在候选池的标成 {@code closed}；已经转成申请的以 {@code closed:posting_closed} 结束，
+     * 申请线程在跑时先请它停下。
+     */
+    @PostMapping(path = "/posting-closed", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Views.JobView postingClosed(@PathVariable String id,
+                                       @RequestBody(required = false) PostingClosedRequest request) {
+        Job job = find(id);
+        String note = request == null || request.note() == null || request.note().isBlank() ? "用户说岗位下线了"
+                : request.note().strip();
+        Transition transition;
+        if (job.status().leadStatus() == LeadStatus.CONVERTED) {
+            applications.statusIfAny(id).ifPresent(status -> applications.stop(id));
+            transition = new Transition.Close(Outcome.POSTING_CLOSED, note);
+        } else {
+            transition = new Transition.MarkLead(LeadStatus.CLOSED, note);
+        }
+        Job next = ledger.transition(job.project(), id, sessionOf(job), Actor.USER, transition);
+        return Views.job(next, applications);
+    }
+
+    /** 申请线程所在的 Session；没有申请线程时用发现它的 Session。 */
+    private String sessionOf(Job job) {
+        String session = applications.run(job.id()).map(AgentRun::session).orElse(job.discoveredIn());
+        if (session == null) {
+            throw new ApplicationException.Conflict("Job " + job.id() + " 没有记录所在的 Session");
+        }
+        return session;
     }
 
     private Job find(String id) {

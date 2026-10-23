@@ -578,3 +578,50 @@
 - 用户报告：前期各段的实机操作（真实 Chrome 连接、申请填写等）都手动测试过，没有问题。代理没有在场观察，细节未记录。
 - 计划：新增 C007-after-submit（提交后记已投递、3–5 天提醒查看、对话里反馈），workflow.md 里程碑第 8 段按用户指令改写。没有改代码。
 - 决定（用户，2026-10-23）：C007 证据规则选 A，用户的确认算有效证据（`user-reported`），直接进入 `applied`。C007 计划、workflow.md「状态」已改。没有改代码。
+
+## 2026-10-23 · C006-front + C006-agent 并行施工
+
+- 指令：用户「multi-agent 开发 c006-front/agent」。两个代理并行：一个只改 `frontend/`，一个只改 `backend/`；接口约定照 C006-front「和 C006-agent 的接口约定」写死后再分工。
+- 结果：细节见 [C006-front](plan/coding/C006-front.md)、[C006-agent](plan/coding/C006-agent.md)「实际结果」。合并时把前端的「显示思考」开关去掉，改成设置页一段说明（后端核实 Spring AI 2.0.1 下 Anthropic 思考不能发回，`showThinking` 只存不生效）。
+- 验证：`npm run build` 通过；`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）。浏览器里看界面、真实模型试思考 / 推送 / 重新生成：未运行。没有提交 git。
+
+## 2026-10-23 · 用户测试：「Playwright Extension not found」
+
+- 现象：申请开始时 `browser_tabs` 返回「Playwright Extension not found in …/Google/Chrome」，界面提示「确认 Chrome 里这个页面开着」。
+- 根因：两个 Chrome 资料（Default、Profile 1）里都没有装 Playwright 扩展；Default 里只有 Claude 扩展（已停用），`@playwright/mcp --extension` 不认它。只看了扩展目录和 Preferences 里的扩展名，没读别的。
+- 改动：`PlaywrightMcpClient`：结果里有「extension not found」时按连接不可用处理，提示安装扩展的链接和 `profile-dir-name`。`HarnessLoop`：接着做申请时原来的标签页读不到，系统在新标签页重新打开岗位链接，不再先问用户。
+- 验证：`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）。装扩展后的真实 Chrome 冒烟：未运行，等用户。
+
+## 2026-10-23 · 用户反馈：候选池没有折叠、不能改名
+
+- 结果：候选池按公司折叠；Project、Session 支持改名（新增两个 PATCH 接口、`RenameTitle` 组件）。细节见 C006-front「追加」。
+- 验证：`npm run build` 通过；`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）。浏览器里看：未运行。没有提交 git。
+
+## 2026-10-23 · C006-fix（附件、工作台整屏）+ C007（提交以后）并行施工
+
+- 指令：用户反馈工作台太小、不能附文件和图片（选定：图片发给模型、附件只放 Job / Session、两边都做）；随后「再开一个 agent 把 C007 做掉」。三个代理：C006-fix 前端、C006-fix 后端、C007（前后端）；C007 的工作台按钮和对话确认卡等 C006-fix 前端完成后再做。
+- 编号更正：附件计划先误编成 C008，用户指出是 C006 的修补，改名为 `C006-fix-attachments.md`。
+- 结果：细节见 C006-fix、C007「实际结果」。C007 没做：成功页快照（会碰申请的浏览器队列）、7 天 unknown 规则（代码里原本就没有）。另：侧栏加「资料与简历」直达入口，子标签「原件」改名「简历与原件」（用户找不到上传简历的入口）。
+- 验证：合并后 `npm run build` 通过；`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）。新接口（上传 / 下载附件、submitted / not-submitted）没有测试调用；真实模型看图、附件上传到表单、确认投递、提醒：未运行。没有提交 git。
+- 计划：新增 C008-resume-match（简历排名与修改建议），等用户确认。
+
+## 2026-10-23 · 浏览器默认改为远程调试模式
+
+- 指令：用户指出扩展模式「每次连接、重连都要点同意」违反不过度设计确认的原则（AGENTS.md「Agent 开发原则」）。
+- 结果：`application.yml` 的 `jobapply.browser.mcp.args` 从 `--extension` 改为 `--cdp-endpoint chrome`；workflow.md「两种连接方式」标明默认是远程调试模式。扩展模式仍可通过配置切回。代码没改。
+- 验证：未运行（要用户打开 Chrome 远程调试开关后重启后端实测）。
+- 追加（同日，用户：「使用 MCP 不要用 Playwright 扩展，之前有问题的 plan 也做修正」）：
+  - master：workflow.md「Chrome MCP」改成只用远程调试模式，扩展模式写明已作废及原因；「登录状态」「Web 工具」「为什么用 Playwright MCP」、里程碑第 2 段、首次引导同步；ui.md 首次引导、agent-runtime.md 第 5 节同步。C003 顶部加更正说明，施工记录保留。
+  - 后端：去掉「没装扩展」的专门提示和商店链接；四处断线提示改成指向 `chrome://inspect/#remote-debugging` 的开关；`application.yml` 去掉只对扩展模式有用的 `profile-dir-name`；注释同步。
+  - 验证：`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）。真实 Chrome 连接：未运行。
+
+## 2026-10-23 · 用户反馈：岗位下线没有状态、搜索要进详情页、看不到改名
+
+- 结果：见 [C005-fix](plan/coding/C005-fix-posting-status.md)；改名入口改成一直可见（C006-front 追加）。示意页（https://claude.ai/artifact/4K6eE85i51GvrLUGz8cARD）存进 `plan/reference/ui-mockup.html`（虚构数据），照它改版的计划另写。
+- 验证：`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）；`npm run build` 通过。浏览器里看、真实调研：未运行。
+
+## 2026-10-23 · C006-fix 版式：照示意页改全局 / Project 页
+
+- 指令：用户「拉起一个 subagent 直接进行 UI 重构」。一个代理施工，只改全局页、Project 页、侧栏说明和两处后端（`GET /api/jobs`、JobView 加 `events`）；对话页、工作台、chat/* 没动。细节见 [C006-fix 版式](plan/coding/C006-fix-ui-mockup.md)「实际结果」。
+- 核对：`ProjectController` 的路径和原来一致；改名、新建 Session、已下线 / 重新开放、「我看了」都还在。
+- 验证：`npm run build` 通过；`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）。浏览器里和示意页对照：未运行。没有提交 git。

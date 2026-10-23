@@ -1,7 +1,7 @@
 package jobapply.tools;
 
 /**
- * 浏览器调用失败。两种情况分开处理：{@link Disconnected} 要用户重新同意连接；{@link ToolFailed} 连接还在。
+ * 浏览器调用失败。两种情况分开处理：{@link Disconnected} 要用户检查 Chrome 后重连；{@link ToolFailed} 连接还在。
  */
 public abstract class BrowserException extends RuntimeException {
 
@@ -10,7 +10,7 @@ public abstract class BrowserException extends RuntimeException {
     }
 
     /**
-     * 浏览器连接不可用：MCP 进程退出、管道断开、调用超时，或扩展没有在限定时间内同意连接。需要用户重新同意连接。
+     * 浏览器连接不可用：MCP 进程退出、管道断开、调用超时，或用户没有在限定时间内同意连接。需要用户检查 Chrome 后重连。
      */
     public static final class Disconnected extends BrowserException {
 

@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, errorText, type ProjectSummary } from "./api";
+import { api, errorText, type ProjectSummary, type SessionSummary } from "./api";
+import { Icon } from "./chat/icons";
 import Global from "./pages/Global";
 import JobPage from "./pages/JobPage";
 import ProjectPage from "./pages/ProjectPage";
 import SessionPage from "./pages/SessionPage";
 import Settings from "./pages/Settings";
+import { RenameInput } from "./RenameTitle";
 import { go, href, useRoute, type Route } from "./route";
+import { toast, Toasts } from "./toast";
 
 const SIDEBAR_REFRESH_MS = 5000;
 
@@ -30,10 +33,19 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [refresh, route]);
 
+  const [collapsed, setCollapsed] = useState(() => readFlag(SIDEBAR_KEY));
+  const toggle = () => {
+    setCollapsed(!collapsed);
+    writeFlag(SIDEBAR_KEY, !collapsed);
+  };
+
   return (
-    <div className="app">
-      <Sidebar route={route} projects={projects} error={error} onCreated={refresh} />
-      <main className="main">
+    <div className={`app${collapsed ? " collapsed" : ""}`}>
+      {collapsed
+        ? <SidebarRail route={route} projects={projects} onExpand={toggle} onCreated={refresh} />
+        : <Sidebar route={route} projects={projects} error={error} onCreated={refresh} onCollapse={toggle} />}
+      <Toasts />
+      <main className={route.kind === "session" || route.kind === "job" ? "main full" : "main"}>
         {route.kind === "global" && <Global projects={projects} />}
         {route.kind === "project" && <ProjectPage key={route.id} id={route.id} onChanged={refresh} />}
         {route.kind === "session" && <SessionPage key={route.id} id={route.id} />}
@@ -44,16 +56,111 @@ export default function App() {
   );
 }
 
-function Sidebar({ route, projects, error, onCreated }: {
+const SIDEBAR_KEY = "jobapply.sidebar.collapsed";
+
+// 「新对话」建在哪个 Project：当前看的 Project / 当前 Session 所在的 Project，否则第一个
+function projectFor(route: Route, projects: ProjectSummary[] | null): string | null {
+  if (!projects || projects.length === 0) {
+    return null;
+  }
+  if (route.kind === "project") {
+    return route.id;
+  }
+  if (route.kind === "session") {
+    const owner = projects.find((p) => p.sessions.some((s) => s.id === route.id));
+    if (owner) {
+      return owner.id;
+    }
+  }
+  return projects[0].id;
+}
+
+function NewChat({ route, projects, onCreated, compact }: {
+  route: Route;
+  projects: ProjectSummary[] | null;
+  onCreated: () => Promise<void>;
+  compact?: boolean;
+}) {
+  const [busy, setBusy] = useState(false);
+  const project = projectFor(route, projects);
+  async function create() {
+    if (!project) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const view = await api.createSession(project);
+      await onCreated();
+      go({ kind: "session", id: view.session.id });
+    } catch (e) {
+      toast(`新建对话失败：${errorText(e)}`, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button className={compact ? "iconbtn" : "newchat"} disabled={busy || !project} onClick={() => void create()}
+      title={project ? `在 ${project} 里新建对话` : "先新建一个 Project"} aria-label="新对话">
+      <Icon name="plus" size={15} />{!compact && " 新对话"}
+    </button>
+  );
+}
+
+function SidebarRail({ route, projects, onExpand, onCreated }: {
+  route: Route;
+  projects: ProjectSummary[] | null;
+  onExpand: () => void;
+  onCreated: () => Promise<void>;
+}) {
+  return (
+    <aside className="side rail" aria-label="Project 与 Session（已收起）">
+      <button className="iconbtn" title="展开侧栏" aria-label="展开侧栏" onClick={onExpand}><Icon name="side" /></button>
+      <NewChat route={route} projects={projects} onCreated={onCreated} compact />
+      <button className="iconbtn" title="全局" aria-label="全局" onClick={() => go({ kind: "global" })}><Icon name="home" /></button>
+      <div className="bottom">
+        <button className="iconbtn" title="资料与简历" aria-label="资料与简历"
+          onClick={() => go({ kind: "settings", tab: "profile" })}>
+          <Icon name="file" />
+        </button>
+        <button className="iconbtn" title="模型设置" aria-label="模型设置" onClick={() => go({ kind: "settings", tab: "models" })}>
+          <Icon name="gear" />
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+// Session 按今天 / 昨天 / 更早分组（按创建时间）
+function groupByDay(sessions: SessionSummary[]): [string, SessionSummary[]][] {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const today = start.getTime();
+  const yesterday = today - 24 * 3600 * 1000;
+  const groups: Record<string, SessionSummary[]> = { 今天: [], 昨天: [], 更早: [] };
+  for (const s of sessions) {
+    const at = Date.parse(s.createdAt);
+    groups[at >= today ? "今天" : at >= yesterday ? "昨天" : "更早"].push(s);
+  }
+  return Object.entries(groups).filter(([, list]) => list.length > 0);
+}
+
+function Sidebar({ route, projects, error, onCreated, onCollapse }: {
   route: Route;
   projects: ProjectSummary[] | null;
   error: string | null;
   onCreated: () => Promise<void>;
+  onCollapse: () => void;
 }) {
   const current = (r: Route) => href(r) === href(route);
+  // 正在改名的那一项（双击进入）：project:<id> 或 session:<id>
+  const [renaming, setRenaming] = useState<string | null>(null);
   return (
     <aside className="side" aria-label="Project 与 Session">
-      <div className="brand"><i aria-hidden="true"></i>JobApply</div>
+      <div className="brand">
+        <span><i aria-hidden="true"></i>JobApply</span>
+        <button className="iconbtn" title="收起侧栏" aria-label="收起侧栏" onClick={onCollapse}><Icon name="side" /></button>
+      </div>
+      <NewChat route={route} projects={projects} onCreated={onCreated} />
       <button className="pbtn" aria-current={current({ kind: "global" })} onClick={() => go({ kind: "global" })}>
         <span>⌂ 全局</span>
       </button>
@@ -63,30 +170,64 @@ function Sidebar({ route, projects, error, onCreated }: {
         {error && <p className="error small">{error}</p>}
         {projects?.map((p) => (
           <div key={p.id}>
-            <button className="pbtn" aria-current={current({ kind: "project", id: p.id })}
-              onClick={() => go({ kind: "project", id: p.id })}>
-              <span>{p.title}</span><small>{p.id}</small>
-            </button>
-            {p.sessions.length > 0 && (
-              <ul className="sess">
-                {p.sessions.map((s) => (
-                  <li key={s.id}>
-                    <button title={s.title} aria-current={current({ kind: "session", id: s.id })}
-                      onClick={() => go({ kind: "session", id: s.id })}>
-                      {s.title}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+            {renaming === `project:${p.id}`
+              ? <RenameInput className="side-rename" value={p.title} onDone={() => setRenaming(null)}
+                  onSave={async (title) => { await api.renameProject(p.id, title); await onCreated(); }} />
+              : (
+                <div className="siderow">
+                  <button className="pbtn" aria-current={current({ kind: "project", id: p.id })} title="双击改名"
+                    onClick={() => go({ kind: "project", id: p.id })} onDoubleClick={() => setRenaming(`project:${p.id}`)}>
+                    <span>{p.title}</span>
+                    {(p.counts.dueChecks ?? 0) > 0 && (
+                      <span className="duebadge" title={`${p.counts.dueChecks} 个申请该查看了`}>{p.counts.dueChecks}</span>
+                    )}
+                    <small>{p.id}</small>
+                  </button>
+                  <button className="iconbtn renamebtn" title="改名" aria-label={`给 ${p.title} 改名`}
+                    onClick={() => setRenaming(`project:${p.id}`)}><Icon name="pencil" size={13} /></button>
+                </div>
+              )}
+            {groupByDay(p.sessions).map(([day, list]) => (
+              <div key={day} className="sessgroup">
+                <span className="sessday">{day}</span>
+                <ul className="sess">
+                  {list.map((s) => (
+                    <li key={s.id}>
+                      {renaming === `session:${s.id}` ? (
+                        <RenameInput className="side-rename" value={s.title} onDone={() => setRenaming(null)}
+                          onSave={async (title) => { await api.renameSession(s.id, title); await onCreated(); }} />
+                      ) : (
+                        <div className="siderow">
+                          <button title={`${s.title}（双击改名）`} aria-current={current({ kind: "session", id: s.id })}
+                            onClick={() => go({ kind: "session", id: s.id })} onDoubleClick={() => setRenaming(`session:${s.id}`)}>
+                            <span className="sesst">{s.title}</span>
+                            {s.status === "running" && <span className="rundot" title="运行中" aria-label="运行中" />}
+                            {s.status === "interrupted" && <span className="rundot bad" title="中断了" aria-label="中断了" />}
+                          </button>
+                          <button className="iconbtn renamebtn" title="改名" aria-label={`给 ${s.title} 改名`}
+                            onClick={() => setRenaming(`session:${s.id}`)}><Icon name="pencil" size={12} /></button>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
           </div>
         ))}
         <NewProject onCreated={onCreated} />
       </div>
       <div className="bottom">
-        <button className="pbtn" aria-current={route.kind === "settings"}
+        <p className="note">
+          Project = 一份资料版本 + 偏好，不代表岗位类别。Session 是一次对话，可以只调研、调研加投递，或者回来更新面试情况；岗位（Job）跨多个 Session。
+        </p>
+        <button className="pbtn" aria-current={route.kind === "settings" && route.tab === "profile"}
+          title="简历等原件、来源、事实与画像" onClick={() => go({ kind: "settings", tab: "profile" })}>
+          <span>▤ 资料与简历</span>
+        </button>
+        <button className="pbtn" aria-current={route.kind === "settings" && route.tab === "models"}
           onClick={() => go({ kind: "settings", tab: "models" })}>
-          <span>⚙ 设置</span>
+          <span>⚙ 模型设置</span>
         </button>
       </div>
     </aside>
@@ -135,4 +276,20 @@ function NewProject({ onCreated }: { onCreated: () => Promise<void> }) {
       {error && <p className="error small">{error}</p>}
     </div>
   );
+}
+
+function readFlag(key: string): boolean {
+  try {
+    return window.localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeFlag(key: string, value: boolean) {
+  try {
+    window.localStorage.setItem(key, value ? "1" : "0");
+  } catch {
+    // 本地存储不可用：只在这次打开里有效
+  }
 }

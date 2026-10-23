@@ -111,7 +111,7 @@ assignments:
 
 1. **建 base**：上传主简历和资料 → 提取 → 逐组核实（流程同 memory「新建 Project」）。
 2. **配模型**：选预设或自定义，填 key，测试连接，分配用途。
-3. **连接浏览器**：安装 Playwright 扩展，在 Chrome 里同意连接。
+3. **连接浏览器**：在 Chrome 打开 `chrome://inspect/#remote-debugging` 的「Allow remote debugging for this browser instance」，第一次连接时同意一次（不用装扩展，见 workflow.md「Chrome MCP」）。
 4. **可选**：填 Brave key（不填也能用免费搜索来源）。
 5. **提示**：建议开启 Time Machine 备份 `storage/`。
 

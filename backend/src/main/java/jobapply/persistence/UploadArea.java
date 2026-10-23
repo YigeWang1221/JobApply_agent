@@ -14,7 +14,7 @@ import java.util.stream.Stream;
  * {@code storage/uploads/<job-id>/}：一个 Job 这次要上传的文件。按 {@code job.md} 的 {@code materials}，把
  * {@code base/originals/} 里的原件复制成等字节副本，并用 {@code base/assets.md} 登记的 SHA-256 核对；
  * 浏览器只能上传这个目录里的文件（{@link jobapply.harness.policies.BrowserToolPolicy}）。
- * 线程到达关卡 B 或被丢弃时用 {@link #clear(String)} 清空。
+ * 线程到达关卡 B 时用 {@link #clear(String)} 清空原件副本，重新开始时用 {@link #reset(String)} 全部清空。
  */
 public final class UploadArea {
 
@@ -68,15 +68,24 @@ public final class UploadArea {
         return assetKeys.stream().map(key -> stage(jobId, key)).toList();
     }
 
-    /** 清空这个 Job 的上传目录（保留空目录）。目录不存在时什么都不做。 */
+    /** 清空复制进来的原件（保留空目录和用户附的文件 {@code attachments/}，对话里还要显示）。目录不存在时什么都不做。 */
     public synchronized void clear(String jobId) {
+        delete(jobId, layout.jobAttachmentsDir(jobId));
+    }
+
+    /** 清空整个上传目录，连同用户附的文件（重新开始申请时，旧对话丢掉了）。目录不存在时什么都不做。 */
+    public synchronized void reset(String jobId) {
+        delete(jobId, null);
+    }
+
+    private void delete(String jobId, Path keep) {
         Path dir = dir(jobId);
         if (!Files.exists(dir)) {
             return;
         }
         try (Stream<Path> walk = Files.walk(dir)) {
             for (Path path : walk.sorted(Comparator.reverseOrder()).toList()) {
-                if (!path.equals(dir)) {
+                if (!path.equals(dir) && (keep == null || !path.startsWith(keep))) {
                     Files.delete(path);
                 }
             }

@@ -69,6 +69,24 @@ public final class ProjectRepository {
         }
     }
 
+    /** 改 Project 的名字（frontmatter 和正文的标题）。id 不变。 */
+    public ProjectSpec rename(String projectId, String title) {
+        ProjectSpec spec = load(projectId);
+        String name = SessionRepository.checkTitle(title);
+        Path file = layout.projectFile(projectId);
+        FrontmatterFile.Document document = FrontmatterFile.read(file);
+        Map<String, Object> fm = new LinkedHashMap<>(document.frontmatter());
+        fm.put("title", name);
+        String body = document.body();
+        String heading = "# " + spec.title() + "\n";
+        int at = spec.title() == null ? -1 : body.indexOf(heading);
+        if (at >= 0) {
+            body = body.substring(0, at) + "# " + name + "\n" + body.substring(at + heading.length());
+        }
+        FrontmatterFile.write(file, new FrontmatterFile.Document(fm, body));
+        return load(projectId);
+    }
+
     private static Map<String, Object> toFrontmatter(ProjectSpec spec) {
         Map<String, Object> fm = new LinkedHashMap<>();
         fm.put("id", spec.id());

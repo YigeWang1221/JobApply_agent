@@ -1,22 +1,37 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  api, ApiError, errorText, type ApplicationQuestion, type ApplicationStatus, type Asset, type FileSlot,
-  type JobDetail, type ReplyBody,
+  api, ApiError, awaitingSubmit, errorText, type ApplicationQuestion, type ApplicationStatus, type Asset, type FileSlot,
+  type JobDetail, type JobEventView, type PlanItem, type ReplyBody,
 } from "../api";
+import { ChatSkeleton } from "../chat/ChatSkeleton";
+import { Composer } from "../chat/Composer";
+import { Icon } from "../chat/icons";
+import { MessageList } from "../chat/MessageList";
+import { useAttachments } from "../chat/useAttachments";
+import { useLiveUpdates } from "../chat/useLiveUpdates";
 import { go } from "../route";
-import { APPLICATION, ChatLog, JobState, VerifiedChip } from "../status";
-
-const POLL_MS = 2000;
+import { APPLICATION, JobState, SubmitConfirm, VerifiedChip } from "../status";
+import { toast } from "../toast";
 
 const PLAN: Record<string, string> = { todo: "待做", doing: "进行中", done: "完成", blocked: "卡住" };
+const WAITING = new Set(["waiting_user", "ready", "failed"]);
 
-// 申请工作台（C005-ui.md「页面」）：左边是 Agent 每一步做了什么和它的计划，右边是现在要你做的事。
-// Agent 停在最终提交前，不会替你点提交。申请线程在跑时每 2 秒查一次
+interface ReplyForm {
+  key: string;
+  answers: Record<string, string>;
+  picked: Record<string, string>;
+}
+
+// 申请工作台（C005-ui.md「页面」，C006-fix 改成整屏）：和 Session 页同一套布局。中间是 Agent 每一步做了什么，
+// 底部输入框就是回复（文字 + 附件）；右栏是现在要你做的事：问题、上传位置、计划、报告、用量、事件。
+// Agent 停在最终提交前，不会替你点提交。运行中走 SSE，连不上时每 2 秒查一次
 export default function JobPage({ id }: { id: string }) {
   const [detail, setDetail] = useState<JobDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [pollError, setPollError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [text, setText] = useState("");
+  const [form, setForm] = useState<ReplyForm>({ key: "", answers: {}, picked: {} });
+  const [panelOpen, setPanelOpen] = useState(() => window.matchMedia("(min-width: 1100px)").matches);
 
   const load = useCallback(async () => {
     try {
@@ -32,85 +47,165 @@ export default function JobPage({ id }: { id: string }) {
   }, [load]);
 
   const running = detail?.application?.status === "running";
-  useEffect(() => {
-    if (!running) {
-      return;
-    }
-    const timer = window.setInterval(() => void load(), POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [running, load]);
+  const sse = useLiveUpdates(api.jobEvents(id), running, load);
+  const upload = useCallback((file: File) => api.jobAttachment(id, file), [id]);
+  const attach = useAttachments(upload);
 
-  async function call(action: () => Promise<unknown>) {
+  useEffect(() => {
+    document.title = detail ? `${detail.job.company} · ${detail.job.title} · JobApply` : "JobApply";
+    return () => {
+      document.title = "JobApply";
+    };
+  }, [detail?.job.company, detail?.job.title]);
+
+  async function call(action: () => Promise<unknown>): Promise<boolean> {
     setBusy(true);
-    setError(null);
     try {
       await action();
       await load();
+      return true;
     } catch (e) {
-      setError(describe(e));
+      toast(describe(e), "error");
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
   if (!detail) {
-    return pollError ? <p className="error">{pollError}</p> : <p className="muted">读取中…</p>;
+    return pollError ? <p className="error pad">{pollError}</p> : <ChatSkeleton />;
   }
   const { job, application: status, steps, events } = detail;
-  const plan = status?.plan ?? [];
   const session = status?.session ?? job.discoveredIn;
   const canStart = !status && (job.leadStatus === "new" || job.leadStatus === "shortlisted"
     || (job.leadStatus === "converted" && job.phase === "prep"));
-  const reply = async (body: Omit<ReplyBody, "session">) => {
-    if (!session) {
-      throw new Error("这个申请没有 Session");
+  const waiting = !!status && WAITING.has(status.status);
+  // 用户确认提交（或不投）以后申请不在 prep 了，就不能再「要求修改」
+  const ready = status?.status === "ready" && job.phase === "prep";
+
+  // 同一次等待算一份表单：轮询拿到同样的内容时不重置用户已经填的东西
+  const formKey = status ? replyKey(status) : "";
+  const current: ReplyForm = form.key === formKey ? form : { key: formKey, answers: {}, picked: {} };
+  const questions = waiting ? status?.questions ?? [] : [];
+  const slots = waiting ? status?.fileSlots ?? [] : [];
+  const answerable = questions.filter((q) => q.fieldClass !== "C");
+  const missingAnswers = answerable.filter((q) => q.required && !current.answers[q.id]?.trim());
+  const missingFiles = slots.filter((slot) => slot.required !== false && !current.picked[slot.id]);
+
+  const lockedReason = !status
+    ? "还没有开始申请"
+    : job.phase !== "prep" ? `这个申请现在是「${job.label}」，不用再回复申请 Agent；投递后的进展在 Session 对话里告诉 Agent`
+    : running ? "Agent 正在做；它要你做什么时可以在这里回复" : waiting ? null : "现在不需要回复";
+  const hints = [
+    missingAnswers.length > 0 && `还有 ${missingAnswers.length} 个必填问题`,
+    missingFiles.length > 0 && `还有 ${missingFiles.length} 个上传位置没选`,
+    ready && !text.trim() && "要求修改时写明要改什么",
+  ].filter(Boolean) as string[];
+
+  async function send() {
+    if (!status || !session) {
+      toast("这个申请没有 Session", "error");
+      return;
     }
-    await api.reply(job.id, { session, ...body });
-    await load();
-  };
+    const filled = Object.fromEntries(
+      answerable.filter((q) => current.answers[q.id]?.trim()).map((q) => [q.id, current.answers[q.id].trim()]),
+    );
+    const files = attach.ready.map((file) => file.id);
+    const body: ReplyBody = {
+      session,
+      ...(text.trim() ? { text: text.trim() } : {}),
+      ...(Object.keys(filled).length > 0 ? { answers: filled } : {}),
+      ...(slots.length > 0 ? { files: slots.map((slot) => current.picked[slot.id] ?? "") } : {}),
+      ...(files.length > 0 ? { attachments: files } : {}),
+    };
+    if (await call(() => api.reply(job.id, body))) {
+      setText("");
+      attach.clear();
+    }
+  }
 
   return (
-    <>
-      <div className="top">
-        <div>
-          <h1>{job.company} · {job.title}</h1>
-          <p>
-            {[job.city.join("、"), job.type, job.site].filter(Boolean).join(" · ")}
-            {job.url && <> · <a href={job.url} target="_blank" rel="noreferrer">岗位链接</a></>}
-            {job.officialUrl && <> · <a href={job.officialUrl} target="_blank" rel="noreferrer">官方链接</a></>}
-          </p>
-        </div>
-        <div className="row">
-          <VerifiedChip verified={job.verified} />
-          <JobState job={job} />
-          <button className="linkbtn" onClick={() => go({ kind: "project", id: job.project })}>回到 Project</button>
-          {job.discoveredIn && (
-            <button className="linkbtn" onClick={() => go({ kind: "session", id: job.discoveredIn! })}>发现它的 Session</button>
-          )}
+    <div className="chatpage">
+      <div className="chatmain">
+        <header className="chathead">
+          <div className="chathead-t">
+            <h1>{job.company} · {job.title}</h1>
+            <span className="muted small headmeta">
+              {[job.city.join("、"), job.type, job.site].filter(Boolean).join(" · ")}
+              {job.url && <a href={job.url} target="_blank" rel="noreferrer">岗位链接</a>}
+              {job.officialUrl && <a href={job.officialUrl} target="_blank" rel="noreferrer">官方链接</a>}
+              <button className="linkbtn" onClick={() => go({ kind: "project", id: job.project })}>回到 Project</button>
+              {job.discoveredIn && (
+                <button className="linkbtn" onClick={() => go({ kind: "session", id: job.discoveredIn! })}>发现它的 Session</button>
+              )}
+              {job.phase !== "closed" && job.leadStatus !== "closed" && job.leadStatus !== "skipped" && (
+                <button className="linkbtn" title="岗位已下线 / 停止招聘"
+                  onClick={() => void call(() => api.postingClosed(job.id))}>岗位下线了</button>
+              )}
+            </span>
+          </div>
+          <div className="row nowrap">
+            <VerifiedChip verified={job.verified} />
+            <JobState job={job} />
+            {!status && (
+              <button className="primary" disabled={busy || !canStart || !session}
+                title={!session ? "没有可用的 Session" : !canStart ? "这个岗位现在不能开始申请" : undefined}
+                onClick={() => void call(() => api.startApplication(job.id, { project: job.project, session: session! }))}>
+                开始申请
+              </button>
+            )}
+            <button className={`iconbtn labeled${waiting && !panelOpen ? " attn" : ""}`} aria-expanded={panelOpen}
+              onClick={() => setPanelOpen(!panelOpen)} title={panelOpen ? "收起右栏" : "展开右栏"}>
+              <Icon name="panel" size={15} /> 要你做的事
+            </button>
+          </div>
+        </header>
+        {pollError && <p className="error small pad">刷新失败：{pollError}</p>}
+        <MessageList messages={steps} running={running} jobs={[job]}
+          activity={sse.activity !== undefined ? sse.activity : detail.activity}
+          onStop={() => void call(() => api.stop(job.id))}
+          empty={
+            <div className="emptychat">
+              <h2>还没有开始申请</h2>
+              <p className="muted">Agent 在你的 Chrome 里打开岗位页，替你填写，停在最终提交前。最终提交由你自己点。</p>
+              {!session && <p className="muted small">没有可用的 Session</p>}
+              {!status && !canStart && <p className="muted small">这个岗位现在不能开始申请</p>}
+            </div>
+          } />
+        <div className="composerwrap">
+          {waiting && hints.length > 0 && <p className="composerhint">{hints.join(" · ")}</p>}
+          <Composer value={text} onChange={setText} running={running} disabled={busy}
+            attach={attach} allowEmpty={!ready} blocked={hints.length > 0} lockedReason={lockedReason}
+            sendLabel={ready ? "要求修改" : status?.status === "failed" ? "重试" : "回复，继续"}
+            onSend={() => void send()}
+            onStop={() => void call(() => api.stop(job.id))}
+            placeholder={ready ? "要修改时写明要改什么" : "回复 Agent（可选，例如「登录好了」），可以附文件和截图"} />
+          {ready && <p className="privacy composerhint">修改说明原文会记进过程日志（run-log.jsonl），不要写个人信息。</p>}
         </div>
       </div>
-      {error && <p className="error">{error}</p>}
-      {pollError && <p className="error">刷新失败：{pollError}</p>}
-      <div className="workbench">
-        <div className="panel">
+      {panelOpen && (
+        <aside className="jobsside" aria-label="现在要你做的事">
           <div className="ph">
-            <h2>Agent 做了什么</h2>
-            {status && <span className="muted small">{APPLICATION[status.status] ?? status.status}</span>}
+            <h2>{ready ? "停在提交前：请你审阅" : status?.status === "failed" ? "出错了" : "现在要你做的事"}</h2>
+            <button className="iconbtn" aria-label="收起" title="收起" onClick={() => setPanelOpen(false)}>
+              <Icon name="cross" size={14} />
+            </button>
           </div>
-          {plan.length > 0 && (
-            <>
-              <strong className="small">计划</strong>
-              <ol className="questions">
-                {plan.map((item, index) => (
-                  <li key={index}><span><span className="muted small">[{PLAN[item.status] ?? item.status}]</span> {item.text}</span></li>
-                ))}
-              </ol>
-            </>
+          <StatusNote status={status} />
+          {awaitingSubmit(job) && !running && <SubmitConfirm job={job} onDone={load} />}
+          {questions.length > 0 && (
+            <Questions questions={questions} answers={current.answers}
+              setAnswers={(answers) => setForm({ ...current, answers })} />
           )}
-          <div className="chatlog">
-            {steps.length === 0 ? <p className="empty">还没有开始。</p> : <ChatLog messages={steps} />}
-            {running && <div className="thinking">Agent 正在做…</div>}
-          </div>
+          {slots.length > 0 && (
+            <Files slots={slots} offered={status?.assets ?? null} picked={current.picked}
+              setPicked={(update) => setForm((old) => {
+                const base = old.key === formKey ? old : { key: formKey, answers: {}, picked: {} };
+                return { ...base, picked: update(base.picked) };
+              })} />
+          )}
+          <Plan plan={status?.plan ?? []} />
+          {status && (ready || status.report) && <section className="sidesec"><Report jobId={job.id} /></section>}
           {status?.usage && (
             <div className="stats">
               <div><strong>{status.usage.toolCalls.toLocaleString()}</strong><span className="muted small">工具调用</span></div>
@@ -118,55 +213,61 @@ export default function JobPage({ id }: { id: string }) {
               <div><strong>{status.usage.tokens.toLocaleString()}</strong><span className="muted small">token</span></div>
             </div>
           )}
-        </div>
-        <div style={{ minWidth: 0 }}>
-          {!status && (
-            <section className="card">
-              <h2>开始申请</h2>
-              <p className="muted small">Agent 在你的 Chrome 里打开岗位页，替你填写，停在最终提交前。最终提交由你自己点。</p>
-              <div className="row">
-                <button className="primary" disabled={busy || !canStart || !session}
-                  onClick={() => void call(() => api.startApplication(job.id, { project: job.project, session: session! }))}>
-                  开始申请
-                </button>
-                {!session && <span className="muted small">没有可用的 Session</span>}
-                {!canStart && <span className="muted small">这个岗位现在不能开始申请</span>}
-              </div>
-            </section>
-          )}
-          {status && status.status === "running" && (
-            <section className="card">
-              <h2>Agent 正在做</h2>
-              <p className="muted small">它要你做什么时，这里会显示。</p>
-              <div className="row">
-                <button className="danger" disabled={busy} onClick={() => void call(() => api.stop(job.id))}>停止</button>
-              </div>
-            </section>
-          )}
-          {status && status.error && <p className="error">出错：{status.error}</p>}
-          {status && (status.status === "waiting_user" || status.status === "ready" || status.status === "failed") && (
-            <ReplyPanel key={replyKey(status)} jobId={job.id} status={status} reply={reply} />
-          )}
-          {status && status.status !== "ready" && status.report && (
-            <section className="card"><Report jobId={job.id} /></section>
-          )}
-        </div>
-      </div>
-      <div className="panel">
-        <h2>事件</h2>
-        {events.length === 0 ? <p className="empty">没有事件。</p> : (
-          <ul className="events">
-            {events.map((event, index) => (
-              <li key={index}>
-                <time>{event.at}</time>
-                {event.from ? `${event.from} → ` : ""}{event.to}
-                <span className="muted small"> · {event.actor}{event.reason ? ` · ${event.reason}` : ""}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+          <Events events={events} />
+        </aside>
+      )}
+    </div>
+  );
+}
+
+function StatusNote({ status }: { status: ApplicationStatus | null }) {
+  if (!status) {
+    return <p className="muted small">还没有申请。点上面的「开始申请」，Agent 会在你的 Chrome 里打开岗位页。</p>;
+  }
+  return (
+    <>
+      <p className="muted small">状态：{APPLICATION[status.status] ?? status.status}</p>
+      {status.status === "running" && <p className="muted small">Agent 正在做。它要你做什么时，这里会显示。</p>}
+      {status.message && <p className="message">{status.message}</p>}
+      {status.error && <p className="error">出错：{status.error}</p>}
+      {status.disconnected && <p className="warn small">浏览器连接断开了。准备好后回复，系统会先重新连接。</p>}
+      {WAITING.has(status.status) && <p className="muted small">在下面的输入框回复；这里的回答和文件选择会一起发出。</p>}
     </>
+  );
+}
+
+function Plan({ plan }: { plan: PlanItem[] }) {
+  if (plan.length === 0) {
+    return null;
+  }
+  return (
+    <section className="sidesec">
+      <strong className="small">计划</strong>
+      <ol className="questions">
+        {plan.map((item, index) => (
+          <li key={index}><span><span className="muted small">[{PLAN[item.status] ?? item.status}]</span> {item.text}</span></li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function Events({ events }: { events: JobEventView[] }) {
+  return (
+    <section className="sidesec">
+      <strong className="small">事件</strong>
+      {events.length === 0 ? <p className="empty">没有事件。</p> : (
+        <ul className="events">
+          {events.map((event, index) => (
+            <li key={index}>
+              <time>{event.at}</time>
+              {event.from ? `${event.from} → ` : ""}{event.to}
+              <span className="muted small"> · {event.actor}{event.reason ? ` · ${event.reason}` : ""}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -179,69 +280,6 @@ function replyKey(status: ApplicationStatus): string {
     (status.fileSlots ?? []).map((s) => s.id).join(","),
     status.round ?? "",
   ].join("|");
-}
-
-function ReplyPanel({ jobId, status, reply }: {
-  jobId: string;
-  status: ApplicationStatus;
-  reply: (body: Omit<ReplyBody, "session">) => Promise<void>;
-}) {
-  const questions = status.questions ?? [];
-  const slots = status.fileSlots ?? [];
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [picked, setPicked] = useState<Record<string, string>>({});
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const ready = status.status === "ready";
-
-  const answerable = questions.filter((q) => q.fieldClass !== "C");
-  const missingAnswers = answerable.filter((q) => q.required && !answers[q.id]?.trim());
-  const missingFiles = slots.filter((slot) => slot.required !== false && !picked[slot.id]);
-
-  async function send() {
-    setBusy(true);
-    setError(null);
-    try {
-      const filled = Object.fromEntries(
-        answerable.filter((q) => answers[q.id]?.trim()).map((q) => [q.id, answers[q.id].trim()]),
-      );
-      await reply({
-        ...(text.trim() ? { text: text.trim() } : {}),
-        ...(Object.keys(filled).length > 0 ? { answers: filled } : {}),
-        ...(slots.length > 0 ? { files: slots.map((slot) => picked[slot.id] ?? "") } : {}),
-      });
-    } catch (e) {
-      setError(describe(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <section className="card">
-      <h2>{ready ? "停在提交前：请你审阅" : status.status === "failed" ? "出错了" : "现在要你做的事"}</h2>
-      {status.message && <p className="message">{status.message}</p>}
-      {status.disconnected && <p className="warn small">浏览器连接断开了。准备好后回复，系统会先重新连接。</p>}
-      {questions.length > 0 && <Questions questions={questions} answers={answers} setAnswers={setAnswers} />}
-      {slots.length > 0 && <Files slots={slots} offered={status.assets ?? null} picked={picked} setPicked={setPicked} />}
-      {ready && <Report jobId={jobId} />}
-      <label>
-        {ready ? "要修改时写明要改什么" : "回复 Agent（可选，例如「登录好了」）"}
-        <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} />
-      </label>
-      <div className="row">
-        <button disabled={busy || missingAnswers.length > 0 || missingFiles.length > 0 || (ready && !text.trim())}
-          onClick={() => void send()}>
-          {ready ? "要求修改" : status.status === "failed" ? "重试" : "回复，继续"}
-        </button>
-        {missingAnswers.length > 0 && <span className="muted small">还有 {missingAnswers.length} 个必填问题</span>}
-        {missingFiles.length > 0 && <span className="muted small">还有 {missingFiles.length} 个上传位置没选</span>}
-      </div>
-      {ready && <p className="privacy">修改说明原文会记进过程日志（run-log.jsonl），不要写个人信息。</p>}
-      {error && <p className="error">{error}</p>}
-    </section>
-  );
 }
 
 function Questions({ questions, answers, setAnswers }: {

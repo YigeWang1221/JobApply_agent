@@ -14,7 +14,8 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * 追加式 JSONL：{@code events.jsonl} 与 {@code transcript.jsonl}。只追加，不改写已有行。
+ * 追加式 JSONL：{@code events.jsonl} 与 {@code transcript.jsonl}。只追加，不改写已有行；
+ * 唯一的例外是 Session 对话的重新生成（{@link #rewrite}）。
  */
 public final class EventLog {
 
@@ -25,6 +26,13 @@ public final class EventLog {
 
     public void append(Path file, Map<String, Object> record) {
         AtomicFiles.appendLine(file, mapper.writeValueAsString(record));
+    }
+
+    /** 整个改写（只用于 Session 对话重新生成时去掉上一次回答的文字）。 */
+    public void rewrite(Path file, List<Map<String, Object>> records) {
+        StringBuilder out = new StringBuilder();
+        records.forEach(record -> out.append(mapper.writeValueAsString(record)).append('\n'));
+        AtomicFiles.write(file, out.toString());
     }
 
     public List<Map<String, Object>> read(Path file) {

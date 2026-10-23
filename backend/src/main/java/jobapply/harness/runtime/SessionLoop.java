@@ -5,6 +5,7 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -21,7 +22,9 @@ import jobapply.domain.IllegalTransitionException;
 import jobapply.domain.Job;
 import jobapply.domain.JobPosting;
 import jobapply.domain.LeadStatus;
+import jobapply.domain.Outcome;
 import jobapply.domain.Phase;
+import jobapply.domain.Timestamps;
 import jobapply.domain.Transition;
 import jobapply.harness.context.Conversation;
 import jobapply.harness.context.SkillCatalog;
@@ -31,6 +34,7 @@ import jobapply.harness.policies.SnapshotRedactor;
 import jobapply.harness.policies.SubmitGuard;
 import jobapply.harness.policies.ToolNotAllowedException;
 import jobapply.persistence.AgentRunStore;
+import jobapply.persistence.AttachmentStore;
 import jobapply.persistence.DuplicateLeadException;
 import jobapply.persistence.FrontmatterFile;
 import jobapply.persistence.JobLedger;
@@ -75,7 +79,10 @@ public final class SessionLoop {
     private static final TypeReference<Map<String, Object>> MAP = new TypeReference<>() {
     };
 
-    /** 开始申请（由 {@link jobapply.workflow.ApplicationRunner} 实现）。返回给模型的一句话；不能开始时抛出异常，原因交给模型。 */
+    /**
+     * 开始申请（由 {@link jobapply.workflow.ApplicationRunner} 实现）。返回给模型的一句话；不能开始时抛出异常，原因交给模型。
+     * 守卫拒绝（例如这个 Job 已经有申请线程，重新开始会丢掉填了一半的申请）时抛 {@link ToolNotAllowedException}。
+     */
     public interface Applications {
         String start(String jobId, String projectId, String sessionId);
     }
@@ -115,8 +122,15 @@ public final class SessionLoop {
      */
     public void run(String projectId, String sessionId, List<AgentRun.Turn> history, BooleanSupplier stop,
                     Consumer<AgentRun.Turn> append) {
+        run(projectId, sessionId, history, stop, append, LoopObserver.NONE);
+    }
+
+    /** 同上；{@code observer} 收到「正在做什么」（调模型、执行工具）和每一步的结果。 */
+    public void run(String projectId, String sessionId, List<AgentRun.Turn> history, BooleanSupplier stop,
+                    Consumer<AgentRun.Turn> append, LoopObserver observer) {
         new PlaybookSeeder(layout, clock).seed();
-        new Round(projectId, sessionId, history, stop == null ? () -> false : stop, append).go();
+        new Round(projectId, sessionId, history, stop == null ? () -> false : stop, append,
+                observer == null ? LoopObserver.NONE : observer).go();
     }
 
     /** 一次工具调用的结果。{@code page} 是调用之后的页面（只有最新的一份原样发给模型）；{@code end} 为 true 时结束这次运行。 */
@@ -129,6 +143,7 @@ public final class SessionLoop {
         private final String session;
         private final BooleanSupplier stop;
         private final Consumer<AgentRun.Turn> append;
+        private final LoopObserver observer;
         private final List<AgentRun.Turn> turns;
         /** 这次运行开始时对话有多少条：之前的网页正文发给模型时只留开头。 */
         private final int firstNew;
@@ -141,11 +156,12 @@ public final class SessionLoop {
         private boolean reconnectTried;
 
         Round(String project, String session, List<AgentRun.Turn> history, BooleanSupplier stop,
-              Consumer<AgentRun.Turn> append) {
+              Consumer<AgentRun.Turn> append, LoopObserver observer) {
             this.project = project;
             this.session = session;
             this.stop = stop;
             this.append = append;
+            this.observer = observer;
             this.turns = new ArrayList<>(history);
             this.firstNew = Math.max(0, history.size() - 1);
         }
@@ -160,27 +176,37 @@ public final class SessionLoop {
                     limitReached();
                     return;
                 }
-                AssistantMessage message = call();
+                ChatResponse response = call();
+                AssistantMessage message = ModelCaller.message(response);
+                String thinking = ModelCaller.thinking(response);
                 String text = message == null ? null : message.getText();
                 if (message == null || !message.hasToolCalls()) {
-                    add(AgentRun.Turn.assistant(text == null || text.isBlank() ? "（没有想好怎么回答，请再说一遍要做什么。）"
-                            : text.strip(), List.of()));
+                    reply(AgentRun.Turn.assistant(text == null || text.isBlank() ? "（没有想好怎么回答，请再说一遍要做什么。）"
+                            : text.strip(), List.of(), thinking));
                     return;
                 }
                 List<AgentRun.ToolCall> toolCalls = message.getToolCalls().stream()
                         .map(call -> new AgentRun.ToolCall(call.id(), call.name(), call.arguments())).toList();
-                add(AgentRun.Turn.assistant(text, toolCalls));
+                reply(AgentRun.Turn.assistant(text, toolCalls, thinking));
                 int toolTurn = turns.size();
                 List<AgentRun.ToolResult> results = new ArrayList<>();
                 boolean end = false;
                 for (AgentRun.ToolCall call : toolCalls) {
+                    String startedAt = Timestamps.now(clock);
                     if (end || stop.getAsBoolean()) {
-                        results.add(new AgentRun.ToolResult(call.id(), call.name(), "没有执行：这一次运行已经结束。"));
+                        AgentRun.ToolResult skipped = new AgentRun.ToolResult(call.id(), call.name(),
+                                "没有执行：这一次运行已经结束。").timed(startedAt, 0);
+                        results.add(skipped);
+                        observer.done(call, skipped);
                         continue;
                     }
                     calls++;
+                    observer.tool(call);
+                    long started = System.nanoTime();
                     Step step = handle(call);
-                    results.add(step.result());
+                    AgentRun.ToolResult result = step.result().timed(startedAt, (System.nanoTime() - started) / 1_000_000);
+                    results.add(result);
+                    observer.done(call, result);
                     if (step.page() != null) {
                         latest = step.page();
                         latestPage = new Conversation.LatestPage(step.page(), toolTurn, call.id());
@@ -199,20 +225,28 @@ public final class SessionLoop {
             append.accept(turn);
         }
 
-        private AssistantMessage call() {
-            ChatResponse response = ModelCaller.call(model, new Prompt(
-                    Conversation.messages(ResearchAgent.systemPrompt(), context(), shortened(), latestPage),
+        /** 模型回的一条：记下，再告诉观察的一方。 */
+        private void reply(AgentRun.Turn turn) {
+            add(turn);
+            observer.replied(turn);
+        }
+
+        private ChatResponse call() {
+            observer.thinking();
+            return ModelCaller.call(model, new Prompt(
+                    Conversation.messages(ResearchAgent.systemPrompt(), context(), shortened(), latestPage,
+                            new AttachmentStore(layout.sessionAttachmentsDir(project, session))),
                     ModelFactory.withTools(model, ResearchAgent.tools())), stop);
-            return response == null || response.getResult() == null ? null : response.getResult().getOutput();
         }
 
         private void limitReached() {
             add(AgentRun.Turn.note("系统：这条消息已经用了 " + calls + " 次工具调用，到了上限。不要再调用工具，"
                     + "用几句话告诉用户：做到哪了、找到了什么、还剩什么。"));
-            AssistantMessage message = call();
+            ChatResponse response = call();
+            AssistantMessage message = ModelCaller.message(response);
             String text = message == null || message.getText() == null ? "" : message.getText().strip();
-            add(AgentRun.Turn.assistant((text.isEmpty() ? "这一次做了很多步，到了上限。" : text)
-                    + "\n\n回复「继续」我接着做。", List.of()));
+            reply(AgentRun.Turn.assistant((text.isEmpty() ? "这一次做了很多步，到了上限。" : text)
+                    + "\n\n回复「继续」我接着做。", List.of(), ModelCaller.thinking(response)));
         }
 
         /** 之前的消息里读过的网页正文只留开头。 */
@@ -274,6 +308,8 @@ public final class SessionLoop {
                     case ResearchTools.ADD_LEAD -> result(call, addLead(args));
                     case ResearchTools.UPDATE_LEAD -> result(call, updateLead(args));
                     case ResearchTools.START_APPLICATION -> startApplication(call, text(args.get("job")));
+                    case ResearchTools.MARK_SUBMITTED -> result(call, markSubmitted(args));
+                    case ResearchTools.RECORD_STATUS -> result(call, recordStatus(args));
                     case ResearchTools.ASK_USER -> askUser(call, text(args.get("message")));
                     case ResearchTools.READ_SKILL -> readSkill(call, text(args.get("name")));
                     default -> result(call, "失败：没有这个工具：" + name);
@@ -330,7 +366,7 @@ public final class SessionLoop {
                 page = openInBrowser(url);
             } catch (BrowserException.Disconnected e) {
                 return result(call, why + "，但浏览器连接断开了（" + e.getMessage() + "）。请用户确认 Chrome 开着、"
-                        + "连接已允许，或者把岗位内容贴过来。");
+                        + "chrome://inspect/#remote-debugging 的远程调试开关已打开，或者把岗位内容贴过来。");
             } catch (BrowserException.ToolFailed | IllegalStateException e) {
                 return result(call, why + "，在浏览器里也没打开：" + e.getMessage());
             }
@@ -454,7 +490,8 @@ public final class SessionLoop {
         private Step disconnected(AgentRun.ToolCall call, String reason) {
             latest = null;
             latestPage = null;
-            return result(call, "失败：浏览器连接断开了（" + reason + "）。告诉用户确认 Chrome 开着、连接已允许，"
+            return result(call, "失败：浏览器连接断开了（" + reason + "）。告诉用户确认 Chrome 开着、远程调试开关"
+                    + "（chrome://inspect/#remote-debugging）已打开，"
                     + "回复后会重新连接；不用浏览器的事可以接着做。");
         }
 
@@ -466,9 +503,12 @@ public final class SessionLoop {
                 LeadStatus lead = job.status().leadStatus();
                 boolean isLead = lead != LeadStatus.CONVERTED;
                 boolean keep = switch (which) {
-                    case "lead" -> isLead && lead != LeadStatus.SKIPPED;
-                    case "new", "shortlisted", "skipped" -> lead.value().equals(which);
+                    case "lead" -> isLead && lead != LeadStatus.SKIPPED && lead != LeadStatus.CLOSED;
+                    case "new", "shortlisted", "skipped", "closed" -> lead.value().equals(which);
                     case "applying" -> !isLead && job.status().phase() == Phase.PREP;
+                    case "applied" -> !isLead && job.status().phase() != Phase.PREP
+                            && job.status().phase() != Phase.CLOSED;
+                    case "check_due" -> due(job);
                     default -> true;
                 };
                 if (!keep) {
@@ -494,6 +534,7 @@ public final class SessionLoop {
                 if (official != null && !official.isBlank()) {
                     out.append(" | 官方：").append(official);
                 }
+                appendCheckTimes(out, job);
                 String note = job.extraString("lead_note");
                 if (note != null && !note.isBlank()) {
                     out.append(" | ").append(note);
@@ -575,12 +616,72 @@ public final class SessionLoop {
             return done.isEmpty() ? "没有要改的内容。" : jobId + "：" + String.join("；", done) + "。";
         }
 
+        /** 投递以后的几个时间（C007）：投递、最近查看、下次查看；到了下次查看的标「该查看了」。 */
+        private void appendCheckTimes(StringBuilder out, Job job) {
+            String applied = job.extraString("applied_at");
+            String checked = job.extraString("last_checked_at");
+            String next = job.extraString("next_check_at");
+            if (applied != null) {
+                out.append(" | 投递：").append(day(applied));
+            }
+            if (checked != null) {
+                out.append(" | 最近查看：").append(day(checked));
+            }
+            if (next != null && job.status().phase() != Phase.CLOSED) {
+                out.append(" | 下次查看：").append(day(next));
+                if (due(job)) {
+                    out.append("（该查看了）");
+                }
+            }
+        }
+
+        /** 已投递、没结束、下次查看的日子到了。 */
+        private boolean due(Job job) {
+            String next = job.extraString("next_check_at");
+            Phase phase = job.status().phase();
+            if (next == null || phase == null || phase == Phase.PREP || phase == Phase.CLOSED) {
+                return false;
+            }
+            try {
+                return !LocalDate.parse(day(next)).isAfter(LocalDate.now(clock));
+            } catch (DateTimeException e) {
+                return false;
+            }
+        }
+
+        private String markSubmitted(Map<String, Object> args) {
+            String jobId = text(args.get("job"));
+            if (jobId == null || !jobs.exists(project, jobId)) {
+                return "失败：这个 Project 里没有 Job " + jobId;
+            }
+            Job job = ledger.markSubmitted(project, jobId, session, text(args.get("note")));
+            return jobId + "：记为已投递（" + job.status().label() + "），" + job.extraString("next_check_at")
+                    + " 提醒用户去看状态。";
+        }
+
+        private String recordStatus(Map<String, Object> args) {
+            String jobId = text(args.get("job"));
+            if (jobId == null || !jobs.exists(project, jobId)) {
+                return "失败：这个 Project 里没有 Job " + jobId;
+            }
+            String phase = text(args.get("phase"));
+            String outcome = text(args.get("outcome"));
+            Integer days = args.get("next_check_in_days") instanceof Number number ? number.intValue() : null;
+            Job job = ledger.recordStatus(project, jobId, session, phase == null ? null : Phase.of(phase),
+                    outcome == null ? null : Outcome.of(outcome), text(args.get("note")), days);
+            String next = job.extraString("next_check_at");
+            return jobId + "：记下了（现在是 " + job.status().label() + "）"
+                    + (next == null ? "，不再提醒。" : "，下次 " + next + " 提醒。");
+        }
+
         private Step startApplication(AgentRun.ToolCall call, String jobId) {
             if (jobId == null || !jobs.exists(project, jobId)) {
                 return result(call, "失败：这个 Project 里没有 Job " + jobId);
             }
             try {
                 return result(call, applications.start(jobId, project, session));
+            } catch (ToolNotAllowedException e) {
+                return result(call, "被拒绝：" + e.getMessage());
             } catch (RuntimeException e) {
                 return result(call, "没有开始：" + e.getMessage());
             }
@@ -616,6 +717,11 @@ public final class SessionLoop {
         }
         String body = FrontmatterFile.read(file).body().strip();
         return body.isEmpty() ? fallback : body;
+    }
+
+    /** {@code 2026-10-27T09:00:00-04:00} → {@code 2026-10-27}。 */
+    private static String day(String value) {
+        return value.length() >= 10 ? value.substring(0, 10) : value;
     }
 
     private static String host(String url) {

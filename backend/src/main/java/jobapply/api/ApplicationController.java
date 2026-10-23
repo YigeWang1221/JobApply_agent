@@ -6,6 +6,7 @@ import java.util.Map;
 import jobapply.workflow.ApplicationException;
 import jobapply.workflow.ApplicationRunner;
 import jobapply.workflow.ApplicationStatus;
+import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -14,7 +15,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * 申请线程（agent-runtime.md 7.1）：开始、查询状态、回复、停止、读填写报告。写接口立即返回 202，Agent 在后台运行；
@@ -32,8 +35,10 @@ public class ApplicationController {
      * @param text    写给 Agent 的话（例如「登录好了」、要改什么）
      * @param answers 问题编号 → 回答
      * @param files   每个上传位置一个原件键，顺序同状态里的 {@code fileSlots}；跳过的选填位置写空字符串
+     * @param attachments 先上传的附件编号（C006 附件）；有附件时 {@code text} 可以为空
      */
-    public record ReplyRequest(String session, String text, Map<String, String> answers, List<String> files) {
+    public record ReplyRequest(String session, String text, Map<String, String> answers, List<String> files,
+                               List<String> attachments) {
     }
 
     static final MediaType MARKDOWN = new MediaType("text", "markdown", StandardCharsets.UTF_8);
@@ -61,7 +66,20 @@ public class ApplicationController {
     public ResponseEntity<ApplicationStatus> reply(@PathVariable String jobId, @RequestBody ReplyRequest request) {
         require(request.session(), "session");
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(runner.reply(jobId, new ApplicationRunner.Reply(
-                request.session(), request.text(), request.answers(), request.files())));
+                request.session(), request.text(), request.answers(), request.files(), request.attachments())));
+    }
+
+    /** 上传一个附件（C006 附件），存进 {@code uploads/<job-id>/attachments/}；回复时带上返回的 {@code id}。没有申请线程时 404。 */
+    @PostMapping(path = "/attachments", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<Views.UploadedAttachment> attach(@PathVariable String jobId,
+                                                           @RequestParam("file") MultipartFile file) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(Views.uploaded(
+                runner.attachments(jobId).save(file.getOriginalFilename(), SessionController.bytes(file))));
+    }
+
+    @GetMapping("/attachments/{attachmentId}")
+    public ResponseEntity<Resource> attachment(@PathVariable String jobId, @PathVariable String attachmentId) {
+        return Views.attachmentFile(runner.attachments(jobId), attachmentId);
     }
 
     @PostMapping("/stop")

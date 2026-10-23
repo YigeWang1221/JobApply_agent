@@ -113,9 +113,12 @@ public record AgentRun(
      *                {@code page}（系统自己取了页面）、{@code assistant}、{@code tool}
      * @param text    文字；{@code tool} 时为 null
      * @param calls   {@code assistant} 的工具调用
-     * @param results {@code tool} 的结果（不含快照全文）
+     * @param results  {@code tool} 的结果（不含快照全文）
+     * @param thinking {@code assistant} 时供应商真的给出的思考原文（C006-agent）；只给界面看，不发回给模型。没有时为 null
+     * @param attachments {@code user} 时用户附的文件（C006 附件）；旧记录里没有，为空
      */
-    public record Turn(String role, String text, List<ToolCall> calls, List<ToolResult> results) {
+    public record Turn(String role, String text, List<ToolCall> calls, List<ToolResult> results, String thinking,
+                       List<Attachment> attachments) {
 
         public static final String USER = "user";
         public static final String NOTE = "note";
@@ -126,10 +129,23 @@ public record AgentRun(
         public Turn {
             calls = calls == null ? List.of() : List.copyOf(calls);
             results = results == null ? List.of() : List.copyOf(results);
+            attachments = attachments == null ? List.of() : List.copyOf(attachments);
+        }
+
+        public Turn(String role, String text, List<ToolCall> calls, List<ToolResult> results, String thinking) {
+            this(role, text, calls, results, thinking, null);
+        }
+
+        public Turn(String role, String text, List<ToolCall> calls, List<ToolResult> results) {
+            this(role, text, calls, results, null, null);
         }
 
         public static Turn user(String text) {
             return new Turn(USER, text, null, null);
+        }
+
+        public static Turn user(String text, List<Attachment> attachments) {
+            return new Turn(USER, text, null, null, null, attachments);
         }
 
         public static Turn note(String text) {
@@ -144,6 +160,10 @@ public record AgentRun(
             return new Turn(ASSISTANT, text, calls, null);
         }
 
+        public static Turn assistant(String text, List<ToolCall> calls, String thinking) {
+            return new Turn(ASSISTANT, text, calls, null, thinking == null || thinking.isBlank() ? null : thinking);
+        }
+
         public static Turn tool(List<ToolResult> results) {
             return new Turn(TOOL, null, null, results);
         }
@@ -152,7 +172,35 @@ public record AgentRun(
     public record ToolCall(String id, String name, String arguments) {
     }
 
-    public record ToolResult(String id, String name, String text) {
+    /**
+     * 一次工具调用的结果（C006-agent 加了状态和用时，旧记录里没有，为 null）。
+     *
+     * @param status    {@link #DONE} / {@link #FAILED} / {@link #REJECTED}（被守卫拒绝或没有执行）
+     * @param startedAt 开始执行的时间（ISO 字符串）
+     * @param ms        执行用了多少毫秒
+     */
+    public record ToolResult(String id, String name, String text, String status, String startedAt, Long ms) {
+
+        public static final String DONE = "done";
+        public static final String FAILED = "failed";
+        public static final String REJECTED = "rejected";
+
+        public ToolResult(String id, String name, String text) {
+            this(id, name, text, null, null, null);
+        }
+
+        /** 执行完了：记下开始时间和用时，状态按结果的开头判断（各个工具的结果统一以「失败：」「被拒绝：」开头）。 */
+        public ToolResult timed(String startedAt, long ms) {
+            return new ToolResult(id, name, text, statusOf(text), startedAt, ms);
+        }
+
+        public static String statusOf(String text) {
+            String head = text == null ? "" : text.strip();
+            if (head.startsWith("被拒绝") || head.startsWith("没有点") || head.startsWith("没有执行")) {
+                return REJECTED;
+            }
+            return head.startsWith("失败") || head.startsWith("没有开始") ? FAILED : DONE;
+        }
     }
 
     /** 问用户的一个问题。{@code fieldClass} 为 {@code C} 时只能由用户在浏览器里亲自填。 */
@@ -172,8 +220,25 @@ public record AgentRun(
     public record PlanItem(String text, String status) {
     }
 
-    /** 复制到上传区的文件：模型只看到编号和 {@code uploadName}。{@code slot} 是用户为哪个上传位置选的。 */
-    public record StagedFile(String assetKey, String uploadName, String slot, long size, String sha256) {
+    /**
+     * 复制到上传区的文件：模型只看到编号和 {@code uploadName}。{@code slot} 是用户为哪个上传位置选的。
+     *
+     * @param attachment 用户在回复里附的文件（C006 附件）时是附件编号，{@code assetKey} 为 null；资料库的原件时为 null
+     */
+    public record StagedFile(String assetKey, String uploadName, String slot, long size, String sha256,
+                             String attachment) {
+
+        public StagedFile(String assetKey, String uploadName, String slot, long size, String sha256) {
+            this(assetKey, uploadName, slot, size, sha256, null);
+        }
+    }
+
+    /**
+     * 用户附在一条消息里的文件（C006 附件）。
+     *
+     * @param file 申请 Agent 里 {@code browser_file_upload} 用的文件编号（同 {@link AgentRun#files()}）；Session 里为 null
+     */
+    public record Attachment(String id, String name, String contentType, Integer file) {
     }
 
     /** 累计用量。 */

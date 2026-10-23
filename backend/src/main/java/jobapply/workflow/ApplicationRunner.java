@@ -30,6 +30,7 @@ import jobapply.domain.Transition;
 import jobapply.harness.runtime.HarnessLoop;
 import jobapply.persistence.AgentRunStore;
 import jobapply.persistence.AssetRegistry;
+import jobapply.persistence.AttachmentStore;
 import jobapply.persistence.FillReportWriter;
 import jobapply.persistence.JobAnswers;
 import jobapply.persistence.JobLedger;
@@ -65,8 +66,14 @@ public final class ApplicationRunner implements AutoCloseable {
      * @param text    写给模型的话（例如「登录好了」、要改什么）；可以为空
      * @param answers 问题编号 → 回答（空白的当作没回答）
      * @param files   每个上传位置一个原件键，顺序同 {@code fileSlots}；跳过的选填位置写空字符串
+     * @param attachments 用户附的文件（{@link #attachments(String)} 里的编号，C006 附件）；可以为 null
      */
-    public record Reply(String session, String text, Map<String, String> answers, List<String> files) {
+    public record Reply(String session, String text, Map<String, String> answers, List<String> files,
+                        List<String> attachments) {
+
+        public Reply(String session, String text, Map<String, String> answers, List<String> files) {
+            this(session, text, answers, files, null);
+        }
     }
 
     private static final Set<PrepState> STARTABLE = Set.of(PrepState.SELECTED, PrepState.PREPARING,
@@ -97,6 +104,7 @@ public final class ApplicationRunner implements AutoCloseable {
         return thread;
     });
     private final Set<String> stopRequested = new HashSet<>();
+    private final LiveFeed feed;
 
     private HarnessLoop loop;
     private String runningJob;
@@ -124,6 +132,12 @@ public final class ApplicationRunner implements AutoCloseable {
         this.uploads = new UploadArea(layout, assets);
         this.reports = new FillReportWriter(layout, clock);
         this.runLog = new RunLog(layout, clock);
+        this.feed = new LiveFeed(clock);
+    }
+
+    /** 每个 Job 的申请线程现在在做什么、订阅推送（C006-agent）。 */
+    public LiveFeed feed() {
+        return feed;
     }
 
     /**
@@ -155,7 +169,7 @@ public final class ApplicationRunner implements AutoCloseable {
         AgentRun run = AgentRun.start(projectId, jobId, sessionId, job.posting().company(), job.posting().title(), url,
                 opening);
         moveTo(run, PrepState.PREPARING, Actor.USER, "开始申请线程");
-        uploads.clear(jobId);
+        uploads.reset(jobId);
         runs.save(run);
         submit(run);
         return status(jobId);
@@ -178,10 +192,13 @@ public final class ApplicationRunner implements AutoCloseable {
         }
         List<JobAnswers.NewAnswer> newAnswers = answers(run, reply.answers());
         List<JobMaterials.Selection> chosen = files(run, reply.files());
+        AttachmentStore attached = attachments(jobId);
+        List<AttachmentStore.Stored> sent = (reply.attachments() == null ? List.<String>of() : reply.attachments())
+                .stream().distinct().map(attached::require).toList();
 
         // 校验到此为止，下面开始写
         StringBuilder message = new StringBuilder();
-        message.append(text.isEmpty() ? "用户让你继续。" : "用户回复：" + text);
+        message.append(!text.isEmpty() ? "用户回复：" + text : sent.isEmpty() ? "用户让你继续。" : "用户发来了附件。");
         if (!newAnswers.isEmpty()) {
             List<JobAnswers.Answer> saved;
             try {
@@ -208,6 +225,13 @@ public final class ApplicationRunner implements AutoCloseable {
         if (reply.files() != null && chosen.isEmpty()) {
             message.append("\n用户没有为上传位置选文件（都是选填，跳过了）。");
         }
+        // 附件接着文件编号往后排，模型可以直接 browser_file_upload（编号写在发给模型的附件那一行里）
+        List<AgentRun.Attachment> turnAttachments = new ArrayList<>();
+        for (AttachmentStore.Stored stored : sent) {
+            files.add(new AgentRun.StagedFile(null, stored.name(), null, stored.size(), stored.sha256(),
+                    stored.id()));
+            turnAttachments.add(stored.attachment(files.size()));
+        }
         int round = run.round();
         if (AgentRun.READY.equals(run.status())) {
             round++;
@@ -216,11 +240,17 @@ public final class ApplicationRunner implements AutoCloseable {
         } else {
             runLog.append(run.project(), jobId, RunLog.Entry.userSignal(reply.session(), step(run), "reply"));
         }
-        AgentRun resumed = run.resumed(AgentRun.Turn.user(message.toString()), files, round);
+        AgentRun resumed = run.resumed(AgentRun.Turn.user(message.toString(), turnAttachments), files, round);
         moveTo(resumed, PrepState.PREPARING, Actor.USER, "用户回复，继续申请");
         runs.save(resumed);
         submit(resumed);
         return status(jobId);
+    }
+
+    /** 这个 Job 申请线程的附件（C006 附件）；没有申请线程时 404。运行中也可以上传，发出去要等它停下。 */
+    public synchronized AttachmentStore attachments(String jobId) {
+        find(jobId);
+        return new AttachmentStore(layout.jobAttachmentsDir(jobId));
     }
 
     /** 请正在跑的线程停下（在当前这一次工具调用之后）。没在跑时什么都不做。 */
@@ -296,6 +326,7 @@ public final class ApplicationRunner implements AutoCloseable {
         String jobId = run.job();
         runningJob = jobId;
         stopRequested.remove(jobId);
+        feed.started(jobId, AgentRun.RUNNING);
         current = queue.submit(() -> {
             AgentRun result;
             try {
@@ -316,6 +347,7 @@ public final class ApplicationRunner implements AutoCloseable {
                 runningJob = null;
                 stopRequested.remove(jobId);
             }
+            feed.finished(jobId, result.status());
         });
     }
 
@@ -324,13 +356,13 @@ public final class ApplicationRunner implements AutoCloseable {
             try {
                 browser.reconnect();
             } catch (BrowserException.Disconnected e) {
-                return run.waiting("还是连不上浏览器（" + e.getMessage() + "）。请确认 Chrome 开着、连接已经允许，然后再回复。",
+                return run.waiting("还是连不上浏览器（" + e.getMessage() + "）。请确认 Chrome 开着、chrome://inspect/#remote-debugging 里的远程调试开关已经打开，然后再回复。",
                         List.of(), List.of(), true);
             }
             run = run.reconnected();
         }
         String jobId = run.job();
-        return loop().run(run, () -> stopRequested(jobId), runs::save);
+        return loop().run(run, () -> stopRequested(jobId), runs::save, feed.observer(jobId));
     }
 
     /** 一次运行结束：按结果更新 {@code prep_state}；停在提交前时把报告定稿、清空上传区。 */
@@ -416,14 +448,18 @@ public final class ApplicationRunner implements AutoCloseable {
         return chosen;
     }
 
-    /** 把新选的原件写进 {@code job.md} 的 {@code materials}（连同之前选的），复制到上传区；编号接着之前的往后排。 */
+    /**
+     * 把新选的原件写进 {@code job.md} 的 {@code materials}（连同之前选的原件；附件不进资料库，不写），复制到上传区；
+     * 编号接着之前的往后排。
+     */
     private List<AgentRun.StagedFile> stage(AgentRun run, List<JobMaterials.Selection> chosen) {
         List<JobMaterials.Selection> all = new ArrayList<>();
-        run.files().forEach(file -> all.add(new JobMaterials.Selection(file.slot(), file.assetKey())));
+        run.files().stream().filter(file -> file.attachment() == null)
+                .forEach(file -> all.add(new JobMaterials.Selection(file.slot(), file.assetKey())));
         all.addAll(chosen);
         List<JobMaterials.Material> written = materials.write(run.project(), run.job(), all);
         List<AgentRun.StagedFile> files = new ArrayList<>(run.files());
-        for (int i = run.files().size(); i < written.size(); i++) {
+        for (int i = written.size() - chosen.size(); i < written.size(); i++) {
             JobMaterials.Material material = written.get(i);
             Path copy = uploads.stage(run.job(), material.asset());
             try {

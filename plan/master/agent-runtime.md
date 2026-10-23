@@ -106,7 +106,7 @@ C004-B 做出来的是「Java 写死的流程，中间加了 LLM」：
 ## 5. 做出一个能跑通的流程
 
 - 先在夹具上用真实模型试跑（假浏览器）。再在用户的 Chrome 上跑一次：
-  - 用户的 Chrome 没装 Playwright 扩展，用远程调试：打开 `chrome://inspect/#remote-debugging` 的开关，MCP 参数换成 `-y,@playwright/mcp@0.0.83,--cdp-endpoint,chrome,--snapshot-mode,none,--console-level,error,--image-responses,omit,--no-webmcp`；
+  - 用远程调试模式（2026-10-23 起是默认）：打开 `chrome://inspect/#remote-debugging` 的开关，MCP 参数用默认的 `--cdp-endpoint chrome`；
   - 一个应用、一条连接跑多个夹具（`-Djobapply.smoke.form=a,b,c`），只需要用户同意一次连接。
 - **算跑通**：
   - 模型自己打开页面、自己判断要不要登录、把能填的填好；

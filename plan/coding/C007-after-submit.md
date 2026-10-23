@@ -53,4 +53,12 @@
 
 ## 实际结果
 
-（施工后填写）
+2026-10-23 施工：
+
+- 后端：`Evidence` 加 `user-reported`；`JobEvent` 加 `status_checked`（只看过、没变化）。`JobLedger.markSubmitted` 走 `awaiting_review → user_submitting → applied`（两步先过状态机再写），写 `applied_at`、`next_check_at`（日期，默认 4 天后，Project `preferences.md` frontmatter 的 `check_every_days` 可改）；`JobLedger.recordStatus` 写 `last_checked_at`、推后 `next_check_at`（结束时清空），阶段走 `ChangePhase`，结束走 `Close`，事件 `actor=user`、原话进 `reason`。
+- 接口：`POST /api/jobs/{id}/submitted`（`{note?}`）；`POST /api/jobs/{id}/not-submitted`（`{giveUp, note?}`，false → `paused`，true → `closed:not_submitted`）。Session 取申请线程的 Session，没有时用发现它的 Session。
+- 对话 Agent：新工具 `mark_submitted`、`record_status`；`list_jobs` 带投递 / 最近查看 / 下次查看，到期的标「该查看了」，新增筛选 `applied`、`check_due`；提示词加「投递以后」一段；新建 Session 的开场提示到期的申请。两个工具算有副作用（重新生成时不重做）。
+- 视图：`JobView` 加 `appliedAt`、`lastCheckedAt`、`nextCheckAt`、`pageLooksSubmitted`（申请 Agent 结束语以 `SubmitWords.SUBMITTED_NOTICE` 开头）；`Counts` 加 `dueChecks`。台账 md 加「下次查看」列，csv 加 `applied_at`、`next_check_at`；投递日优先用 `applied_at`。
+- 前端：工作台右栏和 Session 输入框上方的确认卡片（「我已经在 Chrome 里提交了」/「还没提交 / 不投了」→ 先放着 / 不投了）；Project 主页、全局页「该查看了」，点「我看了」在该 Project 新建 Session 并预填「我看了 X 的状态：」；侧栏 Project 名旁的个数；KPI 加「该查看了」。草稿读写移到 `frontend/src/chat/draft.ts`。
+- 没做：成功页只读快照（`success-page` 补充证据）——调研标签页不是申请标签页，取申请页快照要动申请线程的浏览器队列，先不做；7 天 `unknown` 规则代码里还没有（台账「同步」列仍是 —），没有新加。
+- 验证：`mvn -B clean verify` 通过（611 个单元测试 + IT）；`npm run build` 通过。本机手动检查（点确认、对话里说「投了」、改 `next_check_at` 看开场）未运行。

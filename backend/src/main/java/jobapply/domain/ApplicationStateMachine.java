@@ -32,8 +32,9 @@ public final class ApplicationStateMachine {
             EnumSet.of(Phase.SCREENING, Phase.ASSESSMENT, Phase.INTERVIEW, Phase.OFFER);
 
     static {
-        LEAD_EDGES.put(LeadStatus.NEW, EnumSet.of(LeadStatus.SHORTLISTED, LeadStatus.SKIPPED));
-        LEAD_EDGES.put(LeadStatus.SHORTLISTED, EnumSet.of(LeadStatus.SKIPPED, LeadStatus.NEW));
+        LEAD_EDGES.put(LeadStatus.NEW, EnumSet.of(LeadStatus.SHORTLISTED, LeadStatus.SKIPPED, LeadStatus.CLOSED));
+        LEAD_EDGES.put(LeadStatus.SHORTLISTED, EnumSet.of(LeadStatus.SKIPPED, LeadStatus.NEW, LeadStatus.CLOSED));
+        LEAD_EDGES.put(LeadStatus.CLOSED, EnumSet.of(LeadStatus.NEW));
         LEAD_EDGES.put(LeadStatus.SKIPPED, EnumSet.noneOf(LeadStatus.class));
         LEAD_EDGES.put(LeadStatus.CONVERTED, EnumSet.noneOf(LeadStatus.class));
 
@@ -108,7 +109,7 @@ public final class ApplicationStateMachine {
         }
         if (evidence == null || !evidence.isComplete()) {
             throw new IllegalTransitionException(
-                    "进入 applied 必须有完整证据：kind 为 success-page 或 history-record，text、local_time、verified_at 不能为空");
+                    "进入 applied 必须有完整证据：kind 为 success-page、history-record 或 user-reported，text、local_time、verified_at 不能为空");
         }
         return new JobStatus(LeadStatus.CONVERTED, null, Phase.APPLIED, null, null, evidence);
     }
@@ -138,10 +139,11 @@ public final class ApplicationStateMachine {
         }
         Phase phase = current.phase();
         if (phase == null) {
-            throw new IllegalTransitionException("候选还没有转为申请；不投请标记 skipped");
+            throw new IllegalTransitionException("候选还没有转为申请；不投请标记 skipped，下线了请标记 closed");
         }
         boolean allowed = switch (outcome) {
             case NOT_SUBMITTED -> phase == Phase.PREP;
+            case POSTING_CLOSED -> phase != Phase.CLOSED;
             case ACCEPTED, DECLINED -> phase == Phase.OFFER;
             case REJECTED, WITHDRAWN, GHOSTED -> AFTER_APPLIED.contains(phase);
         };
