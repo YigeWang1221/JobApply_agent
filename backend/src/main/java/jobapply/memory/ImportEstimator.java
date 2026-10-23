@@ -23,7 +23,8 @@ import jobapply.tools.LocalDirectoryScanner;
  * 不调用模型；「开始整理」在 C004-A-2。
  * <p>
  * 模型调用的估算（C004-A-2 的流程）：每个来源的文字按 {@value #CHARS_PER_CALL} 字一批，多于一批时每批先摘要一次；
- * 再加清单卡一次、拆候选一次；多个来源时最后合并一次。没有可读内容的来源不调用。
+ * 再加清单卡一次、拆候选一次。多个来源的合并不调用模型（{@code CandidateMerger}，C004-A-2 施工时改）。
+ * 没有可读内容的来源不调用。确认候选时起草译文、生成画像的调用不在这里。
  */
 public final class ImportEstimator {
 
@@ -55,7 +56,7 @@ public final class ImportEstimator {
         for (String key : new LinkedHashSet<>(sourceKeys)) {
             selected.add(sources.find(key).orElseThrow(() -> new IllegalArgumentException("来源不存在：" + key)));
         }
-        Set<String> identities = identities();
+        Set<String> identities = identities(layout);
         List<ImportRun.SourceEstimate> estimates = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
         long chars = 0;
@@ -84,9 +85,6 @@ public final class ImportEstimator {
             int fileCount = (int) estimate.scan().files().stream().filter(file -> !file.kind().equals("tree")).count();
             sources.scanned(estimate.key(), estimate.scan().version(), fileCount);
         }
-        if (estimates.stream().filter(estimate -> estimate.modelCalls() > 0).count() > 1) {
-            modelCalls++;
-        }
         if (overLimit) {
             warnings.add("有来源超过上限（单个来源 " + limits.maxFiles() + " 个文件、" + limits.maxChars()
                     + " 个字符），请缩小目录后再估算");
@@ -114,7 +112,7 @@ public final class ImportEstimator {
     }
 
     /** 用户确认过的邮箱和名字（{@code contact.email*}、{@code contact.name*}），用来算本人提交占比。 */
-    private Set<String> identities() {
+    static Set<String> identities(StorageLayout layout) {
         Set<String> identities = new LinkedHashSet<>();
         for (Fact fact : FactsFile.read(layout.baseFacts())) {
             if (fact.unset() || !(fact.key().startsWith("contact.email") || fact.key().startsWith("contact.name"))) {

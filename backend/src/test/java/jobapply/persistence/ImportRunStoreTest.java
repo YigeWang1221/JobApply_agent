@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -48,5 +49,26 @@ class ImportRunStoreTest {
 
         assertThatThrownBy(() -> store.require("r-2026-10-22-099")).isInstanceOf(NoSuchElementException.class);
         assertThatThrownBy(() -> store.find("../x")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void listsNewestFirstAndPurgesFinishedRunsAfterThirtyDays() {
+        TestStorage storage = TestStorage.create(root, true);
+        ImportRunStore store = new ImportRunStore(storage.layout, storage.clock);
+        ImportRun done = store.create(List.of("s-2026-10-22-001"), null);
+        store.save(new ImportRun(done.id(), ImportRun.Status.DONE, done.createdAt(), done.updatedAt(), done.sources(),
+                null, Map.of()));
+        ImportRun reviewing = store.create(List.of("s-2026-10-22-001"), null);
+        store.save(new ImportRun(reviewing.id(), ImportRun.Status.REVIEWING, reviewing.createdAt(),
+                reviewing.updatedAt(), reviewing.sources(), null, Map.of()));
+
+        assertThat(store.list()).extracting(ImportRun::id).containsExactly(reviewing.id(), done.id());
+        assertThat(store.purgeDone(Duration.ofDays(30))).isZero();
+
+        storage.clock.advance(Duration.ofDays(31));
+        assertThat(store.purgeDone(Duration.ofDays(30))).isEqualTo(1);
+
+        assertThat(store.list()).extracting(ImportRun::id).containsExactly(reviewing.id());
+        assertThat(storage.isClean()).isTrue();
     }
 }

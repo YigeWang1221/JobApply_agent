@@ -6,6 +6,7 @@ import org.springframework.ai.anthropic.AnthropicChatModel;
 import org.springframework.ai.anthropic.AnthropicChatOptions;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.prompt.ChatOptions;
+import org.springframework.ai.model.tool.StructuredOutputChatOptions;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.tool.ToolCallback;
@@ -88,5 +89,22 @@ public final class ModelFactory {
             return AnthropicChatOptions.builder().model(endpoint.model()).toolCallbacks(tools).build();
         }
         return OpenAiChatOptions.builder().model(endpoint.model()).toolCallbacks(tools).build();
+    }
+
+    /**
+     * 要求按 JSON Schema 返回的单次请求选项（OpenAI 格式发 {@code response_format.json_schema}，Anthropic 格式发
+     * {@code output_config.format}）。从模型创建时的选项复制，模型名不会被 SDK 默认值盖掉（C004-A-2 小样核实）。
+     * Anthropic 的 {@code max_tokens} 默认只有 4096，抽取结果可能更长，所以改成 {@code anthropicMaxTokens}；
+     * OpenAI 格式不设（较新的模型不接受 {@code max_tokens}）。
+     */
+    public static ChatOptions withSchema(ChatModel model, String schema, int anthropicMaxTokens) {
+        if (!(model.getOptions() instanceof StructuredOutputChatOptions options)) {
+            throw new IllegalArgumentException("这个模型不支持按 JSON Schema 返回");
+        }
+        StructuredOutputChatOptions.Builder<?> builder = options.mutate().outputSchema(schema);
+        if (options instanceof AnthropicChatOptions) {
+            builder.maxTokens(anthropicMaxTokens);
+        }
+        return builder.build();
     }
 }

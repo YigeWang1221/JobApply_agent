@@ -238,4 +238,40 @@ class LocalDirectoryScannerTest {
         git.commit().setAllowEmpty(true).setMessage(message).setAuthor(ident).setCommitter(ident).setSign(false)
                 .call();
     }
+
+    @Test
+    void readKeepsTheTextOfReadFilesWithTheSameRules() throws Exception {
+        Path project = project();
+        write(project, "README.md", "# 示例\n虚构的说明");
+        lock(write(project, ".env", "不应被读取的虚构内容"));
+        StringBuilder source = new StringBuilder();
+        IntStream.range(0, 60).forEach(i -> source.append("line ").append(i).append('\n'));
+        write(project, "src/App.java", source.toString());
+
+        LocalDirectoryScanner scanner = new LocalDirectoryScanner(LIMITS);
+        LocalDirectoryScanner.Content content = scanner.read(project, Set.of());
+
+        assertThat(content.scan()).isEqualTo(scanner.scan(project, Set.of()));
+        assertThat(content.texts()).extracting(LocalDirectoryScanner.FileText::path)
+                .containsExactlyElementsOf(content.scan().files().stream().map(SourceScan.FileEntry::path).toList())
+                .contains("README.md", "src/App.java");
+        assertThat(content.texts()).filteredOn(text -> text.path().equals("README.md")).singleElement()
+                .extracting(LocalDirectoryScanner.FileText::text).isEqualTo("# 示例\n虚构的说明");
+        assertThat(content.texts()).filteredOn(text -> text.path().equals("src/App.java")).singleElement()
+                .satisfies(text -> assertThat(text.text()).contains("line 0")
+                        .doesNotContain("line " + LIMITS.sourceHeadLines()));
+        assertThat(content.texts()).allSatisfy(text -> assertThat(text.text()).doesNotContain("不应被读取"));
+    }
+
+    @Test
+    void aPathCanComeFromASentence() {
+        String home = System.getProperty("user.home");
+        assertThat(LocalDirectoryScanner.locationFromText("文件来自于「/Users/demo/projects」")).isEqualTo("/Users/demo/projects");
+        assertThat(LocalDirectoryScanner.locationFromText("文件来自于“/tmp/a b”")).isEqualTo("/tmp/a b");
+        assertThat(LocalDirectoryScanner.locationFromText("from \"/srv/demo\" please")).isEqualTo("/srv/demo");
+        assertThat(LocalDirectoryScanner.locationFromText("  /plain/path  ")).isEqualTo("/plain/path");
+        assertThat(LocalDirectoryScanner.locationFromText("~/projects")).isEqualTo(home + "/projects");
+        assertThat(LocalDirectoryScanner.locationFromText("「~」")).isEqualTo(home);
+    }
 }
+

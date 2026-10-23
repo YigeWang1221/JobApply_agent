@@ -118,6 +118,14 @@ export interface Source {
   description: string;
 }
 
+// 目录选择框：只有子目录的名字和路径；registrable 为 false 的目录（storage 相关）可以点进去，但不能登记
+export interface DirectoryListing {
+  path: string;
+  parent: string | null;
+  registrable: boolean;
+  directories: { name: string; path: string; registrable: boolean }[];
+}
+
 export interface RepoSummary {
   fullName: string;
   description: string;
@@ -143,12 +151,84 @@ export interface SourceScan {
   overLimit: boolean;
 }
 
+export interface Section {
+  id: string;
+  heading: string;
+  text: string;
+}
+
+export interface Bilingual {
+  zh: string | null;
+  en: string | null;
+}
+
+// 整理出来的项目卡候选（后端 ProjectCard 原样序列化，reviewed 是 ZH / EN）
+export interface CandidateCard {
+  slug: string;
+  aliases: string[];
+  title: Bilingual | null;
+  kind: string | null;
+  period: { from: string | null; to: string | null; precision: string | null } | null;
+  teamSize: number | null;
+  stack: string[];
+  links: { kind: string | null; url: string }[];
+  sources: string[];
+  zh: Section[];
+  en: Section[];
+}
+
+export type DecisionKind = "accept" | "edit" | "reject" | "conflict";
+export type ClaimUse = "forms_and_resume" | "interview_only" | "none";
+
+export interface ImportCandidate {
+  id: string;
+  kind: "fact" | "project";
+  group: string;
+  key: string;
+  value: string | null;
+  zh: string | null;
+  en: string | null;
+  factClass: "A" | "B" | null;
+  project: CandidateCard | null;
+  evidence: string | null;
+  origins: { source: string; locator: string | null }[];
+  claim: string | null;
+  comparison: "new" | "different" | "same";
+  existing: { value?: string | null; zh?: string | null; en?: string | null } | null;
+  alternatives: { source: string; value: string | null; zh: string | null; en: string | null }[];
+  notes: string[];
+  decision: { decision: DecisionKind | "same"; use: ClaimUse | null; at: string | null; warnings: string[] } | null;
+}
+
+export interface ImportProgress {
+  message: string;
+  sources_done: number;
+  sources_total: number;
+  model_calls: number;
+  github_calls: number;
+}
+
+export interface ImportRunSummary {
+  id: string;
+  status: ImportRun["status"];
+  created_at: string;
+  updated_at: string;
+  sources: string[];
+  candidates: number;
+  decided: number;
+  error: string | null;
+}
+
 export interface ImportRun {
   id: string;
   status: "estimated" | "running" | "reviewing" | "done" | "failed";
   created_at: string;
   updated_at: string;
   sources: string[];
+  progress?: ImportProgress;
+  candidates?: ImportCandidate[];
+  warnings?: string[];
+  error?: string;
   estimate: {
     sources: { key: string; type: string; location: string; scan: SourceScan; modelCalls: number;
       githubCallsPlanned: number }[];
@@ -159,6 +239,58 @@ export interface ImportRun {
     warnings: string[];
     overLimit: boolean;
   } | null;
+}
+
+export interface ProfileFact {
+  key: string;
+  value: string | null;
+  zh: string | null;
+  en: string | null;
+  class: "A" | "B";
+  source: string | null;
+  sourceDeleted: boolean;
+  claim: string | null;
+  reviewed: ("zh" | "en")[];
+  confirmedAt: string | null;
+}
+
+export interface ProfileCard {
+  slug: string;
+  title: Bilingual | null;
+  aliases: string[];
+  kind: string | null;
+  period: { from: string | null; to: string | null } | null;
+  teamSize: number | null;
+  stack: string[];
+  links: { kind: string | null; url: string }[];
+  sources: string[];
+  roleClaim: string | null;
+  reviewed: ("zh" | "en")[];
+  zh: Section[];
+  en: Section[];
+}
+
+export interface ProfileSummary {
+  generatedAt: string | null;
+  userEdited: string[];
+  reviewed: ("zh" | "en")[];
+  zh: Section[];
+  en: Section[];
+}
+
+export interface Profile {
+  groups: Record<string, ProfileFact[]>;
+  projects: ProfileCard[];
+  summary: ProfileSummary | null;
+}
+
+export interface SummaryCandidate {
+  current: ProfileSummary | null;
+  zh: Section[];
+  en: Section[];
+  suggestions: Record<string, string>;
+  userEdited: string[];
+  warnings: string[];
 }
 
 const MODELS = "/api/settings/models";
@@ -188,9 +320,25 @@ export const api = {
   sources: () => request<{ sources: Source[] }>("GET", "/api/sources"),
   registerSource: (type: "dir" | "github", location: string) =>
     request<RegisterResult>("POST", "/api/sources", { type, location }),
+  browse: (path?: string) =>
+    request<DirectoryListing>("GET", `/api/sources/browse${path ? `?path=${encodeURIComponent(path)}` : ""}`),
   deleteSource: (key: string) => request<{ deleted: string }>("DELETE", `/api/sources/${encodeURIComponent(key)}`),
   estimate: (sources: string[]) => request<ImportRun>("POST", "/api/import-runs", { sources }),
   importRun: (id: string) => request<ImportRun>("GET", `/api/import-runs/${encodeURIComponent(id)}`),
+  importRuns: () => request<{ runs: ImportRunSummary[] }>("GET", "/api/import-runs"),
+  startImport: (id: string) => request<ImportRun>("POST", `/api/import-runs/${encodeURIComponent(id)}/start`),
+  decide: (id: string, body: { candidate: string; decision: DecisionKind; value?: Record<string, unknown>;
+    use?: ClaimUse }) => request<ImportRun>("POST", `/api/import-runs/${encodeURIComponent(id)}/decisions`, body),
+
+  profile: () => request<Profile>("GET", "/api/profile"),
+  editFact: (key: string, body: { value?: string; zh?: string; en?: string; reviewed?: string[] }) =>
+    request<ProfileFact>("PUT", `/api/profile/facts/${encodeURIComponent(key)}`, body),
+  editProject: (slug: string, body: { title?: Partial<Bilingual>; zh?: Record<string, string>;
+    en?: Record<string, string>; reviewed?: string[] }) =>
+    request<ProfileCard>("PUT", `/api/profile/projects/${encodeURIComponent(slug)}`, body),
+  generateSummary: () => request<SummaryCandidate>("POST", "/api/profile/summary"),
+  confirmSummary: (body: { zh: Record<string, string>; en: Record<string, string>; userEdited: string[];
+    reviewed: string[] }) => request<ProfileSummary>("PUT", "/api/profile/summary", body),
 };
 
 export function errorText(error: unknown): string {

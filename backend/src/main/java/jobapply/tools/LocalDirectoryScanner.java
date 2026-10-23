@@ -23,6 +23,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import jobapply.domain.SourceScan;
@@ -56,6 +58,14 @@ public final class LocalDirectoryScanner {
     public record Limits(int maxFiles, long maxChars, long maxStructuredBytes, int sourceHeadLines) {
     }
 
+    /** 一个会读的文件和它的文字（源代码只有开头几行）。只在内存里用，不写文件。 */
+    public record FileText(String path, String kind, String text) {
+    }
+
+    /** 整理时的读取结果：扫描结果，加上每个会读的文件的文字（顺序同 {@code scan.files()}）。 */
+    public record Content(SourceScan scan, List<FileText> texts) {
+    }
+
     static final long TEXT_MAX_BYTES = 2L * 1024 * 1024;
     static final long DOC_MAX_BYTES = 20L * 1024 * 1024;
     static final int MAX_SKIPPED_LISTED = 300;
@@ -81,6 +91,24 @@ public final class LocalDirectoryScanner {
         this.limits = limits;
     }
 
+    private static final Pattern QUOTED = Pattern.compile("[「“\"'](.+?)[」”\"']");
+
+    /**
+     * 从用户的输入里取出路径（C004-A-2 追加）：「文件来自于「/path」」这类句子取「」、“”、"" 或 '' 里的内容，
+     * 没有引号时取整段；{@code ~} 开头的路径按用户主目录展开。不检查路径是否存在。
+     */
+    public static String locationFromText(String text) {
+        String value = text == null ? "" : text.strip();
+        Matcher quoted = QUOTED.matcher(value);
+        if (quoted.find()) {
+            value = quoted.group(1).strip();
+        }
+        if (value.equals("~") || value.startsWith("~/")) {
+            value = System.getProperty("user.home") + value.substring(1);
+        }
+        return value;
+    }
+
     /**
      * 校验用户给的目录：绝对路径、存在、可读；不能是 storage 本身、它的上级或它里面的目录。返回真实路径。
      */
@@ -88,7 +116,7 @@ public final class LocalDirectoryScanner {
         if (location == null || location.isBlank()) {
             throw new IllegalArgumentException("目录路径不能为空");
         }
-        Path path = Path.of(location.strip());
+        Path path = Path.of(locationFromText(location));
         if (!path.isAbsolute()) {
             throw new IllegalArgumentException("要写目录的绝对路径：" + location);
         }
@@ -113,7 +141,18 @@ public final class LocalDirectoryScanner {
      * @param identities 用户确认过的邮箱或名字，用来算本人提交占比；空集合时不算
      */
     public SourceScan scan(Path root, Set<String> identities) {
-        Walk walk = new Walk(root);
+        return walk(root, identities, false).scan();
+    }
+
+    /**
+     * 和 {@link #scan} 同样的规则，同时留下每个会读的文件的文字（整理时用，C004-A-2）。秘密文件同样只按名字跳过、不打开。
+     */
+    public Content read(Path root, Set<String> identities) {
+        return walk(root, identities, true);
+    }
+
+    private Content walk(Path root, Set<String> identities, boolean keepText) {
+        Walk walk = new Walk(root, keepText);
         walk.directory(root, List.of());
         List<String> warnings = new ArrayList<>(walk.warnings);
         if (walk.skippedTotal > MAX_SKIPPED_LISTED) {
@@ -126,14 +165,16 @@ public final class LocalDirectoryScanner {
                 warnings.add("提交历史读不了，没有提交摘要");
             }
         }
-        return new SourceScan("files:" + walk.listHash(), walk.files, walk.skipped, walk.chars, commits, warnings, 0,
-                walk.filesWarned || walk.charsWarned);
+        return new Content(new SourceScan("files:" + walk.listHash(), walk.files, walk.skipped, walk.chars, commits,
+                warnings, 0, walk.filesWarned || walk.charsWarned), walk.texts);
     }
 
     /** 一次遍历的状态。目录内按名字排序，结果是确定的。 */
     private final class Walk {
 
         final Path root;
+        final boolean keepText;
+        final List<FileText> texts = new ArrayList<>();
         final List<SourceScan.FileEntry> files = new ArrayList<>();
         final List<SourceScan.Skipped> skipped = new ArrayList<>();
         final List<String> warnings = new ArrayList<>();
@@ -147,8 +188,9 @@ public final class LocalDirectoryScanner {
         record Ignore(String dir, IgnoreNode node) {
         }
 
-        Walk(Path root) {
+        Walk(Path root, boolean keepText) {
             this.root = root;
+            this.keepText = keepText;
         }
 
         void directory(Path dir, List<Ignore> ignores) {
@@ -242,20 +284,23 @@ public final class LocalDirectoryScanner {
                 skip(rel, "文件不可读");
                 return;
             }
-            long count;
+            String text;
             try {
-                count = binaryDoc ? tikaChars(bytes, name) : kind.equals("source") ? headChars(bytes)
-                        : decode(bytes).length();
+                text = binaryDoc ? tikaText(bytes, name) : kind.equals("source") ? head(bytes) : decode(bytes);
             } catch (IOException | RuntimeException | TikaException e) {
                 skip(rel, "读不出文字");
                 return;
             }
+            long count = text.length();
             if (chars + count > limits.maxChars()) {
                 warnCharsOnce();
                 skip(rel, "超过字符数上限");
                 return;
             }
             files.add(new SourceScan.FileEntry(rel, kind, count));
+            if (keepText) {
+                texts.add(new FileText(rel, kind, text));
+            }
             chars += count;
             listing.append(rel).append('\t').append(sha256(bytes)).append('\n');
         }
@@ -267,24 +312,24 @@ public final class LocalDirectoryScanner {
             }
         }
 
-        long tikaChars(byte[] bytes, String name) throws IOException, TikaException {
+        String tikaText(byte[] bytes, String name) throws IOException, TikaException {
             Metadata metadata = new Metadata();
             metadata.set(TikaCoreProperties.RESOURCE_NAME_KEY, name);
             int budget = (int) Math.min(Integer.MAX_VALUE - 1, Math.max(1, limits.maxChars() - chars + 1));
             try (InputStream in = new ByteArrayInputStream(bytes)) {
                 String text = TIKA.parseToString(in, metadata, budget);
-                return text == null ? 0 : text.strip().length();
+                return text == null ? "" : text.strip();
             }
         }
 
-        long headChars(byte[] bytes) throws IOException {
+        String head(byte[] bytes) throws IOException {
             try (BufferedReader reader = new BufferedReader(new StringReader(decode(bytes)))) {
-                long count = 0;
+                StringBuilder head = new StringBuilder();
                 String line;
                 for (int i = 0; i < limits.sourceHeadLines() && (line = reader.readLine()) != null; i++) {
-                    count += line.length() + 1;
+                    head.append(line).append('\n');
                 }
-                return count;
+                return head.toString();
             }
         }
 

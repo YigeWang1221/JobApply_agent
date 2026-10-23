@@ -7,6 +7,7 @@ import jobapply.domain.Ids;
 import jobapply.domain.Source;
 import jobapply.persistence.SourceRegistry;
 import jobapply.persistence.StorageLayout;
+import jobapply.tools.DirectoryBrowser;
 import jobapply.tools.GitHubPublicReader;
 import jobapply.tools.LocalDirectoryScanner;
 import org.springframework.http.HttpStatus;
@@ -18,10 +19,12 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 资料页的「来源」：登记本地目录或 GitHub 公开仓库，列出、删除登记。只登记，不扫描（扫描在估算时做）。
+ * 本地目录可以写绝对路径，也可以写「文件来自于「路径」」这类句子；目录选择框用 {@code GET /browse} 列子目录。
  * 只给 GitHub owner 时返回它的公开仓库让用户选，不登记。删除登记不碰目录或仓库里的任何东西。
  */
 @RestController
@@ -49,6 +52,12 @@ public class SourceController {
         this.registry = registry;
         this.github = github;
         this.layout = layout;
+    }
+
+    /** 目录选择框：列出 {@code path} 下的子目录（不给时从用户主目录开始），只有名字和路径。 */
+    @GetMapping("/browse")
+    public DirectoryBrowser.Listing browse(@RequestParam(required = false) String path) {
+        return new DirectoryBrowser(layout.root()).list(path);
     }
 
     @GetMapping

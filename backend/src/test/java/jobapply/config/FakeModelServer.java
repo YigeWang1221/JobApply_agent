@@ -9,6 +9,7 @@ import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Function;
 
 /**
  * 测试用的模型提供方：JDK {@link HttpServer}，监听 127.0.0.1 的随机端口，模拟 OpenAI 兼容格式
@@ -33,6 +34,7 @@ public final class FakeModelServer implements AutoCloseable {
     private volatile long delayMillis;
     private volatile List<String> models = List.of("fake-small", "fake-large");
     private volatile String reply = "OK";
+    private volatile Function<String, String> responder;
 
     private FakeModelServer() {
         try {
@@ -81,6 +83,15 @@ public final class FakeModelServer implements AutoCloseable {
         return this;
     }
 
+    /**
+     * 按请求体决定回复的文字（不调用工具时，两种格式都用）：返回 null 时用 {@link #reply(String)} 的文字
+     * （Anthropic 格式是 {@code OK}）。用来让清单卡、抽取、译文、画像各自拿到不同的 JSON。
+     */
+    public FakeModelServer respond(Function<String, String> responder) {
+        this.responder = responder;
+        return this;
+    }
+
     public FakeModelServer models(List<String> ids) {
         this.models = List.copyOf(ids);
         return this;
@@ -119,8 +130,8 @@ public final class FakeModelServer implements AutoCloseable {
         }
         String response = switch (path) {
             case "/v1/models" -> modelList();
-            case "/v1/chat/completions" -> toolCalls ? openAiToolCall() : openAiText();
-            case "/v1/messages" -> toolCalls ? anthropicToolUse() : anthropicText();
+            case "/v1/chat/completions" -> toolCalls ? openAiToolCall() : openAiText(text(body, reply));
+            case "/v1/messages" -> toolCalls ? anthropicToolUse() : anthropicText(text(body, "OK"));
             default -> null;
         };
         if (response == null) {
@@ -147,7 +158,13 @@ public final class FakeModelServer implements AutoCloseable {
                  "usage":{"prompt_tokens":42,"completion_tokens":7,"total_tokens":49}}""";
     }
 
-    private String openAiText() {
+    private String text(String body, String fallback) {
+        Function<String, String> current = responder;
+        String text = current == null ? null : current.apply(body);
+        return text == null ? fallback : text;
+    }
+
+    private static String openAiText(String reply) {
         return """
                 {"id":"c2","object":"chat.completion","created":1,"model":"fake-small",
                  "choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":%s}}],
@@ -166,11 +183,11 @@ public final class FakeModelServer implements AutoCloseable {
                  "usage":{"input_tokens":50,"output_tokens":9}}""";
     }
 
-    private static String anthropicText() {
+    private static String anthropicText(String reply) {
         return """
                 {"id":"m2","type":"message","role":"assistant","model":"fake-claude-2026","stop_reason":"end_turn",
-                 "stop_sequence":null,"content":[{"type":"text","text":"OK"}],
-                 "usage":{"input_tokens":48,"output_tokens":1}}""";
+                 "stop_sequence":null,"content":[{"type":"text","text":%s}],
+                 "usage":{"input_tokens":48,"output_tokens":1}}""".formatted(json(reply));
     }
 
     private static void send(HttpExchange exchange, int status, String body) throws IOException {

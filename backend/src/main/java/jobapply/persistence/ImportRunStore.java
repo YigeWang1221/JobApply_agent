@@ -5,8 +5,12 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,7 +26,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * {@code base/import-runs/<id>.json}：导入记录。id 是 {@code r-YYYY-MM-DD-NNN}。不认识的字段原样保留
- * （C004-A-2 会往里加进度和候选）。JSON 的形状由 {@link #toMap(ImportRun)} 决定，接口也用它返回。
+ * （C004-A-2 的进度、候选和决定放在这些字段里，见 {@code ImportRunner}）。JSON 的形状由 {@link #toMap(ImportRun)} 决定，接口也用它返回。
  */
 public final class ImportRunStore {
 
@@ -69,6 +73,34 @@ public final class ImportRunStore {
         } catch (JacksonException | IllegalArgumentException e) {
             throw new StorageFormatException(path.toString(), "导入记录不是合法的 JSON：" + e.getClass().getSimpleName(), e);
         }
+    }
+
+    /** 全部导入记录，新的在前。 */
+    public List<ImportRun> list() {
+        return ids().stream().filter(Ids::isImportRunId).sorted(Comparator.reverseOrder())
+                .map(this::find).flatMap(Optional::stream).toList();
+    }
+
+    /**
+     * 删除处理完（{@code done}）超过 {@code age} 的记录（C004-A-2：全部处理完以后保留 30 天）。返回删除了几条。
+     */
+    public synchronized int purgeDone(Duration age) {
+        Instant cutoff = clock.instant().minus(age);
+        List<Path> removed = new ArrayList<>();
+        for (ImportRun run : list()) {
+            if (run.status() == ImportRun.Status.DONE && run.updatedAt() != null
+                    && OffsetDateTime.parse(run.updatedAt()).toInstant().isBefore(cutoff)) {
+                Path path = layout.importRun(run.id());
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+                removed.add(path);
+            }
+        }
+        git.commit("base：清理 " + removed.size() + " 条处理完的导入记录", removed);
+        return removed.size();
     }
 
     public ImportRun require(String id) {

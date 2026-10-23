@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.NoSuchElementException;
 import jobapply.domain.Claim;
 import org.junit.jupiter.api.Test;
@@ -100,5 +101,22 @@ class LedgerFileTest {
 
         assertThatThrownBy(() -> new LedgerFile(storage.layout, storage.clock).list())
                 .isInstanceOf(StorageFormatException.class).hasMessageContaining("c-0001");
+    }
+
+    @Test
+    void addAllNumbersInOrderAndWritesOnce() {
+        TestStorage storage = TestStorage.create(root, true);
+        LedgerFile ledger = new LedgerFile(storage.layout, storage.clock);
+        ledger.add(Claim.draft("技能", "会写 Java", null, null, Claim.Status.OWNER_ATTESTED));
+        int before = storage.commitCount();
+
+        var added = ledger.addAll(List.of(
+                Claim.draft("指标", "P99 45ms", "s-2026-10-22-001", "README.md#L5", Claim.Status.NEEDS_VERIFICATION),
+                Claim.draft("项目", "示例项目", null, null, Claim.Status.NEEDS_VERIFICATION)));
+
+        assertThat(added).extracting(Claim::id).containsExactly("c-0002", "c-0003");
+        assertThat(ledger.list()).hasSize(3);
+        assertThat(storage.commitCount()).isEqualTo(before + 1);
+        assertThat(ledger.addAll(List.of())).isEmpty();
     }
 }

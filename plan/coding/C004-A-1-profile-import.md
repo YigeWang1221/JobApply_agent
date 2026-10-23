@@ -222,7 +222,7 @@ reviewed: [zh]
 - 导入记录 id：`r-YYYY-MM-DD-NNN`，文件 `base/import-runs/<id>.json`；顶层字段 `id`、`status`、`created_at`、`updated_at`、`sources`、`estimate`，其它字段原样保留（给 C004-A-2 放进度和候选）。
 - `ledger.md` 的 frontmatter `last_claim` 记用过的最大编号，删除后不复用；`sources.md` 的 frontmatter `deleted` 记删除过的来源键，键不复用，`SourceRegistry.status()` 能区分「还在 / 已删除 / 没有过」，给「出处标为来源已删除」用。
 - 清单卡：frontmatter `source`、`source_version`、`generated_at`，正文自由 Markdown。术语表：`| 中文 | English | 类别 | 说明 |`，以中文为键。画像：frontmatter `generated_at`、`user_edited`（例如 `zh.highlights`）、`reviewed`，正文同项目卡的双语小节，小节 id 是 `directions`、`skills`、`highlights`、`positioning`。
-- 模型调用估算：每个来源按 6 万字一批，多于一批时每批摘要一次，再加清单卡、拆候选各一次；有两个以上来源时再加一次合并；没有可读内容的来源不算。GitHub：登记 2 次（仓库信息、固定 SHA），估算 3 次（仓库信息、固定 SHA、文件列表），整理时还要「语言 1 + 每个 README / 依赖清单 1 + 提交摘要 1」次。
+- 模型调用估算：每个来源按 6 万字一批，多于一批时每批摘要一次，再加清单卡、拆候选各一次；有两个以上来源时再加一次合并（C004-A-2 施工时改为合并不调用模型，估算去掉这一次，见 C004-A-2「偏差」第 1 项）；没有可读内容的来源不算。GitHub：登记 2 次（仓库信息、固定 SHA），估算 3 次（仓库信息、固定 SHA、文件列表），整理时还要「语言 1 + 每个 README / 依赖清单 1 + 提交摘要 1」次。
 
 **验证**
 - `mvn -B clean verify` 退出码 0：surefire 535、failsafe 2，Failures / Errors / Skipped 均为 0。自动测试只连本机假服务端，没有访问外部网络、没有调用模型；本地目录都在 `@TempDir` 里现造；秘密文件在测试里设成不可读（`chmod 000`），扫描照常成功，证明没有被打开。

@@ -446,3 +446,36 @@
 - 结果：C 级过滤改为只去掉值（字段名命中时去掉冒号后的值、证件号码、「证件名 + 含数字号码」里的号码），普通文字不处理；去掉 409，端点只在真的变化时作废测试，写法差异不算。细节写在 C004-A「代码审核修复 · 按用户指令放宽」。
 - 验证：`mvn -B clean verify` 退出码 0，surefire 541、failsafe 2；构建日志里没有测试 Key。
 - 偏差：放宽以后，已经分配为主模型的提供方换了端点，会在没测过的新端点上继续运行，直到用户重新测试（按用户这次的决定）。没有提交 git。
+
+## 2026-10-22 · C004-A-2 施工
+
+- 日期：2026-10-22
+- 指令：「进行 C004A-2 的开发」。
+- 结果：按 5 个切片做完。小样核实（会话临时目录）：两种接口格式按 JSON Schema 返回的请求写法，单次选项从模型选项复制、模型名不丢。代码：清单卡（`SourceInventory`）、抽取（`CandidateExtractor`）、确定性的合并和对比（`CandidateMerger`）、后台整理和逐条决定（`ImportRunner`）、确认写入（`FactWriter`，每个决定提交一次）、译文起草（`TranslationDrafter`）、画像（`ProfileSummaryBuilder`）；接口 `start`、`decisions`、导入记录列表、`/api/profile`；「资料」页加「整理与确认」「事实与画像」两个页签。细节写在 C004-A-2「实际结果」「偏差」。
+- 验证：`mvn -B clean verify` 退出码 0，surefire 584、failsafe 2，Failures / Errors / Skipped 均为 0；自动测试只连本机的假模型和假 GitHub，没有访问外部网络、没有调用真实模型；秘密文件的内容不在任何模型请求和 storage 文件里；构建日志里没有测试 Key。`npm run build` 通过。`ProfileImportManualCheck`：未运行。用户的手动检查：未运行。没有启动打包后的应用做冒烟（接口在 SpringBootTest 里用真实 HTTP 跑过）。
+- 偏差：多个来源的合并改为不调用模型，`ImportEstimator` 去掉了那一次（C004-A-1 的估算口径随之改）；材料多时按 6 万字一批摘要；GitHub 整理时不重读文件列表；计划外的 `ImportCandidate`、`StructuredCall`、`ConflictsFile` 和 `GET /api/import-runs`；其余见 C004-A-2「偏差」。没有读取或修改真实的 `storage/`、`storage/example.data/`、`~/Desktop/remote_drop/`；没有提交 git。
+
+## 2026-10-22 · C004-A-2 追加目录选择框，真实模型检查 GitHub 仓库
+
+- 日期：2026-10-22
+- 指令：用户要求用现有的模型接入测试 `https://github.com/YigeWang1221/JobApply_agent`；把「选择本地目录」（选择框，或者「文件来自于「path」」这种说法）加进 C004-A-2 并实现。
+- 结果：C004-A-2 加「追加：选择本地目录」一节并实现（`DirectoryBrowser`、`GET /api/sources/browse`、从句子里取路径、「来源」页签的浏览面板）。`ProfileImportManualCheck` 支持 GitHub 仓库和「确认全部再生成画像」；对这个仓库跑了三次（临时 storage，跑完删除），整理、确认、起草译文都正常；第一次画像有三节是空的，加了空小节的提示。细节写在 C004-A-2「实际结果」。
+- 验证：`mvn -B clean verify` 退出码 0，surefire 589、failsafe 2；构建日志里没有测试 Key。`npm run build` 通过。真实模型检查：已运行（代理运行，输出里没有 Key 和内容）。用户在页面上的检查：未运行。
+- 偏差：画像空小节的原因没有确定，只加了提示。没有读 `.env`；没有提交 git。
+
+## 2026-10-22 · 抽取与画像提示词重新放宽
+
+- 日期：2026-10-22
+- 指令：针对 C004-A-2 审阅中发现的表达规则回退，重新放宽提示词并修改相应 plan。
+- 结果：CandidateExtractor 与 ProfileSummaryBuilder 均允许提出估算、量化口径、技能定位和措辞候选，由用户确认采用；缺少原文数字、出处或测试条件不阻止起草。同步 C004-A-2、base.md、memory.md 的规则，更新 dev-plan.md 索引；扩展 ImportRunnerTest 和 ProfileSummaryBuilderTest，检查本机假模型实际收到的提示词。未处理审阅中的其他缺陷。
+- 验证：临时副本中使用 JDK 25 执行 `mvn -o -B clean verify`，退出码 0，surefire 589、failsafe 2，Failures / Errors / Skipped 均为 0。相关文件差异检查通过。真实模型检查、前端构建未运行（本次未改前端）。临时副本已删除。
+- 偏差：无。未提交 git。
+
+## 2026-10-22 · C004-A-2 代码审核的 4 个问题修复
+
+- 日期：2026-10-22
+- 指令：用户贴来代码审核结果（直接改项目卡绕过 C 级检查；切换导入记录可能串用草稿；「相同」判断漏掉技术栈、时间和别的来源的写法；确认失败后台账已改）并要求修改。
+- 结果：四个都修了，细节写在 C004-A-2「实际结果 · 代码审核修复」。
+- 验证：新增 5 个后端用例，在修复前的代码上都失败；修复后 `mvn -B clean verify` 退出码 0，surefire 594、failsafe 2；`npm run build` 通过。第 2 个问题只改了组件身份，页面上的复现：未运行。
+- 偏差：第 4 个问题除了「先检查再写」，还加了失败时恢复文件（审核意见两种做法二选一，这里都做了）。没有提交 git。
+

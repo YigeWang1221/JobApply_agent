@@ -103,4 +103,26 @@ class ModelFactoryTest {
         assertThatCode(() -> new ModelFactory.Endpoint("openai", "http://localhost:11434/v1", null, "m"))
                 .doesNotThrowAnyException();
     }
+
+    @Test
+    void withSchemaKeepsTheModelNameAndAsksForJsonInBothFormats() {
+        String schema = "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"integer\"}},"
+                + "\"required\":[\"a\"],\"additionalProperties\":false}";
+        try (FakeModelServer server = FakeModelServer.start().toolCalls(false).respond(body -> "{\"a\":1}")) {
+            ChatModel openAi = ModelFactory.create(new ModelFactory.Endpoint("openai", server.openAiBase(),
+                    FakeModelServer.OPENAI_KEY, "fake-small"), TIMEOUT);
+            String text = openAi.call(new Prompt("hi", ModelFactory.withSchema(openAi, schema, 16_000))).getResult()
+                    .getOutput().getText();
+            assertThat(text).isEqualTo("{\"a\":1}");
+            assertThat(server.last().body()).contains("\"model\":\"fake-small\"")
+                    .contains("\"response_format\"").contains("\"json_schema\"").contains("\"strict\":true")
+                    .doesNotContain("max_tokens");
+
+            ChatModel anthropic = ModelFactory.create(new ModelFactory.Endpoint("anthropic", server.anthropicBase(),
+                    FakeModelServer.ANTHROPIC_KEY, "fake-claude"), TIMEOUT);
+            anthropic.call(new Prompt("hi", ModelFactory.withSchema(anthropic, schema, 16_000)));
+            assertThat(server.last().body()).contains("\"model\":\"fake-claude\"")
+                    .contains("\"output_config\"").contains("\"json_schema\"").contains("\"max_tokens\":16000");
+        }
+    }
 }
