@@ -44,7 +44,6 @@ class FactWriterTest {
     void acceptWritesTheFactAndDraftsTheMissingLanguageAsUnreviewed() {
         try (ImportFixture fixture = ImportFixture.create(dir, true)) {
             ImportRun run = fixture.reviewing();
-            int commits = fixture.storage.commitCount();
 
             ImportRun after = fixture.runner.decide(run.id(), candidate(run, "contact.name").id(), FactWriter.ACCEPT,
                     null, null);
@@ -57,9 +56,6 @@ class FactWriterTest {
             assertThat(name.source()).isEqualTo("source:" + run.sources().getFirst());
             assertThat(name.confirmedAt()).isEqualTo("2026-10-22");
             assertThat(fixture.storage.read(fixture.storage.layout.baseFacts())).contains("# 个人基础事实");
-            // 一个决定一次提交（facts.md 和导入记录各自提交：导入记录不属于决定本身）
-            assertThat(fixture.storage.commitCount() - commits).isEqualTo(2);
-            assertThat(fixture.storage.isClean()).isTrue();
             assertThat(candidate(after, "contact.name").decision().decision()).isEqualTo("accept");
 
             fixture.storage.project("demo", "live");
@@ -133,7 +129,6 @@ class FactWriterTest {
             ImportRun run = fixture.reviewing();
             ImportCandidate metric = candidate(run, "metrics.p99-latency");
             String facts = fixture.storage.read(fixture.storage.layout.baseFacts());
-            int commits = fixture.storage.commitCount();
 
             fixture.runner.decide(run.id(), metric.id(), FactWriter.CONFLICT, null, null);
 
@@ -142,8 +137,6 @@ class FactWriterTest {
                     .contains("- 新材料: zh：P99 延迟从 120ms 降到 45ms").contains(run.id() + "，" + metric.id());
             assertThat(fixture.ledger.find(metric.claim()).orElseThrow().status())
                     .isEqualTo(Claim.Status.DISCREPANCY);
-            // conflicts.md 和台账一起提交一次，导入记录另提交一次
-            assertThat(fixture.storage.commitCount() - commits).isEqualTo(2);
         }
     }
 
@@ -231,7 +224,6 @@ class FactWriterTest {
                     .isEmpty();
             assertThatThrownBy(() -> fixture.writer.editFact("contact.none", null, "x", null, null))
                     .isInstanceOf(NoSuchElementException.class);
-            assertThat(fixture.storage.isClean()).isTrue();
         }
     }
 
@@ -267,7 +259,6 @@ class FactWriterTest {
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("C 级");
 
             assertThat(fixture.storage.read(fixture.storage.layout.baseProjectCard("demo-recsys"))).isEqualTo(before);
-            assertThat(fixture.storage.isClean()).isTrue();
         }
     }
 
@@ -286,7 +277,6 @@ class FactWriterTest {
                     .isEqualTo(Claim.Status.NEEDS_VERIFICATION);
             assertThat(fixture.storage.read(fixture.storage.layout.baseFacts())).isEqualTo(facts);
             assertThat(fixture.storage.read(fixture.storage.layout.baseLedger())).isEqualTo(ledger);
-            assertThat(fixture.storage.isClean()).isTrue();
             assertThat(candidate(fixture.runner.view(run.id()), "skills.backend").decision()).isNull();
         }
     }
@@ -310,7 +300,6 @@ class FactWriterTest {
             assertThat(fixture.storage.read(fixture.storage.layout.baseLedger())).isEqualTo(ledger);
             assertThat(fixture.ledger.find(project.claim()).orElseThrow().status())
                     .isEqualTo(Claim.Status.NEEDS_VERIFICATION);
-            assertThat(fixture.storage.isClean()).isTrue();
             // 恢复以后可以再确认
             fixture.runner.decide(run.id(), project.id(), FactWriter.ACCEPT, null, null);
             assertThat(fixture.cards.find("demo-recsys")).isPresent();

@@ -24,7 +24,7 @@ class ModelRegistryTest {
 
     @Test
     void reportsClearlyWhenNothingIsConfigured() {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         ModelRegistry registry = new ModelRegistry(new ModelSettingsFile(storage.layout, storage.clock),
                 new EnvFile(storage.layout.envFile(), name -> null));
 
@@ -36,7 +36,7 @@ class ModelRegistryTest {
 
     @Test
     void servesTheAssignedModelAndHotSwapsAfterReload() {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         ModelSettingsFile file = new ModelSettingsFile(storage.layout, storage.clock);
         EnvFile env = new EnvFile(storage.layout.envFile(), name -> null);
         ModelRegistry registry = new ModelRegistry(file, env);
@@ -69,7 +69,7 @@ class ModelRegistryTest {
 
     @Test
     void staleAssignmentsAndMissingKeysAreErrorsNamingOnlyTheVariable() {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         ModelSettingsFile file = new ModelSettingsFile(storage.layout, storage.clock);
         ModelRegistry registry = new ModelRegistry(file, new EnvFile(storage.layout.envFile(), name -> null));
         file.write(Settings.empty()

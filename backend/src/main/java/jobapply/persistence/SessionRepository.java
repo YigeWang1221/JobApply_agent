@@ -32,7 +32,6 @@ public final class SessionRepository {
 
     private final StorageLayout layout;
     private final Clock clock;
-    private final StorageGit git;
     private final ProjectRepository projects;
     private final JobRepository jobs;
     private final EventLog eventLog = new EventLog();
@@ -40,7 +39,6 @@ public final class SessionRepository {
     public SessionRepository(StorageLayout layout, Clock clock) {
         this.layout = layout;
         this.clock = clock;
-        this.git = new StorageGit(layout, clock);
         this.projects = new ProjectRepository(layout, clock);
         this.jobs = new JobRepository(layout);
     }
@@ -54,7 +52,6 @@ public final class SessionRepository {
         Path file = layout.sessionFile(projectId, id);
         FrontmatterFile.write(file, new FrontmatterFile.Document(
                 toFrontmatter(session, Map.of()), "\n# " + title + "\n\n" + HANDOFF_HEADING + "\n"));
-        git.commit("session " + id + "：新建", List.of(file));
         return session;
     }
 
@@ -85,7 +82,6 @@ public final class SessionRepository {
         line.put("text", text);
         Path transcript = layout.transcript(projectId, sessionId);
         eventLog.append(transcript, line);
-        git.commit("session " + sessionId + "：对话", List.of(transcript));
     }
 
     public List<Map<String, Object>> readTranscript(String projectId, String sessionId) {
@@ -101,7 +97,6 @@ public final class SessionRepository {
         String head = heading < 0 ? body + (body.endsWith("\n") ? "\n" : "\n\n") : body.substring(0, heading);
         String next = head + HANDOFF_HEADING + "\n\n" + summary.strip() + "\n";
         FrontmatterFile.write(file, new FrontmatterFile.Document(document.frontmatter(), next));
-        git.commit("session " + sessionId + "：交接摘要", List.of(file));
     }
 
     /**

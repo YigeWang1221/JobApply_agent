@@ -18,6 +18,7 @@
 | Memory 与 storage 结构 | [plan/master/memory.md](plan/master/memory.md) |
 | 追踪、Dashboard、复盘 | [plan/master/tracking.md](plan/master/tracking.md) |
 | 界面与模型设置 | [plan/master/ui.md](plan/master/ui.md) |
+| Agent 运行时（循环、工具、提示词、什么时候问用户） | [plan/master/agent-runtime.md](plan/master/agent-runtime.md) |
 
 ## Coding Plan（`plan/coding/`）
 
@@ -27,11 +28,9 @@
 | [C001](plan/coding/C001-scaffold.md) | 本地单模块脚手架 | 完成 |
 | [C002](plan/coding/C002-memory-ledger.md) | workflow 里程碑第 1 段：Memory 与台账 | 完成 |
 | [C003](plan/coding/C003-playwright-mcp.md) | workflow 里程碑第 2 段：Playwright MCP 接通 | 完成 |
-| [C004](plan/coding/C004-harness-guard.md) | workflow 里程碑第 3 段（总表：拆分、已定决定、回写 Master 清单） | 已拆分 |
-| [C004-A](plan/coding/C004-A-model-guard.md) | 模型接入、资料原件、设置页、提交守卫 | 完成 |
-| [C004-A-1](plan/coding/C004-A-1-profile-import.md) | 资料导入（一）：事实格式、按语言取值、来源扫描（不调用模型） | 施工完成，等手动检查 |
-| [C004-A-2](plan/coding/C004-A-2-profile-review.md) | 资料导入（二）：整理、确认、画像 | 施工完成，等手动检查（表达提示词按用户指令重新放宽） |
-| [C004-B](plan/coding/C004-B-harness-review.md) | Harness 循环、skill、申请线程、关卡 B | 已确认，施工前核对已补入（2026-10-23），待施工 |
+| C004 | 里程碑第 3 段：模型接入、资料导入、申请 Agent。**已完成，不再开发。** 施工记录：[模型与资料](plan/coding/C004-A-model-guard.md)、[申请 Agent](plan/coding/C004-D-agent-loop.md)；B、C 是被推翻的旧做法，只留作历史 | 完成 |
+| [C005 调研 Agent](plan/coding/C005-research-agent.md) | 里程碑第 4 段：Session 对话 Agent，搜索、读 JD、候选池、开始申请 | 计划已写，等用户确认 |
+| [C005 界面](plan/coding/C005-ui.md) | 按示意页做应用：侧栏、Project 主页、对话视图、申请工作台、设置 | 计划已写，和调研 Agent 一起做 |
 
 ## 参考（不是施工步骤）
 
@@ -42,12 +41,4 @@
 
 ## 停靠点
 
-C004-A-2 施工完成（2026-10-22），`mvn -B clean verify`（surefire 594、failsafe 2）和 `npm run build` 通过，细节见 C004-A-2「实际结果」「偏差」。追加了目录选择框（2026-10-22）；代理已用真实模型对用户指定的 GitHub 仓库跑通整理、确认和画像（见 C004-A-2「实际结果」）。**等用户在页面上检查**：「来源」页签用「浏览…」登记一个本地目录，「整理与确认」确认一批候选，「事实与画像」看中英两栏和画像；或者明确决定暂缓。之后施工 C004-B。顺序：C004-A（完成）→ C004-A-1（施工完成）→ C004-A-2（施工完成）→ C004-B（一个 session 只做一份 Coding Plan）。
-
-### 新会话从这里接手
-
-1. 读 `AGENTS.md` → `dev-limit.md` → 本文件 → `plan/README.md`。
-2. 读 [C004 总表](plan/coding/C004-harness-guard.md)、[C004-A](plan/coding/C004-A-model-guard.md)、[C004-B](plan/coding/C004-B-harness-review.md)，以及它们列出的 Master 章节；参考已完成的 [C003](plan/coding/C003-playwright-mcp.md)（「实际结果」「手动冒烟结果」「偏差」）。
-3. C004-A、C004-A-1、C004-A-2 已施工，看它们的「实际结果」「偏差」；顺序是 C004-A（完成）→ C004-A-1（施工完成）→ C004-A-2（施工完成）→ C004-B。
-4. 验证命令：在 `backend/` 执行 `JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home mvn -B clean verify`（代理的 shell 不加载 `~/.zshrc`）。
-5. 已知的一点：`dev-log.md`、`dev-recoding.md` 是历史记录，里面的旧路径不代表现状。
+2026-10-23：C004 完成（申请 Agent 在 13 个夹具上用真实模型跑通，停在提交前）。下一步是 C005：调研 Agent + 界面，计划见上表。真实 Chrome 冒烟未运行。

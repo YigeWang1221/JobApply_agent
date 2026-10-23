@@ -19,7 +19,7 @@ class ProfileSummaryFileTest {
 
     @Test
     void roundTripsAndKeepsUnknownContent() {
-        TestStorage storage = TestStorage.create(root, true);
+        TestStorage storage = TestStorage.create(root);
         ProfileSummaryFile file = new ProfileSummaryFile(storage.layout, storage.clock);
         storage.write(storage.layout.baseProfile(), """
                 ---

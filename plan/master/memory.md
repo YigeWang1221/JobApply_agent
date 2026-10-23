@@ -40,8 +40,6 @@
 
 ```text
 storage/                              # 整个目录被主仓库 .gitignore 忽略
-├── .git/                             # 可选（用户开启时才有）：独立的本地 git，每次写入自动提交，只在本地保留版本，不设远程、不上传
-├── .gitignore                        # 忽略 settings/.env、uploads/、cache/、*.sqlite、.obsidian/、example.data/
 │
 ├── base/                             # 全局个人基础信息（所有 Project 继承）
 │   ├── facts.md                      # 事实层：身份、联系方式、教育、经历、技能、链接；每条带来源 / 确认日期 / 精度 / 有效期；文字类字段中英双语
@@ -89,7 +87,7 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 ├── jobs-index.md                     # 生成：所有 Project 的岗位与申请总台账（防止跨 Project 重复投递）
 ├── settings/                         # 应用设置，见 ui.md「模型设置」
 │   ├── models.yaml                   # 模型供应商、接口格式、Base URL、模型名、用途分配；只写 key 的变量名
-│   └── .env                          # API key（用户确认：保存在本地 .env）；权限 600，被 storage/.gitignore 忽略，开发代理不读
+│   └── .env                          # API key（用户确认：保存在本地 .env）；权限 600，开发代理不读
 ├── browser/sites.md                  # 站点登录登记（全局，因为浏览器只有一个）
 ├── uploads/                          # MCP 允许读取的上传暂存区（等字节副本）
 ├── cache/                            # 可以随时删除：web/（抽取结果）、playwright-mcp/（MCP 输出目录，每次连接和关闭时清空）
@@ -114,7 +112,7 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 id: ai-infra-2025
 title: AI Infra / 平台后端（2025 版信息）
 inherits: [base]                      # 也可以是 [base, projects/backend-2024]，形成时间线
-base_pin: live                        # live = 跟随 base 最新；或 storage git 的某个 commit / 日期，冻结在那一刻（只有开启 git 时可用）
+base_pin: live                        # 只能是 live（跟随 base 最新）：storage 不做版本控制，取不到旧版本
 default_resume: resume-ai-2025        # 引用 base/assets.md 的键
 status: active | archived
 ```
@@ -125,13 +123,13 @@ status: active | archived
 本 Session 中用户确认的答案
   → 本 Project 的 overrides.md
     → 父 Project（按 inherits 顺序）
-      → base（按 base_pin 取当时版本）
+      → base（当前版本）
 ```
 
 - 每个字段在填写报告里**都标出来源层**，比如「来自 Project ai-infra-2025 / overrides，2026-10-13 确认」，方便你在关卡 B 一眼看出是哪一层给的值。
 - overrides 可以显式写 `unset`（条目里写 `- unset: true`），表示「这个侧重下不要用 base 的这条」。
 - 父 Project 这一层只取父 Project 的 `overrides.md`（当前版本）；base 这一层一律按**本 Project** 的 `base_pin` 取版本。`inherits` 必须包含 `base`，`base` 永远是最后一层（用户确认，2026-10-22）。
-- `base_pin` 固定到某个时间点时，就算 base 以后更新了，这个 Project 也不受影响，正好对应「这个 Project 用的是 2020 年那一版信息」。
+- `base_pin` 原来可以固定到某个时间点；storage 不做版本控制以后（2026-10-23）只能是 `live`。要保留「2020 年那一版信息」，就新建一个 Project，把那时的写法放进它的 `overrides.md`。
 - 父子 Project 之间不允许出现循环继承，后端加载时要检测。
 - ID（用户确认，2026-10-22）：job id 为 `YYYY-MM-DD-NNN`，跨所有 Project 按日期编号，因为它也是申请线程的 thread id；session id 为 `s-YYYY-MM-DD-NNN`；project id 由用户给出，只允许小写字母、数字和 `-`。
 
@@ -151,14 +149,14 @@ status: active | archived
 
 流程：**继承 + 用户上传文件或输入文字 → Agent 提取 → 用户核实 → 写入**。
 
-1. **选继承**：选 `inherits`（base，或者 base 加某个已有 Project），选 `base_pin`（跟随最新，或固定在某个时间点）。
+1. **选继承**：选 `inherits`（base，或者 base 加某个已有 Project），`base_pin` 固定为 `live`（跟随最新）。
 2. **上传或输入**：上传这个 Project 要用的简历和资料（Word / PDF / Markdown / 纯文本），或者直接粘贴一段文字。上传的原件存进 `base/originals/`，登记到 `base/assets.md`；本 Project 的 `assets.md` 只引用它。
 3. **提取**（2026-10-22 起按下面「资料导入与画像」的四层流程做；这里的对比规则不变）：后端用文档读取工具把文件转成文本，Agent 从中提取候选事实（教育、经历、项目、技能、链接），并**和继承来的事实做对比**：
    - 新增：继承里没有的；
    - 不同：和继承的值不一样（例如学位写法、项目日期）；
    - 相同：直接沿用。
 4. **核实**：用「带选项提问」逐组给你确认（参考 Hermes 的 clarify：每个问题给出选项，并且总有「其它」）。「不同」的条目由你选：写进本 Project 的 `overrides.md`（只影响这个 Project）、更新 base（影响所有跟随 base 的 Project）、或者写进 `conflicts.md` 以后再定。
-5. **写入**：确认后写文件；开启 git 时在 `storage/.git` 提交一次。C 级内容（证件号、工作授权等）即使出现在文件里也**不提取、不写入**。
+5. **写入**：确认后写文件。C 级内容（证件号、工作授权等）即使出现在文件里也**不提取、不写入**。
 
 ### 文档读取工具
 
@@ -276,7 +274,7 @@ Project 的 `overrides.md` 仍然覆盖第 3 层，继承规则不变（见「�
 2. 后端检查候选：是否重复、是否冲突、是否属于 C 级（是就丢弃），作用域是否正确。
 3. 候选**默认写回本 Project**（`candidates.md` → 你确认 → `overrides.md`）。要写进 `base/`，必须你明确同意。候选**不会横向复制到兄弟 Project**。
 4. 站点特有的事实写进 `playbook/sites/<host>.md`；可以复用的经验修补对应的组件或平台 skill，标注 `observed_count`；在 ≥2 类站点上出现过、并经你同意后，才写进通用的 `skills/apply-form`。分工见 workflow.md「流程优化的安全边界 · 谁来改什么」。
-5. 开启 git 时，每次写入都在 `storage/.git` 中自动提交一次。
+5. storage 不做任何版本控制（用户确认，2026-10-23）。
 
 ## Job 记录（`job.md` frontmatter）
 
@@ -342,7 +340,7 @@ blocker: <阻塞原因>
 | 生成视图（台账、题库、`dashboard.md`） | Markdown | 给你和 AI 看的，每次重新生成 |
 
 规则：
-- **写入顺序**：先写文件，再更新索引；开启 git 时再提交到 `storage/.git`。索引和文件不一致时，以文件为准，重建索引。
+- **写入顺序**：先写文件，再更新索引。索引和文件不一致时，以文件为准，重建索引。
 - **SQLite 驱动**：`org.xerial:sqlite-jdbc`（Maven Central 最新 3.53.4.0，施工时钉精确版本）。
 - **对话记忆**：Spring AI 2.0.1 有 `spring-ai-model-chat-memory-repository-jdbc`，可以把模型上下文窗口接到 SQLite；原文仍以 `transcript.jsonl` 为准。是否采用，施工时再定。
 - **Obsidian 兼容**（用户要求）：`storage/` 可以直接作为 Obsidian vault 打开浏览。
@@ -351,7 +349,6 @@ blocker: <阻塞原因>
   - 用 `tags` 字段标注 `jobapply/session`、`jobapply/round`、`topic/system-design` 等，在 Obsidian 里可以按标签筛选。
   - 生成的文件（台账、题库、`dashboard.md`）也是普通 Markdown 表格，在 Obsidian 里直接可读。
   - `.sqlite`、`.jsonl` 文件 Obsidian 默认不显示，不影响浏览。
-  - `.obsidian/` 配置目录写进 `storage/.gitignore`。
   - 不依赖任何 Obsidian 插件。以后可以选用 Dataview 做查询，但这不是必需的。
 - **向量检索后置**：题库归并先靠模型建议 + 你确认 `canonical`。以后题目多了要做相似题检索，再加 sqlite-vec，并且只用本地 embedding 模型，不把复盘内容发到外部。
 
@@ -376,7 +373,7 @@ blocker: <阻塞原因>
 已确认（2026-10-22）：
 1. Project 创建时用 `inherits`（加 `base_pin`），再由用户上传文件或输入文字核实，见「新建 Project」。
 2. Session 类型改为自动打标签（见「修订：Session 与岗位解耦」）。
-3. `storage/` 用本地 git 保留版本，不设远程、不上传。**git 是可选项**（用户确认，2026-10-22）：用户可以开启或不开启；不开启时不用其他方式保留版本，`base_pin` 只能是 `live`，也无法回滚。
+3. `storage/` **不做任何版本控制**（用户确认，2026-10-23，取代 2026-10-22 的「git 可选」）：没有 `storage/.git`、没有自动提交、没有 `storage/.gitignore`；`base_pin` 只能是 `live`，不能回滚。整个 `storage/` 被主仓库的 `.gitignore` 忽略。
 4. B 级个人信息：Agent 能填的统一填完，再由用户在关卡 B 审核。
 5. 原件保存在 base（`base/originals/`），其它内容跟随各 Project 的 memory。
 6. 资料导入与画像（2026-10-22）：保留四层（来源 / 证据 / 事实 / 画像）；各类求职内容由用户确认即可使用，出处、条件和论断引用可选，抽取与画像可以提出量化及表达候选；中英双语共用一份结构化事实；支持页面上传、本地目录和 GitHub 公开仓库；在 C004-B 之前施工，拆成两段：[C004-A-1](../coding/C004-A-1-profile-import.md)（格式、按语言取值、来源扫描，不调用模型；具体格式写在这里）和 [C004-A-2](../coding/C004-A-2-profile-review.md)（整理、确认、画像）。用户确认（2026-10-22）：拆分，其余细节按建议。

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>示例科技 · 在线申请 · 求职意向</title>
+<!-- 手动冒烟用的虚构表单，和 readonly-select.scenario.json 表达同一个表单：原生下拉框「学历」用 select_option；
+     只读下拉框「到岗时间」不能输入，只能点开后点选项。 -->
+<style>
+  body { font-family: sans-serif; max-width: 40rem; margin: 2rem auto; }
+  section[hidden] { display: none; }
+  label { display: block; margin: .75rem 0; }
+  [role=listbox] { border: 1px solid #999; padding: .25rem; margin: .25rem 0; list-style: none; }
+  [role=listbox][hidden] { display: none; }
+  [role=option] { cursor: pointer; padding: .25rem; }
+  [role=option]:hover { background: #eee; }
+</style>
+</head>
+<body>
+<section id="closed" data-title="示例科技 · 在线申请 · 求职意向">
+  <h1>求职意向</h1>
+  <p>第 1/2 步</p>
+  <label>学历
+    <select aria-label="学历"><option>本科</option><option>硕士</option><option>博士</option></select>
+  </label>
+  <label>到岗时间
+    <input type="text" id="start" role="combobox" aria-label="到岗时间" aria-expanded="false" aria-controls="start-list"
+           value="请选择" readonly>
+  </label>
+  <ul role="listbox" id="start-list" aria-label="到岗时间" hidden>
+    <li role="option">一周内</li>
+    <li role="option">两周内</li>
+    <li role="option">一个月内</li>
+  </ul>
+  <button type="button" data-go="review">下一步</button>
+</section>
+<section id="review" data-title="示例科技 · 在线申请 · 核对信息" hidden>
+  <h1>核对信息</h1>
+  <p>第 2/2 步</p>
+  <button type="button" data-go="closed">上一步</button>
+  <button type="button" data-go="submitted">提交申请</button>
+</section>
+<section id="submitted" data-title="示例科技 · 在线申请" hidden>
+  <h1>投递成功</h1>
+</section>
+<script>
+  const start = document.getElementById('start');
+  const list = document.getElementById('start-list');
+  start.addEventListener('click', () => {
+    list.hidden = !list.hidden;
+    start.setAttribute('aria-expanded', String(!list.hidden));
+  });
+  list.querySelectorAll('[role=option]').forEach(option => option.addEventListener('click', () => {
+    start.value = option.textContent;
+    list.hidden = true;
+    start.setAttribute('aria-expanded', 'false');
+  }));
+  document.querySelectorAll('[data-go]').forEach(button => button.addEventListener('click', () => {
+    document.querySelectorAll('section').forEach(section => { section.hidden = section.id !== button.dataset.go; });
+    document.title = document.getElementById(button.dataset.go).dataset.title;
+  }));
+</script>
+</body>
+</html>

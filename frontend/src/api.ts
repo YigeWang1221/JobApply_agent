@@ -293,7 +293,60 @@ export interface SummaryCandidate {
   warnings: string[];
 }
 
+// 申请线程（agent-runtime.md 7.1）。Agent 在后台跑；要用户时 status 是 waiting_user，message 写着要做什么。
+// 只放问题原文和选项；fieldClass 为 C 的问题不能在面板里回答，只能由用户在浏览器里亲自填
+export interface ApplicationQuestion {
+  id: string;
+  text: string;
+  options?: string[] | null;
+  required?: boolean | null;
+  fieldClass?: "A" | "B" | "C" | null;
+  page?: string | null;
+}
+
+// 页面上的一个上传位置（简历、作品集、成绩单等）
+export interface FileSlot {
+  id: string;
+  label: string;
+  accept?: string | null;
+  required?: boolean | null;
+  note?: string | null;
+}
+
+export interface PlanItem {
+  text: string;
+  status: "todo" | "doing" | "done" | "blocked" | string;
+}
+
+export interface ApplicationStatus {
+  job: string;
+  project?: string | null;
+  session?: string | null;
+  status: "running" | "waiting_user" | "ready" | "failed" | string;
+  message?: string | null;
+  questions?: ApplicationQuestion[] | null;
+  fileSlots?: FileSlot[] | null;
+  assets?: Asset[] | null;
+  disconnected?: boolean;
+  plan?: PlanItem[] | null;
+  usage?: { modelCalls: number; toolCalls: number; tokens: number } | null;
+  prepState?: string | null;
+  // 报告的状态：draft（填写中的草稿）、final（停在提交前时定稿）；还没有报告时为 null。正文用 api.report 读
+  report?: "draft" | "final" | null;
+  round?: number | null;
+  error?: string | null;
+}
+
+export interface ReplyBody {
+  session: string;
+  text?: string;
+  answers?: Record<string, string>;
+  // 原件键，按 fileSlots 的顺序，每个对应一个上传位置；跳过的选填位置写空字符串
+  files?: string[];
+}
+
 const MODELS = "/api/settings/models";
+const jobPath = (jobId: string) => `/api/jobs/${encodeURIComponent(jobId)}/application`;
 
 export const api = {
   modelSettings: () => request<ModelSettings>("GET", MODELS),
@@ -339,6 +392,23 @@ export const api = {
   generateSummary: () => request<SummaryCandidate>("POST", "/api/profile/summary"),
   confirmSummary: (body: { zh: Record<string, string>; en: Record<string, string>; userEdited: string[];
     reviewed: string[] }) => request<ProfileSummary>("PUT", "/api/profile/summary", body),
+
+  startApplication: (jobId: string, body: { project: string; session: string }) =>
+    request<ApplicationStatus>("POST", jobPath(jobId), body),
+  application: (jobId: string) => request<ApplicationStatus>("GET", jobPath(jobId)),
+  reply: (jobId: string, body: ReplyBody) => request<ApplicationStatus>("POST", `${jobPath(jobId)}/reply`, body),
+  stop: (jobId: string) => request<ApplicationStatus>("POST", `${jobPath(jobId)}/stop`),
+  // 报告是 Markdown 文本；还没有报告（404）时返回 null
+  report: async (jobId: string) => {
+    const response = await fetch(`${jobPath(jobId)}/report`);
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      return parse<never>(response);
+    }
+    return response.text();
+  },
 };
 
 export function errorText(error: unknown): string {

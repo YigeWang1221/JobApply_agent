@@ -17,7 +17,7 @@ class LedgerFileTest {
 
     @Test
     void idsAreSequentialAndNeverReused() {
-        TestStorage storage = TestStorage.create(root, true);
+        TestStorage storage = TestStorage.create(root);
         LedgerFile ledger = new LedgerFile(storage.layout, storage.clock);
 
         Claim first = ledger.add(Claim.draft("经历", "实习期间负责订单服务的接口开发", "s-2026-10-22-001", "README.md#L12",
@@ -30,8 +30,6 @@ class LedgerFileTest {
         assertThat(second.id()).isEqualTo("c-0002");
         assertThat(third.id()).isEqualTo("c-0003");
         assertThat(ledger.ids()).containsExactly("c-0001", "c-0003");
-        assertThat(storage.isClean()).isTrue();
-        assertThat(storage.headMessage()).isEqualTo("base：台账新增 c-0003");
         assertThatThrownBy(() -> ledger.remove("c-0002")).isInstanceOf(NoSuchElementException.class);
     }
 
@@ -45,7 +43,7 @@ class LedgerFileTest {
         assertThat(Claim.defaultUse(Claim.Status.DISCREPANCY)).isEqualTo(Claim.Use.FORMS_AND_RESUME);
         assertThat(Claim.defaultUse(Claim.Status.NEEDS_VERIFICATION)).isEqualTo(Claim.Use.NONE);
 
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         LedgerFile ledger = new LedgerFile(storage.layout, storage.clock);
         ledger.add(Claim.draft("指标", "QPS 12000", "", "", Claim.Status.OWNER_ATTESTED));
         Claim read = ledger.find("c-0001").orElseThrow();
@@ -61,7 +59,7 @@ class LedgerFileTest {
 
     @Test
     void unknownColumnsAndSurroundingTextArePreserved() {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         storage.write(storage.layout.baseLedger(), """
                 ---
                 last_claim: c-0009
@@ -92,7 +90,7 @@ class LedgerFileTest {
 
     @Test
     void badStatusIsAFormatError() {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         storage.write(storage.layout.baseLedger(), """
                 | id | 类别 | 论断 | 来源 | 出处 | 值与条件 | 状态 | 用途 | 确认时间 |
                 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -105,10 +103,9 @@ class LedgerFileTest {
 
     @Test
     void addAllNumbersInOrderAndWritesOnce() {
-        TestStorage storage = TestStorage.create(root, true);
+        TestStorage storage = TestStorage.create(root);
         LedgerFile ledger = new LedgerFile(storage.layout, storage.clock);
         ledger.add(Claim.draft("技能", "会写 Java", null, null, Claim.Status.OWNER_ATTESTED));
-        int before = storage.commitCount();
 
         var added = ledger.addAll(List.of(
                 Claim.draft("指标", "P99 45ms", "s-2026-10-22-001", "README.md#L5", Claim.Status.NEEDS_VERIFICATION),
@@ -116,7 +113,6 @@ class LedgerFileTest {
 
         assertThat(added).extracting(Claim::id).containsExactly("c-0002", "c-0003");
         assertThat(ledger.list()).hasSize(3);
-        assertThat(storage.commitCount()).isEqualTo(before + 1);
         assertThat(ledger.addAll(List.of())).isEmpty();
     }
 }

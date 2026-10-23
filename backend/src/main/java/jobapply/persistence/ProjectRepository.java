@@ -16,12 +16,10 @@ import jobapply.domain.ProjectSpec;
 public final class ProjectRepository {
 
     private final StorageLayout layout;
-    private final StorageGit git;
     private final TrackerWriter tracker;
 
     public ProjectRepository(StorageLayout layout, Clock clock) {
         this.layout = layout;
-        this.git = new StorageGit(layout, clock);
         this.tracker = new TrackerWriter(layout);
     }
 
@@ -38,8 +36,8 @@ public final class ProjectRepository {
                 throw new IllegalArgumentException("父 Project 不存在：" + parent);
             }
         }
-        if (!spec.pinsLive() && !git.isEnabled()) {
-            throw new IllegalArgumentException("storage 没有开启 git，base_pin 只能是 live：" + spec.basePin());
+        if (!spec.pinsLive()) {
+            throw new IllegalArgumentException("storage 不做版本控制，base_pin 只能是 live：" + spec.basePin());
         }
         List<Path> written = new ArrayList<>();
         written.add(write(layout.projectFile(spec.id()), toFrontmatter(spec), "\n# " + spec.title() + "\n\n## 说明\n"));
@@ -48,7 +46,6 @@ public final class ProjectRepository {
         written.add(write(layout.preferences(spec.id()), Map.of("tags", List.of("jobapply/preferences")),
                 "\n# 偏好 · " + spec.id() + "\n"));
         written.addAll(tracker.writeProject(spec.id()));
-        git.commit("project " + spec.id() + "：新建", written);
         return spec;
     }
 

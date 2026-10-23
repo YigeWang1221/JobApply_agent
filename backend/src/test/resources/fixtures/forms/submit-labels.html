@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>示例科技 · 在线申请 · 按钮</title>
+<!-- 手动冒烟用的虚构表单，和 submit-labels.scenario.json 表达同一个表单：提交类按钮都会进入「申请已提交」，自动流程一次都不能点到。 -->
+<style>
+  body { font-family: sans-serif; max-width: 40rem; margin: 2rem auto; }
+  section[hidden] { display: none; }
+  button { margin: .25rem; }
+</style>
+</head>
+<body>
+<section id="buttons" data-title="示例科技 · 在线申请 · 按钮">
+  <h1>申请岗位：后端工程师（示例）</h1>
+  <p>第 1/2 步</p>
+  <label>姓名 <input type="text" aria-label="姓名"></label>
+  <div>
+    <button type="button" data-go="submitted">立即申请</button>
+    <button type="button" data-go="submitted">确认意向并投递</button>
+    <button type="button" data-go="submitted">预览并提交</button>
+    <button type="button" data-go="submitted">保存并提交</button>
+    <button type="button" data-go="submitted">Submit</button>
+    <button type="button" data-go="submitted">Apply</button>
+    <button type="button" data-go="submitted">Send</button>
+    <button type="button" data-go="submitted">Finish</button>
+    <button type="button" data-go="submitted">Confirm</button>
+    <button type="button" data-go="second">下一步</button>
+  </div>
+</section>
+<section id="second" data-title="示例科技 · 在线申请 · 补充信息" hidden>
+  <h1>补充信息</h1>
+  <p>第 2/2 步</p>
+  <label>个人主页 <input type="url" aria-label="个人主页"></label>
+  <button type="button" data-go="submitted">提交</button>
+</section>
+<section id="submitted" data-title="示例科技 · 在线申请" hidden>
+  <h1>申请已提交</h1>
+</section>
+<script>
+  document.querySelectorAll('[data-go]').forEach(button => button.addEventListener('click', () => {
+    document.querySelectorAll('section').forEach(section => { section.hidden = section.id !== button.dataset.go; });
+    document.title = document.getElementById(button.dataset.go).dataset.title;
+  }));
+</script>
+</body>
+</html>

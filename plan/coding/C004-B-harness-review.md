@@ -3,7 +3,7 @@
 - 对应 Master：[workflow.md](../master/workflow.md)「里程碑」第 3 段；「主流程」（用户登录、身份核对、上传与解析、逐页填写、集中问答、接力、保存并回读、关卡 B）「提交保护」「登录状态」「预算与停止条件」「流程优化的安全边界」「遗漏检查」第 5、6 项；[memory.md](../master/memory.md)「字段分级」「继承与解析」「Job 记录」；[ui.md](../master/ui.md)「隐私说明」
 - 总表：[C004](C004-harness-guard.md)（拆分方式、共用的事实、已定决定、回写 Master 清单）
 - 前置：[C004-A](C004-A-model-guard.md) 完成（模型、资料原件、MCP 参数、守卫）；[C004-A-1](C004-A-1-profile-import.md)、[C004-A-2](C004-A-2-profile-review.md) 完成（资料导入与画像，用户确认 2026-10-22 放在本段之前）。C004-A-1 把事实改成中英双语、给 `ProfileResolver` 加按语言取值，C004-A-2 把事实层写满；本段的来源层和填写报告要按这两段的结果对齐，施工前先核对一遍（已核对，2026-10-23，见「施工前核对」）。
-- 状态：**已确认**（用户确认，2026-10-22：「待确认」1–5 按建议；第 6 项在冒烟前由用户决定）。施工前核对的 9 项和可选项按建议补入（用户确认，2026-10-23）。在 C004-A-2 之后施工。
+- 状态：**施工完成，等真实 LLM 测试、冒烟和手动检查**（2026-10-23）。「待确认」1–5 按建议（2026-10-22）；施工前核对的 9 项和可选项按建议（2026-10-23）；第 6 项等用户把真实 Project 的流程走完后再定。
 
 ## 目标
 
@@ -161,7 +161,7 @@ finish → fill ⟲ ─┬→ [wait_input]     ─ answers                  → 
 ### 资料与语言（施工前核对补入，2026-10-23）
 
 - **选哪些条目**：`ProfileResolver` 的结果里，只发两类：没有关联论断的条目；关联论断的用途是 `forms_and_resume`、状态不是 `discrepancy` 的条目。`interview_only`、`none`（包括 `needs_verification` 的默认用途）和 `discrepancy` 的条目不发、不填。资料层本来存不进 C 级（`Fact` 拒绝构造）。
-- **语言**：系统按每一页快照里中文字符的比例判断页面语言（确定性规则，用测试固定），按这个语言调用 `resolve(project, answers, language)`。中英混排、判断错了时，模型在字段上带 `language` 指明用另一种语言的值；系统按那个语言再取一次。报告记下每个字段用的语言。
+- **语言**：系统按每一页快照里中文字符的比例判断页面语言（确定性规则，用测试固定）：可见文字里的中文字符（不计空白、标点、数字）**不少于 40% 为中文页面**，否则为英文页面（用户确认，2026-10-23），按这个语言调用 `resolve(project, answers, language)`。中英混排、判断错了时，模型在字段上带 `language` 指明用另一种语言的值；系统按那个语言再取一次。报告记下每个字段用的语言。
 - **未审阅的译文**：可以填。报告里那一项的来源层带「未审阅」（`ResolvedFact.label()` 已经这样写），并在「未解决」里汇总一行「N 个字段用了未审阅的译文」，用户在关卡 B 看得到。
 
 ### 过程日志（`run-log.jsonl`）
@@ -276,3 +276,98 @@ finish → fill ⟲ ─┬→ [wait_input]     ─ answers                  → 
 4. **`uploads/<job-id>/` 的清理**：到达关卡 B 后清空。但用户在关卡 B 要求修改、需要重新上传时，会再复制一次。**建议：同意。**
 5. **过程日志里记 `request_changes` 的说明原文**：这是用户自己写的反馈，对 skill 整理最有用；但如果里面写了个人信息，日志就不再是完全干净的。**建议：记，并在面板上提示。**
 6. **真实公司冒烟用哪个 Project 的资料**：由用户在冒烟前决定。
+
+
+## 实际结果（2026-10-23）
+
+施工方式：用户要求多代理。切片 1 由主代理做；切片 2、3、6 和前端面板由四个代理在各自的 worktree 里并行做，主代理合并到主工作区后统一验证；切片 4、5、7 依次在主工作区做，其余 9 个夹具和切片 4 并行。每次合并后主代理都重跑 `mvn -B clean verify`。
+
+**按切片**
+1. 改名：`LoginHandoff*` → `Application*`，接口 `/api/jobs/{jobId}/application`，旧路径删掉；`StorageLayout` 加 `uploadsDir(jobId)`、`playbookDir()`、`playbookSkills()`、`playbookSite(host)`（主机名校验，不能越出 `sites/`）、`fillReport(...)`、`runLog(...)`。surefire 594、failsafe 2，行为不变。
+2. 写操作与文件：`BrowserSession.act`、`BrowserSession.find`、`tools.BrowserTools`（10 个白名单工具的定义和参数翻译；`file_upload` 只收文件编号）、`harness.policies.FieldIntent`、`harness.policies.SnapshotRedactor`、`ModelFactory.withTools(ChatModel, …)`（`TOOL_MAX_TOKENS` 16,000）、`persistence.UploadArea`、`persistence.JobMaterials`；测试侧 `FakeFormScript`（假 MCP 的表单模式，格式写在它的 javadoc 里）、`FakeBrowser.form/userEdit/calls/hardRefs`。
+3. skill：`harness.context.SkillCatalog`、`persistence.PlaybookSeeder`、`persistence.SiteNotes`；预置 `apply-form` 和 5 个组件 skill（`backend/src/main/resources/playbook/skills/`，中文陈述句，0.9k–6.2k 字，无个人信息、无公司名；主代理逐条看过 `apply-form`）。
+4. Harness 循环：`harness.runtime` 的 `HarnessLoop`、`LoopOutcome`、`LoopState`、`Budget`、`LoopDetector`；`harness.context` 的 `FillContext`、`PageLanguage`（40% 规则）；`agents` 的 `FillAgent`、`LoginCheckAgent`；`tools.ControlTools`；`config.HarnessProperties`（`application.yml` 的 `jobapply.harness.*`）；`ResolvedFact` 加 `claim`。测试辅助 `ScriptedChatModel`。
+5. 图：`FillNode`、`StageFilesNode`、`ReviewNode`、`ResumeNode`（wait_input / handoff / confirm / budget / review 的信号）、`FillHarness`（用到时才取主模型）；重写 `ApplicationGraph`、`ApplicationRunner`、`ApplicationState` / `Signal` / `Status`、`CheckPageNode`（改用 `LoginCheckAgent`）、`FinishNode`；去掉 `done`；`recursionLimit` 200；`FillReportWriter.load/parse` 让报告行在重启后保留。
+6. 报告、答案、日志：`persistence.FillReportWriter`、`JobAnswers`（答案编号 `ans-NNN`，C 级整批拒绝）、`RunLog`（只有工厂方法，没有记值的参数）。
+7. HTTP 与场景：`ApplicationController`（202 / 200 / 404 / 409 / 400 / 403 / 415；`GET …/report` 返回 `text/markdown`）；前端「申请」页 `frontend/src/pages/Application.tsx`（每 2 秒轮询，按等待点显示操作，`request_changes` 旁提示说明原文会进日志）；新夹具 `scenario-full`；`ApplicationScenarioIT` 通过 HTTP 走完「开始 → 登录 → 填写 → 集中问答 → 选择文件 → 软边界确认 → 关卡 B → 要求修改 → 再到关卡 B」，最后检查 `job.md`、`events.jsonl`、`fill-report.md`、`run-log.jsonl`、`sites/careers.example.com.md`、台账和 `uploads/`；手动入口 `ApplicationLlmManualCheck`、扩展后的 `ApplicationManualSmoke`（`-Djobapply.smoke.form=<夹具>`，在 127.0.0.1 上提供 `forms/*.html`）。
+
+**夹具**：`backend/src/test/resources/fixtures/forms/` 下 13 个（计划的 12 个加 `scenario-full`），每个有 `.html` 和 `.scenario.json`；`FakeFormScriptTest.everyFormFixtureIsConsistent` 自动检查全部夹具。所有硬边界按钮都通向「投递成功」页，误点能被发现。
+
+**验证**
+- 在 `backend/` 用 JDK 25 执行 `mvn -B clean verify`：退出码 0，surefire 715、failsafe 3，Failures / Errors / Skipped 均为 0（主代理最后一次运行）。
+- 自动测试只用 `FakePlaywrightMcpServer`、`ScriptedChatModel` 和 `FakeModelServer`，没有访问外部网络、没有调用 npx、没有连真实浏览器、没有调用真实模型。
+- 测试里的 4 个假 Key 在构建日志和 surefire / failsafe 报告里出现 0 次。
+- 夹具里的提交类按钮一次都没有被点到：`HarnessLoopTest` 每个用例之后、`ApplicationScenarioIT` 结束时按假服务端的调用记录断言；没有 `handle_dialog` 调用。
+- Checkpoint 里没有快照文字和填进去的值（`ApplicationRunnerTest` 用 JDBC 直接读 sqlite 断言）；C 级值（包括用户接力时在页面上填的）没有出现在模型请求、报告和日志里。
+- `frontend/` 执行 `npm run build` 通过。
+- 真实 LLM 测试（`ApplicationLlmManualCheck`）：未运行。真实 Chrome 冒烟（`ApplicationManualSmoke`）：未运行。真实公司冒烟：未运行（第 6 项未定）。用户在页面上的检查：未运行。
+
+## 偏差
+
+1. **包依赖**：`persistence` 新引用了 `memory.ResolvedFact`（`FillReportWriter`，形成包之间的循环）和 `harness.policies` 的词表（`JobAnswers`、`SiteNotes`）。能编译，没有架构测试；以前 `persistence` 只引用 `domain`。
+2. **报告格式**：表格多一列「语言」；值那一格在格式改写时附「（资料原值：…）」，在改正页面解析结果时附「（页面原值：…，已改正）」；「草稿」写在标题的括号里。草稿不提交 storage git，定稿时连同 `run-log.jsonl` 一起提交。
+3. **`materials` 的形状**：写成列表 `[{slot?, asset, upload_name, sha256}]`；memory.md「Job 记录」的示意是映射（`resume`、`attachments`）。**待用户确认后回写 Master。**
+4. **计划外的类和方法**：`BrowserSession.find`（模型的 `browser_find` 要的是文字，不是快照）、`LoopState`、`ResumeNode`、`FillHarness`、`PageLanguage`、`FieldIntent`、`SnapshotRedactor`、`FillReportWriter.Recorded`、`SiteNotes.notePlatform/appendObservation`；`LoopOutcome.ConfirmButton` 多了 `host`；点击的 `purpose` 多了 `open_control`（软边界放行仍只认 `next_step` / `save_draft`）。
+5. **`ResolvedFact` 加 `claim`**：按论断的用途和状态筛选需要它；台账里找不到的论断编号按「不能发」处理。指向被筛掉条目的 `fact` 在发给 MCP 之前就被拒绝（告诉模型原因，不算守卫拒绝）。
+6. **「同一类操作再试」**：按「工具 + 拒绝来源」判断，同一轮里第二次被守卫拒绝的点击就转接力，即使 ref 不同。连续三次只回文字、不调用工具也转接力（`NO_PROGRESS`）。
+7. **预算**：控制工具也计入调用次数；80% 提醒每轮额度一次，同时作为提示交给模型。
+8. **报告草稿**：每一轮开始时从 `fill-report.md` 重新读入，重启后已填的行保留；对同一个 Job 重新 `start` 时也会沿用旧行，轮次从 1 开始。
+9. **主模型没有配置**：登录核对时停在 `wait_login` 并给出「还没有配置主模型」；填写时线程记为失败，要重新开始。
+10. **`override`**：不调用模型，按 C003 的规则自己取快照、比对账号提示，记 `login_override`。
+11. **关卡 B 不占浏览器**：停在 `wait_review` 时释放标签页归属，免得一个停在关卡 B 的 Job 挡住别的 Job；之后 `request_changes` 会重新打开岗位页，走一遍登录核对。
+12. **`request_changes` 的说明**：在下一轮填写用掉之前存在 Checkpoint 里（用户自己写的文字，不是快照或填进去的值）。
+13. **skill**：`url_patterns` 的格式由施工定：去掉协议后整条 URL 的不区分大小写的通配符，只有 `*`；`page_markers` 只解析、不用于自动加载；`PlaybookSeeder` 用写死的文件清单（jar 里不能可靠地列目录，测试核对清单和资源目录一致）；用户删掉的预置 skill 下次会被补回；按钮记录按名字取最后一条，后来的 `unsafe` 撤销之前的 `safe`（两条都保留）。
+14. **答案**：本次答案记为 A 级。模型推断（`fact: none`）的字段在报告里也记为 A 级。
+15. **页面语言**：空页面按中文；`- /url:` 行和角色、属性不计入比例。
+16. **场景测试**：主模型通过设置接口配置成 `FakeModelServer`，没有替换 Bean，这样也覆盖了「设置 → 模型注册表 → 工具调用」这条路径。修了一个测试辅助的问题：`FakeBrowser` 会把用过的 `exitOnNextCall` 写回成 true。
+17. **「提交类按钮没被点到」**：按测试类断言（`HarnessLoopTest` 每个用例、IT 结束时、`ApplicationRunnerTest` 按 ref），不是整个测试套件一个总断言。
+
+
+## 追加：浏览器连接属于应用（用户确认，2026-10-23）
+
+冒烟时用户发现「每一步都要在 Chrome 里同意一次 MCP 连接」。用户的要求：MCP 连接一直挂着，不跟着 Session、Project 或 Job 走；只要用户打开了，除非用户自己在 Chrome 里关掉（那时重新申请一次），系统不自己关掉再重新申请。
+
+查到的原因（按冒烟日志里每次调用的耗时）：
+- 连接成功时本来就是一直挂着的：一次运行里只有第一次调用等了用户同意（约 28 秒），之后每次调用都是毫秒级。
+- 每个夹具单独起一个冒烟应用（新的 JVM、新的 MCP 进程），所以每个夹具都要再同意一次：这是测试方法的问题，和真实使用不一致。
+- **产品缺陷 1**：连接失败以后，`BrowserSession` 丢掉连接，下一次调用（包括下一个 Job）又自动去连，Chrome 就再弹一次。Playwright MCP 自己也会在每次工具调用时重试连接。
+- **产品缺陷 2**：远程调试模式下连不上 Chrome（「Could not connect to chrome」、用户 30 秒内没同意时的「Timeout 30000ms exceeded」）没有被认成断开，线程直接记为失败，而不是进入 `wait_reconnect`。
+- `reconnected` 不管连接好不好都关掉重开。
+
+修改：
+- `BrowserSession`：连接属于应用。只在「应用启动后第一次使用浏览器」和「用户发 `reconnected`」时建立连接；连接失败或断开以后不自动重试，之后的调用直接报断开、不碰 MCP，所有用到浏览器的 Job 都停在 `wait_reconnect`；`reconnected` 在连接还好时沿用、不关掉，失败或断开过才重新连接一次。只有应用关闭时才关掉连接。
+- `PlaywrightMcpClient`：`could not connect to chrome`、`initializeServer` 算作断开。
+- `ApplicationManualSmoke`：夹具可以用逗号分隔多个，一个应用、一条连接、每个夹具一个 Job 依次跑；每个 Job 停在关卡 B、转接力或失败时算结束；MCP 输出目录的残留在应用关闭以后再查（连接打开期间 MCP 会写 console 日志，关闭时清空）。
+- 测试：新增 `BrowserSessionConnectionTest`（两个 Job 和一次 `reconnected` 只用一条连接；连接失败后不再碰 MCP，用户重连时才建第二条；等用户同意超时算断开）；`PlaywrightMcpClientTest.serverExitingMidCallIsADisconnect` 改成「断开后要用户重连」。
+- 验证：`mvn -B clean verify` 退出码 0，surefire 718、failsafe 3。其间有一次 `ApplicationRunnerTest.unconfiguredMainModelIsShownAndTheUserCanRetryOrOverride` 在整套测试里失败（期望 waiting，实际 failed），单独跑和整类跑三次都通过，再跑整套也通过：记为偶发，断言里加了完整状态，下次出现时能看到原因。
+
+## 追加：改成 Agent 驱动（2026-10-23；已由 [agent-runtime.md](../master/agent-runtime.md) 取代，代码没有落地）
+
+用户指出：C004-B 写成了「LLM 驱动的定时任务脚本」：9 个固定等待点、单独的登录核对 Agent 和它的等待点、固定的打转规则、每个字段必填的 `fact` / `confidence` / `language`、系统按 40% 判断页面语言；而填写的提示词只有十几行，没有讲项目和经历条目、日期、下拉框这些情况怎么处理。按 `AGENTS.md`「Agent 开发原则」和 [research-agent-design.md](../reference/research-agent-design.md) 改：
+
+**图**
+```text
+START → open_page → agent ⟲ ─┬→ [wait_user] ─ 用户答复 ─→ agent
+                              ├→ review（报告定稿）→ [wait_review] ─ request_changes ─→ agent
+                              └→ [wait_reconnect] ─ reconnected ─→ reconnect → open_page
+```
+- 去掉 `check_page`、`wait_login`、`wait_identity`、`finish`、`LoginCheckAgent`：要不要登录由模型看页面判断，需要时用 `ask_user` 请用户登录。
+- `wait_input`、`wait_materials`、`wait_handoff`、`wait_confirm`、`wait_budget` 合成一个 `wait_user`；等待的内容由模型（或守卫、预算）给出的 `kind` 决定：`login`、`input`、`materials`、`handoff`、`confirm`、`budget`。状态里的 `waitingFor` 仍然用这几个值，前端不变；信号名不变（`logged_in`、`answers`、`files`、`handed_back`、`button_safe` / `button_unsafe`、`continue`）。
+
+**交给模型的工具**
+- 浏览器工具（不变）。字段上的 `fact`、`confidence`、`language` 改成可选：写了就进报告，没写记为「模型推断」。
+- `ask_user`：一个工具，`kind` 是 login / input / materials / handoff，附说明、问题清单（保留原文和选项）或上传位置。
+- `update_plan`：模型自己维护这一页的计划、已完成的、剩下的和遇到的问题（参考 Deep Agents 的 `write_todos`、Browser Use 的 todo）。每一轮放回上下文，不进 Checkpoint。
+- `load_skill`、`finish_filling`（不变）。
+
+**代码里留下的（安全边界）**：硬边界按钮、回车、C 级字段（不发不填，快照遮值）、工具白名单、上传路径、出现安全验证 / 弹窗 / 疑似已提交时停止写操作并交给用户、软边界按钮拿不准时问用户、预算上限（到上限时问用户要不要继续，75% 时提醒模型）。
+
+**改成反馈给模型、不再强制转交的**：同一个元素连续失败、相同操作相同结果、页面一直没变化、被拒绝后又试：系统在工具结果里如实告诉模型「这已经是第 N 次」，由模型换办法或 `ask_user`。
+
+**提示词**：按节组织：身份和目标 → 边界 → 工作方法（每一步先核对上一步、看页面、计划这一页、批量填、回读核对、翻页）→ 按情形的引导（登录、个人信息、教育、项目和经历条目、日期、下拉框和级联、上传和解析覆盖、开放问题和问用户、卡住时、完成时）。每节写明对应的 skill。资料两种语言都给出，模型按页面选。
+
+**主模型失败**（用户确认，2026-10-23）：没有配置主模型 → 线程直接失败并给出原因；调用失败是网络原因（连接失败、超时、服务暂时不可用）→ 最多等 2 分钟反复重试，期间用户可以发 `stop` 中断；2 分钟后还不行 → 失败并给出原因。在对话视图出来之前，「停止」在申请面板上。
+
+**多个 Job**：一条浏览器连接上每个 Job 一个标签页，操作前切到自己的那一页（见上一节「浏览器连接属于应用」）；一个 Job 停在等用户的地方时，别的 Job 照样可以用浏览器。
+
+**验证方式**（用户确认，2026-10-23：不再新写测试）：用真实模型在夹具上跑（`ApplicationLlmManualCheck`）和真实 Chrome 冒烟；原有固定安全边界和存储格式的单元测试保留；固定旧流程的测试类移出构建（存档到会话目录，不删除内容）。

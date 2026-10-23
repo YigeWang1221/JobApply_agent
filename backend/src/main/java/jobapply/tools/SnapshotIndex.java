@@ -2,6 +2,7 @@ package jobapply.tools;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -101,6 +102,11 @@ public final class SnapshotIndex {
 
     public int size() {
         return nodes.size();
+    }
+
+    /** 全部节点（按 ref 去重，顺序不保证）。 */
+    public Collection<Node> nodes() {
+        return nodes.values();
     }
 
     private static int indentOf(String line) {

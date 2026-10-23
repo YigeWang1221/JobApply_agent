@@ -35,11 +35,9 @@ public final class LedgerFile {
     private static final String LAST = "last_claim";
 
     private final StorageLayout layout;
-    private final StorageGit git;
 
     public LedgerFile(StorageLayout layout, Clock clock) {
         this.layout = layout;
-        this.git = new StorageGit(layout, clock);
     }
 
     public synchronized List<Claim> list() {
@@ -174,7 +172,6 @@ public final class LedgerFile {
         frontmatter.put(LAST, String.format("c-%04d", ledger.last));
         AtomicFiles.write(layout.baseLedger(), FrontmatterFile.render(
                 new FrontmatterFile.Document(frontmatter, ledger.table.render())));
-        git.commit(message, List.of(layout.baseLedger()));
     }
 
     private static int number(String id) {

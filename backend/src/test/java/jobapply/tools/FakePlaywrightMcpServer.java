@@ -27,6 +27,9 @@ import tools.jackson.databind.json.JsonMapper;
  * 行为由场景文件（JSON，见 {@link FakeBrowser}）决定，每次调用前重新读取，测试可以在两次调用之间修改它。
  * 收到的每次调用、调用时客户端声明的 roots，以及启动时看到的环境变量名（不含值）都追加到调用记录里。
  * 用法：{@code java -cp <classpath> jobapply.tools.FakePlaywrightMcpServer <场景文件> <调用记录>}
+ * <p>
+ * 场景文件里有 {@code form} 键时进入表单模式：页面按表单脚本（{@code fixtures/forms/<name>.scenario.json}）变化，
+ * 格式和行为见 {@link FakeFormScript}。没有时按 {@code pages}（网址 → 标题、快照）和 {@code redirects} 返回固定页面。
  */
 public final class FakePlaywrightMcpServer {
 
@@ -41,6 +44,7 @@ public final class FakePlaywrightMcpServer {
     private final Path scenarioFile;
     private final Path callLog;
     private String currentUrl = "about:blank";
+    private final FakeFormScript form = new FakeFormScript();
 
     private FakePlaywrightMcpServer(Path scenarioFile, Path callLog) {
         this.scenarioFile = scenarioFile;
@@ -106,6 +110,9 @@ public final class FakePlaywrightMcpServer {
         }
         if (scenario.get("toolError") instanceof String error && !error.isEmpty()) {
             return McpSchema.CallToolResult.builder().addTextContent("### Error\n" + error).isError(true).build();
+        }
+        if (scenario.get("form") instanceof Map<?, ?>) {
+            return form.handle(tool, args, scenario);
         }
         return switch (tool) {
             case "browser_navigate" -> {

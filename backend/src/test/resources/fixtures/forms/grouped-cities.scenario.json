@@ -1,0 +1,51 @@
+{
+  "name": "grouped-cities",
+  "entry": "cities",
+  "pages": {
+    "cities": {
+      "url": "https://careers.example.com/apply/600/step-1",
+      "title": "示例科技 · 在线申请 · 意向城市",
+      "snapshot": [
+        "- heading \"意向城市\" [level=1] [ref=e1]",
+        "- text: 第 1/2 步 · 可多选",
+        "- group \"意向城市（可多选）\" [ref=e2]:",
+        "  - group \"广东\" [ref=e3]:",
+        "    - checkbox \"广州\" [ref=e4]",
+        "    - checkbox \"深圳\" [ref=e5]",
+        "  - group \"浙江\" [ref=e6]:",
+        "    - checkbox \"杭州\" [ref=e7]",
+        "    - checkbox \"宁波\" [ref=e8]",
+        "  - group \"江苏\" [ref=e9]:",
+        "    - checkbox \"南京\" [ref=e10]",
+        "    - checkbox \"苏州\" [ref=e11]",
+        "  - group \"四川\" [ref=e12]:",
+        "    - checkbox \"成都\" [ref=e13]",
+        "- button \"下一步\" [ref=e14]"
+      ],
+      "clicks": {
+        "e14": "review"
+      }
+    },
+    "review": {
+      "url": "https://careers.example.com/apply/600/step-2",
+      "title": "示例科技 · 在线申请 · 核对信息",
+      "snapshot": [
+        "- heading \"核对信息\" [level=1] [ref=e20]",
+        "- text: 第 2/2 步",
+        "- button \"上一步\" [ref=e21]",
+        "- button \"提交申请\" [ref=e22]"
+      ],
+      "clicks": {
+        "e21": "cities",
+        "e22": "submitted"
+      }
+    },
+    "submitted": {
+      "url": "https://careers.example.com/apply/600/done",
+      "title": "示例科技 · 在线申请",
+      "snapshot": [
+        "- heading \"投递成功\" [level=1] [ref=e30]"
+      ]
+    }
+  }
+}

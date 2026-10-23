@@ -22,7 +22,6 @@ import jobapply.domain.ProjectSpec;
 import jobapply.persistence.FactsFile;
 import jobapply.persistence.ProjectCardFile;
 import jobapply.persistence.ProjectRepository;
-import jobapply.persistence.StorageGit;
 import jobapply.persistence.StorageLayout;
 
 /**
@@ -48,13 +47,11 @@ public final class ProfileResolver {
 
     private final StorageLayout layout;
     private final ProjectRepository projects;
-    private final StorageGit git;
     private final ProjectCardFile projectCards;
 
     public ProfileResolver(StorageLayout layout, Clock clock) {
         this.layout = layout;
         this.projects = new ProjectRepository(layout, clock);
-        this.git = new StorageGit(layout, clock);
         this.projectCards = new ProjectCardFile(layout, clock);
     }
 
@@ -95,13 +92,13 @@ public final class ProfileResolver {
         if (!fact.isBilingual()) {
             String display = number != null ? ProjectCard.format(number, wanted) : wanted.formatValue(fact.value());
             return new ResolvedFact(fact.key(), fact.value(), display, fact.factClass(), layer.kind(), layer.id(),
-                    fact.confirmedAt(), null, false);
+                    fact.confirmedAt(), null, false, fact.claim());
         }
         Language used = fact.text(wanted) != null ? wanted : wanted.other();
         String text = fact.text(used);
         boolean unreviewed = used != wanted || !fact.reviewed().contains(used);
         return new ResolvedFact(fact.key(), text, text, fact.factClass(), layer.kind(), layer.id(), fact.confirmedAt(),
-                used, unreviewed);
+                used, unreviewed, fact.claim());
     }
 
     /** 深度优先收集本 Project 与全部祖先 Project；出现环时报出整条环。 */
@@ -138,23 +135,8 @@ public final class ProfileResolver {
             facts = new ArrayList<>(FactsFile.read(layout.baseFacts()));
             cards.addAll(projectCards.list());
         } else {
-            if (!git.isEnabled()) {
-                throw new ProfileResolutionException(
-                        "Project " + spec.id() + " 的 base_pin 是 " + pin + "，需要开启 git 才能读取历史版本");
-            }
-            String revision = spec.pinsDate() ? git.commitAtEndOfDay(LocalDate.parse(pin)).orElse(null) : pin;
-            String path = layout.relative(layout.baseFacts());
-            Optional<String> content = revision == null ? Optional.empty() : git.readAtCommit(revision, path);
-            facts = new ArrayList<>(FactsFile.parse(content.orElseThrow(() -> new ProfileResolutionException(
-                    "找不到 base_pin " + pin + " 对应的 base/facts.md")), "base/facts.md@" + pin));
-            String dir = layout.relative(layout.baseProjectCardsDir());
-            for (String name : git.listAtCommit(revision, dir)) {
-                String slug = name.endsWith(".md") ? name.substring(0, name.length() - 3) : "";
-                if (Ids.isProjectSlug(slug)) {
-                    git.readAtCommit(revision, dir + "/" + name).ifPresent(text ->
-                            cards.add(ProjectCardFile.parse(text, "base/projects/" + name + "@" + pin)));
-                }
-            }
+            throw new ProfileResolutionException("Project " + spec.id() + " 的 base_pin 是 " + pin
+                    + "：storage 不做版本控制，base_pin 只能是 live");
         }
         Map<Fact, ProjectCard.CardFact> numbers = new IdentityHashMap<>();
         for (ProjectCard card : cards) {

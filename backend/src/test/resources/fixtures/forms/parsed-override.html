@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>示例科技 · 在线申请 · 简历与教育经历</title>
+<!-- 手动冒烟用的虚构表单，和 parsed-override.scenario.json 表达同一个表单：上传简历后，页面的「解析」把专业和日期填错。 -->
+<style>
+  body { font-family: sans-serif; max-width: 40rem; margin: 2rem auto; }
+  section[hidden] { display: none; }
+  fieldset { margin: 1rem 0; }
+  label { display: block; margin: .75rem 0; }
+  input[type=file] { display: none; }
+</style>
+</head>
+<body>
+<section id="resume" data-title="示例科技 · 在线申请 · 简历与教育经历">
+  <h1>简历与教育经历</h1>
+  <p>第 1/2 步 · 上传简历后系统会自动识别下面的内容，请核对</p>
+  <fieldset>
+    <legend>简历（必填，PDF）</legend>
+    <input type="file" id="resume-file" accept=".pdf">
+    <button type="button" id="pick">上传简历</button>
+    <span aria-label="简历文件" id="resume-name">未上传</span>
+  </fieldset>
+  <fieldset>
+    <legend>教育经历</legend>
+    <label>学校 <input type="text" aria-label="学校" id="school"></label>
+    <label>专业 <input type="text" aria-label="专业" id="major"></label>
+    <label>入学时间 <input type="text" aria-label="入学时间" id="start"></label>
+    <label>毕业时间 <input type="text" aria-label="毕业时间" id="end"></label>
+  </fieldset>
+  <button type="button" data-go="review">下一步</button>
+</section>
+<section id="review" data-title="示例科技 · 在线申请 · 核对信息" hidden>
+  <h1>核对信息</h1>
+  <p>第 2/2 步</p>
+  <button type="button" data-go="resume">上一步</button>
+  <button type="button" data-go="submitted">提交申请</button>
+</section>
+<section id="submitted" data-title="示例科技 · 在线申请" hidden>
+  <h1>投递成功</h1>
+</section>
+<script>
+  const file = document.getElementById('resume-file');
+  document.getElementById('pick').addEventListener('click', () => file.click());
+  file.addEventListener('change', () => {
+    document.getElementById('resume-name').textContent =
+        Array.from(file.files).map(f => f.name).join(', ') || '未上传';
+    if (file.files.length) {
+      // 模拟站点的简历解析：学校对，专业和毕业时间解析错
+      document.getElementById('school').value = '示例大学';
+      document.getElementById('major').value = '示例管理学';
+      document.getElementById('start').value = '2016-09';
+      document.getElementById('end').value = '2016-07';
+    }
+  });
+  document.querySelectorAll('[data-go]').forEach(button => button.addEventListener('click', () => {
+    document.querySelectorAll('section').forEach(section => { section.hidden = section.id !== button.dataset.go; });
+    document.title = document.getElementById(button.dataset.go).dataset.title;
+  }));
+</script>
+</body>
+</html>

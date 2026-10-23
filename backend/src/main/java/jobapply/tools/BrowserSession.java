@@ -13,8 +13,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 全局唯一的浏览器连接持有者（浏览器只有一个）。没有连接时，第一次调用会建立连接，用户需要在 Chrome 里同意一次。
- * 连接断开后丢弃这条连接，下一次调用或 {@link #reconnect()} 时重新建立。快照里的 ref 不跨连接使用。
+ * 全局唯一的浏览器连接持有者（浏览器只有一个）。连接属于应用，不属于某个 Session、Project 或 Job：应用运行期间一直
+ * 挂着，不会自己关掉再重新申请（用户确认，2026-10-23）。只在两种时候建立连接（用户要在 Chrome 里同意一次）：
+ * 应用启动后第一次使用浏览器；用户发了 {@code reconnected}（{@link #reconnect()}）。
+ * 连接失败或断开（例如用户在 Chrome 里关掉了）以后<b>不自动重试</b>：之后的调用直接报
+ * {@link BrowserException.Disconnected}，不再碰 MCP（Playwright MCP 每次重试都会让 Chrome 再弹一次确认），直到用户发
+ * {@code reconnected}。快照里的 ref 不跨连接使用。
  * 重连之后的「当前标签页」可能是用户自己的标签页，所以重连后要先 {@link #open(String, String)}，再取快照。
  * 建立连接和关闭时清空 MCP 的输出目录（{@link BrowserLaunch#outputDir()}），里面可能有登录后的页面内容。
  */
@@ -27,6 +31,8 @@ public final class BrowserSession implements AutoCloseable {
     private PlaywrightMcpClient client;
     /** 当前连接上新开的标签页属于哪个 Job；还没有新开过时为 null。 */
     private String tabOwner;
+    /** 连接失败或断开过，要等用户 {@link #reconnect()}；在此之前不建立新连接。 */
+    private boolean needsUser;
 
     public BrowserSession(BrowserLaunch launch) {
         this(launch, PlaywrightMcpClient::start);
@@ -59,19 +65,56 @@ public final class BrowserSession implements AutoCloseable {
         return PageSnapshot.parse(call(BrowserToolPolicy.SNAPSHOT, Map.of()));
     }
 
+    /**
+     * 模型的一次浏览器操作：先确认当前标签页是这个 Job 新开的，再按 {@code context} 过白名单并发出，最后取一次快照返回
+     * （写操作之后系统自己取快照，交给守卫和模型）。{@code args} 必须已经去掉模型多给的参数
+     * （{@link jobapply.harness.policies.FieldIntent}、{@link jobapply.harness.policies.SubmitGuard.ClickIntent}）；
+     * 点击和填写的守卫由调用方先判断。{@code browser_snapshot} 直接返回这次的快照，不再多取一次。
+     * 连接断开时抛出 {@link BrowserException.Disconnected}，标签页不再属于任何 Job。
+     */
+    public synchronized PageSnapshot act(String jobId, String tool, Map<String, Object> args,
+                                         BrowserToolPolicy.Context context) {
+        requireOwnTab(jobId);
+        String result = call(tool, args, context);
+        if (BrowserToolPolicy.SNAPSHOT.equals(tool)) {
+            return PageSnapshot.parse(result);
+        }
+        return snapshot(jobId);
+    }
+
+    /**
+     * 模型的 {@code browser_find}：只读，返回 MCP 的原文（找到的元素）。同样先确认标签页属于这个 Job。
+     */
+    public synchronized String find(String jobId, Map<String, Object> args, BrowserToolPolicy.Context context) {
+        requireOwnTab(jobId);
+        return call(BrowserToolPolicy.FIND, args, context);
+    }
+
     /** 当前标签页是否是这个 Job 新开的（连接断开、重连、应用重启、另一个 Job 打开页面之后都是 false）。 */
     public synchronized boolean ownsTab(String jobId) {
         return jobId != null && jobId.equals(tabOwner);
     }
 
-    /** 关掉旧连接，建立新连接（用户需要再同意一次）。 */
+    /**
+     * 用户发了 {@code reconnected}。连接还好好的（例如另一个 Job 已经重连过）就沿用，不关掉、不重新申请；
+     * 连接失败或断开过（或者还没建立过）才关掉旧进程、建立新连接（用户需要再同意一次）。
+     */
     public synchronized void reconnect() {
+        if (client != null && !needsUser) {
+            return;
+        }
         disconnect();
+        needsUser = false;
         connect();
     }
 
     public synchronized boolean isConnected() {
-        return client != null;
+        return client != null && !needsUser;
+    }
+
+    /** 连接失败或断开过，正在等用户发 {@code reconnected}。 */
+    public synchronized boolean needsUser() {
+        return needsUser;
     }
 
     @Override
@@ -79,14 +122,28 @@ public final class BrowserSession implements AutoCloseable {
         disconnect();
     }
 
+    private void requireOwnTab(String jobId) {
+        if (!ownsTab(jobId)) {
+            throw new IllegalStateException("当前标签页不是 Job " + jobId + " 新开的岗位页，不能操作");
+        }
+    }
+
     private String call(String tool, Map<String, Object> args) {
+        return call(tool, args, BrowserToolPolicy.Context.system());
+    }
+
+    private String call(String tool, Map<String, Object> args, BrowserToolPolicy.Context context) {
+        if (needsUser) {
+            throw new BrowserException.Disconnected(tool + "：浏览器连接已断开，在 Chrome 里准备好后发送 reconnected");
+        }
         if (client == null) {
             connect();
         }
         try {
-            return client.call(tool, args);
+            return client.call(tool, args, context);
         } catch (BrowserException.Disconnected e) {
             disconnect();
+            needsUser = true;
             throw e;
         }
     }

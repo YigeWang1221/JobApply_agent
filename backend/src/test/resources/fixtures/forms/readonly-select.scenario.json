@@ -1,0 +1,85 @@
+{
+  "name": "readonly-select",
+  "entry": "closed",
+  "pages": {
+    "closed": {
+      "url": "https://careers.example.com/apply/500",
+      "title": "示例科技 · 在线申请 · 求职意向",
+      "snapshot": [
+        "- heading \"求职意向\" [level=1] [ref=e1]",
+        "- text: 第 1/2 步",
+        "- combobox \"学历\" [ref=e2]:",
+        "  - option \"本科\" [ref=e3]",
+        "  - option \"硕士\" [ref=e4]",
+        "  - option \"博士\" [ref=e5]",
+        "- combobox \"到岗时间\" [ref=e6]: 请选择",
+        "- button \"下一步\" [ref=e7]"
+      ],
+      "clicks": {
+        "e6": "open",
+        "e7": "review"
+      }
+    },
+    "open": {
+      "url": "https://careers.example.com/apply/500",
+      "title": "示例科技 · 在线申请 · 求职意向",
+      "snapshot": [
+        "- heading \"求职意向\" [level=1] [ref=e1]",
+        "- text: 第 1/2 步",
+        "- combobox \"学历\" [ref=e2]:",
+        "  - option \"本科\" [ref=e3]",
+        "  - option \"硕士\" [ref=e4]",
+        "  - option \"博士\" [ref=e5]",
+        "- combobox \"到岗时间\" [expanded] [ref=e6]: 请选择",
+        "- listbox \"到岗时间\" [ref=e8]:",
+        "  - option \"一周内\" [ref=e9]",
+        "  - option \"两周内\" [ref=e10]",
+        "  - option \"一个月内\" [ref=e11]",
+        "- button \"下一步\" [ref=e7]"
+      ],
+      "clicks": {
+        "e6": "closed",
+        "e7": "review",
+        "e9": {
+          "to": "closed",
+          "set": {
+            "e6": "一周内"
+          }
+        },
+        "e10": {
+          "to": "closed",
+          "set": {
+            "e6": "两周内"
+          }
+        },
+        "e11": {
+          "to": "closed",
+          "set": {
+            "e6": "一个月内"
+          }
+        }
+      }
+    },
+    "review": {
+      "url": "https://careers.example.com/apply/500/review",
+      "title": "示例科技 · 在线申请 · 核对信息",
+      "snapshot": [
+        "- heading \"核对信息\" [level=1] [ref=e20]",
+        "- text: 第 2/2 步",
+        "- button \"上一步\" [ref=e21]",
+        "- button \"提交申请\" [ref=e22]"
+      ],
+      "clicks": {
+        "e21": "closed",
+        "e22": "submitted"
+      }
+    },
+    "submitted": {
+      "url": "https://careers.example.com/apply/500/done",
+      "title": "示例科技 · 在线申请",
+      "snapshot": [
+        "- heading \"投递成功\" [level=1] [ref=e30]"
+      ]
+    }
+  }
+}

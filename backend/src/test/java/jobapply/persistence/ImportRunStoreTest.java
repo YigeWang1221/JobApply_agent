@@ -20,7 +20,7 @@ class ImportRunStoreTest {
 
     @Test
     void createsReadsAndKeepsUnknownFields() {
-        TestStorage storage = TestStorage.create(root, true);
+        TestStorage storage = TestStorage.create(root);
         ImportRunStore store = new ImportRunStore(storage.layout, storage.clock);
         SourceScan scan = new SourceScan("files:abcd", List.of(new SourceScan.FileEntry("README.md", "doc", 120)),
                 List.of(new SourceScan.Skipped(".env", "秘密文件，按名字跳过，没有打开")), 120,
@@ -37,7 +37,6 @@ class ImportRunStoreTest {
         assertThat(second.id()).isEqualTo("r-2026-10-22-002");
         assertThat(run.status()).isEqualTo(ImportRun.Status.ESTIMATED);
         assertThat(store.require(run.id())).isEqualTo(run);
-        assertThat(storage.isClean()).isTrue();
 
         String json = storage.read(storage.layout.importRun(run.id()));
         assertThat(json).contains("\"status\" : \"estimated\"");
@@ -53,7 +52,7 @@ class ImportRunStoreTest {
 
     @Test
     void listsNewestFirstAndPurgesFinishedRunsAfterThirtyDays() {
-        TestStorage storage = TestStorage.create(root, true);
+        TestStorage storage = TestStorage.create(root);
         ImportRunStore store = new ImportRunStore(storage.layout, storage.clock);
         ImportRun done = store.create(List.of("s-2026-10-22-001"), null);
         store.save(new ImportRun(done.id(), ImportRun.Status.DONE, done.createdAt(), done.updatedAt(), done.sources(),
@@ -69,6 +68,5 @@ class ImportRunStoreTest {
         assertThat(store.purgeDone(Duration.ofDays(30))).isEqualTo(1);
 
         assertThat(store.list()).extracting(ImportRun::id).containsExactly(reviewing.id());
-        assertThat(storage.isClean()).isTrue();
     }
 }

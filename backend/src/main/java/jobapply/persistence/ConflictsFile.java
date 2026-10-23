@@ -12,11 +12,9 @@ import java.util.Map;
 public final class ConflictsFile {
 
     private final StorageLayout layout;
-    private final StorageGit git;
 
     public ConflictsFile(StorageLayout layout, Clock clock) {
         this.layout = layout;
-        this.git = new StorageGit(layout, clock);
     }
 
     /**
@@ -34,7 +32,6 @@ public final class ConflictsFile {
         lines.forEach((name, value) -> out.append("- ").append(name).append(": ")
                 .append(value == null || value.isBlank() ? "—" : value.replace('\n', ' ').strip()).append('\n'));
         AtomicFiles.write(layout.baseConflicts(), out.toString());
-        git.commit("base：冲突 " + title.strip(), List.of(layout.baseConflicts()));
     }
 
     public String read() {

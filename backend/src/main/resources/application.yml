@@ -33,3 +33,10 @@ jobapply:
       profile-dir-name: ""
       # 要长于扩展等待用户同意连接的 30 秒
       call-timeout: 60s
+  harness:
+    # Agent 循环的兜底上限：一次运行最多这么多次工具调用，到了让模型总结做到哪了，交给用户决定要不要继续
+    tool-calls-per-run: 150
+    # 重复操作的提醒（只在工具结果里告诉模型，不强制停）
+    same-element-failures: 3
+    same-result-repeats: 3
+    unchanged-actions: 6

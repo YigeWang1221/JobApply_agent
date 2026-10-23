@@ -1,10 +1,11 @@
 import { useState } from "react";
+import Application from "./pages/Application";
 import Assets from "./pages/Assets";
 import ModelSettings from "./pages/ModelSettings";
 
-type Tab = "models" | "assets";
+type Tab = "models" | "assets" | "application";
 
-// 本段只有两页，用组件状态切换，不加路由库（C004-A）
+// 页数少，用组件状态切换，不加路由库（C004-A）；C004-B 加「申请」页
 export default function App() {
   const [tab, setTab] = useState<Tab>("models");
   return (
@@ -20,9 +21,17 @@ export default function App() {
             onClick={() => setTab("assets")}>
             资料
           </button>
+          <button role="tab" aria-selected={tab === "application"} className={tab === "application" ? "active" : ""}
+            onClick={() => setTab("application")}>
+            申请
+          </button>
         </nav>
       </header>
-      <main className="content">{tab === "models" ? <ModelSettings /> : <Assets />}</main>
+      <main className="content">
+        {tab === "models" && <ModelSettings />}
+        {tab === "assets" && <Assets />}
+        {tab === "application" && <Application />}
+      </main>
     </div>
   );
 }

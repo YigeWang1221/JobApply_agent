@@ -30,10 +30,14 @@ public final class PlaywrightMcpClient implements AutoCloseable {
             BrowserToolPolicy.FILE_UPLOAD, BrowserToolPolicy.PRESS_KEY, BrowserToolPolicy.WAIT_FOR,
             BrowserToolPolicy.FIND);
 
-    /** 扩展连接失败或连接已断开时，@playwright/mcp 返回的错误里会出现的片段（0.0.83 源码）。 */
+    /**
+     * 连接失败或连接已断开时，@playwright/mcp 返回的错误里会出现的片段（0.0.83 源码）。
+     * {@code initializeServer}：远程调试模式下连不上 Chrome（「Could not connect to chrome」，或用户 30 秒内没有同意时的
+     * 「Timeout 30000ms exceeded」），2026-10-23 冒烟时观察到。
+     */
     private static final List<String> CONNECTION_ERRORS = List.of(
             "did not connect within", "extension connection", "has been closed", "browser has disconnected",
-            "target closed", "not connected");
+            "target closed", "not connected", "could not connect to chrome", "initializeserver");
 
     private static final Logger log = LoggerFactory.getLogger(PlaywrightMcpClient.class);
 

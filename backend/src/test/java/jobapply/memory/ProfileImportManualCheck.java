@@ -58,7 +58,7 @@ class ProfileImportManualCheck {
                 new EnvFile(settingsLayout.envFile()));
 
         Path temp = Files.createTempDirectory("jobapply-import-check-");
-        TestStorage storage = TestStorage.create(temp.resolve("storage"), false);
+        TestStorage storage = TestStorage.create(temp.resolve("storage"));
         StorageLayout layout = storage.layout;
         Clock clock = storage.clock;
         LocalDirectoryScanner.Limits limits = new LocalDirectoryScanner.Limits(400, 1_500_000, 200 * 1024, 40);

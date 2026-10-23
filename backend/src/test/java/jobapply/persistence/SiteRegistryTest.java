@@ -17,7 +17,7 @@ class SiteRegistryTest {
 
     @Test
     void addsARowPerOriginSortedAndCommits() {
-        TestStorage storage = TestStorage.create(root, true);
+        TestStorage storage = TestStorage.create(root);
         SiteRegistry sites = new SiteRegistry(storage.layout, storage.clock);
 
         sites.recordLogin("https://jobs.example.com", "user-1001", "matched");
@@ -31,13 +31,11 @@ class SiteRegistryTest {
                 | https://careers.example.cn | — | 2026-10-22T10:00:00-04:00 | logged_in | user_confirmed |
                 | https://jobs.example.com | user-1001 | 2026-10-22T10:00:00-04:00 | logged_in | matched |
                 """);
-        assertThat(storage.headMessage()).isEqualTo("browser：确认登录 https://careers.example.cn");
-        assertThat(storage.isClean()).isTrue();
     }
 
     @Test
     void sameOriginUpdatesInsteadOfAdding() {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         SiteRegistry sites = new SiteRegistry(storage.layout, storage.clock);
         sites.recordLogin("https://jobs.example.com", "user-1001", "matched");
         storage.clock.advance(Duration.ofHours(2));
@@ -53,7 +51,7 @@ class SiteRegistryTest {
 
     @Test
     void keepsUnknownColumnsAndSurroundingText() {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         storage.write(storage.layout.browserSites(), """
                 # 站点登录登记
 
@@ -77,7 +75,7 @@ class SiteRegistryTest {
 
     @Test
     void rejectsCellsThatWouldBreakTheTable() {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         SiteRegistry sites = new SiteRegistry(storage.layout, storage.clock);
 
         assertThatThrownBy(() -> sites.recordLogin("https://jobs.example.com", "a|b", "matched"))

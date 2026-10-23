@@ -103,7 +103,7 @@ public final class ImportFixture implements AutoCloseable {
     final ImportRunner runner;
 
     private ImportFixture(Path dir, boolean git, URI githubApi) {
-        storage = TestStorage.create(dir.resolve("storage"), git);
+        storage = TestStorage.create(dir.resolve("storage"));
         server = FakeModelServer.start().toolCalls(false).respond(ImportFixture::answer);
         project = dir.resolve("demo-project");
         write(project.resolve("README.md"), README);

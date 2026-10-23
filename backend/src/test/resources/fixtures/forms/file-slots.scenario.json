@@ -1,0 +1,51 @@
+{
+  "name": "file-slots",
+  "entry": "materials",
+  "pages": {
+    "materials": {
+      "url": "https://careers.example.com/apply/300/materials",
+      "title": "示例科技 · 在线申请 · 附件",
+      "snapshot": [
+        "- heading \"附件材料\" [level=1] [ref=e1]",
+        "- text: 第 1/2 步",
+        "- group \"简历（必填，PDF）\" [ref=e2]:",
+        "  - button \"上传简历\" [ref=e3]",
+        "  - generic \"简历文件\" [ref=e4]: 未上传",
+        "- group \"作品集（选填）\" [ref=e5]:",
+        "  - button \"上传作品集\" [ref=e6]",
+        "  - generic \"作品集文件\" [ref=e7]: 未上传",
+        "- button \"下一步\" [ref=e8]"
+      ],
+      "clicks": {
+        "e3": {
+          "fileChooser": "e4"
+        },
+        "e6": {
+          "fileChooser": "e7"
+        },
+        "e8": "review"
+      }
+    },
+    "review": {
+      "url": "https://careers.example.com/apply/300/review",
+      "title": "示例科技 · 在线申请 · 核对信息",
+      "snapshot": [
+        "- heading \"核对信息\" [level=1] [ref=e10]",
+        "- text: 第 2/2 步",
+        "- button \"上一步\" [ref=e11]",
+        "- button \"提交申请\" [ref=e12]"
+      ],
+      "clicks": {
+        "e11": "materials",
+        "e12": "submitted"
+      }
+    },
+    "submitted": {
+      "url": "https://careers.example.com/apply/300/done",
+      "title": "示例科技 · 在线申请",
+      "snapshot": [
+        "- heading \"投递成功\" [level=1] [ref=e20]"
+      ]
+    }
+  }
+}

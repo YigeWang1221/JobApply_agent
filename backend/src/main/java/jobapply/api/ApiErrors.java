@@ -9,7 +9,7 @@ import jobapply.memory.StructuredCall;
 import jobapply.persistence.EnvFile;
 import jobapply.persistence.ModelSettingsFile;
 import jobapply.tools.GitHubPublicReader;
-import jobapply.workflow.graphs.LoginHandoffException;
+import jobapply.workflow.ApplicationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -30,14 +30,19 @@ class ApiErrors {
 
     private static final Logger log = LoggerFactory.getLogger(ApiErrors.class);
 
-    @ExceptionHandler(LoginHandoffException.NotFound.class)
-    ResponseEntity<Map<String, String>> notFound(LoginHandoffException.NotFound e) {
+    @ExceptionHandler(ApplicationException.NotFound.class)
+    ResponseEntity<Map<String, String>> notFound(ApplicationException.NotFound e) {
         return error(HttpStatus.NOT_FOUND, e.getMessage());
     }
 
-    @ExceptionHandler(LoginHandoffException.Conflict.class)
-    ResponseEntity<Map<String, String>> conflict(LoginHandoffException.Conflict e) {
+    @ExceptionHandler(ApplicationException.Conflict.class)
+    ResponseEntity<Map<String, String>> conflict(ApplicationException.Conflict e) {
         return error(HttpStatus.CONFLICT, e.getMessage());
+    }
+
+    @ExceptionHandler(ApplicationException.BadRequest.class)
+    ResponseEntity<Map<String, String>> applicationBadRequest(ApplicationException.BadRequest e) {
+        return error(HttpStatus.BAD_REQUEST, e.getMessage());
     }
 
     @ExceptionHandler({SettingsException.NotFound.class, NoSuchElementException.class})

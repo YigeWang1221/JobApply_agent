@@ -1,0 +1,58 @@
+{
+  "name": "parsed-override",
+  "entry": "resume",
+  "pages": {
+    "resume": {
+      "url": "https://careers.example.com/apply/400/step-1",
+      "title": "示例科技 · 在线申请 · 简历与教育经历",
+      "snapshot": [
+        "- heading \"简历与教育经历\" [level=1] [ref=e1]",
+        "- text: 第 1/2 步 · 上传简历后系统会自动识别下面的内容，请核对",
+        "- group \"简历（必填，PDF）\" [ref=e2]:",
+        "  - button \"上传简历\" [ref=e3]",
+        "  - generic \"简历文件\" [ref=e4]: 未上传",
+        "- group \"教育经历\" [ref=e5]:",
+        "  - textbox \"学校\" [ref=e6]",
+        "  - textbox \"专业\" [ref=e7]",
+        "  - textbox \"入学时间\" [ref=e8]",
+        "  - textbox \"毕业时间\" [ref=e9]",
+        "- button \"下一步\" [ref=e10]"
+      ],
+      "clicks": {
+        "e3": {
+          "fileChooser": "e4"
+        },
+        "e10": "review"
+      },
+      "afterUpload": {
+        "set": {
+          "e6": "示例大学",
+          "e7": "示例管理学",
+          "e8": "2016-09",
+          "e9": "2016-07"
+        }
+      }
+    },
+    "review": {
+      "url": "https://careers.example.com/apply/400/step-2",
+      "title": "示例科技 · 在线申请 · 核对信息",
+      "snapshot": [
+        "- heading \"核对信息\" [level=1] [ref=e20]",
+        "- text: 第 2/2 步",
+        "- button \"上一步\" [ref=e21]",
+        "- button \"提交申请\" [ref=e22]"
+      ],
+      "clicks": {
+        "e21": "resume",
+        "e22": "submitted"
+      }
+    },
+    "submitted": {
+      "url": "https://careers.example.com/apply/400/done",
+      "title": "示例科技 · 在线申请",
+      "snapshot": [
+        "- heading \"投递成功\" [level=1] [ref=e30]"
+      ]
+    }
+  }
+}

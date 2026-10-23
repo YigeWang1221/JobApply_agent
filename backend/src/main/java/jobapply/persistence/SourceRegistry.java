@@ -45,12 +45,10 @@ public final class SourceRegistry {
 
     private final StorageLayout layout;
     private final Clock clock;
-    private final StorageGit git;
 
     public SourceRegistry(StorageLayout layout, Clock clock) {
         this.layout = layout;
         this.clock = clock;
-        this.git = new StorageGit(layout, clock);
     }
 
     public synchronized List<Source> list() {
@@ -181,6 +179,5 @@ public final class SourceRegistry {
         String body = registry.table.render();
         AtomicFiles.write(layout.baseSources(), frontmatter.isEmpty() ? body.stripLeading()
                 : FrontmatterFile.render(new FrontmatterFile.Document(frontmatter, body)));
-        git.commit(message, List.of(layout.baseSources()));
     }
 }

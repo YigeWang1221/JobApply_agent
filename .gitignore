@@ -41,3 +41,6 @@ storage/*
 # Reference data from the user's previous Codex job-apply workflow.
 # Process research only. Never commit, upload, or copy its contents elsewhere.
 storage/example.data/
+
+# Claude Code 本地状态（worktree、设置）
+.claude/

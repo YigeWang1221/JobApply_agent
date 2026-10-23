@@ -1,0 +1,77 @@
+{
+  "name": "verification",
+  "entry": "basic",
+  "pages": {
+    "basic": {
+      "url": "https://careers.example.com/apply/700/step-1",
+      "title": "示例科技 · 在线申请 · 基本信息",
+      "snapshot": [
+        "- heading \"基本信息\" [level=1] [ref=e1]",
+        "- text: 第 1/2 步",
+        "- textbox \"姓名\" [ref=e2]",
+        "- textbox \"邮箱\" [ref=e3]",
+        "- button \"下一步\" [ref=e4]"
+      ],
+      "clicks": {
+        "e4": "challenge"
+      }
+    },
+    "challenge": {
+      "url": "https://careers.example.com/apply/700/step-1",
+      "title": "示例科技 · 在线申请 · 基本信息",
+      "snapshot": [
+        "- heading \"基本信息\" [level=1] [ref=e1]",
+        "- text: 第 1/2 步",
+        "- textbox \"姓名\" [ref=e2]",
+        "- textbox \"邮箱\" [ref=e3]",
+        "- button \"下一步\" [ref=e4]",
+        "- dialog \"安全验证\" [ref=e10]:",
+        "  - heading \"请完成安全验证\" [level=2] [ref=e11]",
+        "  - text: 向右拖动滑块，完成拼图",
+        "  - slider \"拖动滑块\" [ref=e12]",
+        "  - button \"换一张\" [ref=e13]",
+        "  - button \"关闭\" [ref=e14]"
+      ],
+      "clicks": {
+        "e14": "basic"
+      }
+    },
+    "sms": {
+      "url": "https://careers.example.com/apply/701/step-1",
+      "title": "示例科技 · 在线申请 · 联系方式",
+      "snapshot": [
+        "- heading \"联系方式\" [level=1] [ref=e1]",
+        "- text: 第 1/2 步",
+        "- textbox \"姓名\" [ref=e2]",
+        "- textbox \"手机号\" [ref=e3]",
+        "- textbox \"短信验证码\" [ref=e4]",
+        "- button \"获取验证码\" [ref=e5]",
+        "- button \"下一步\" [ref=e6]"
+      ],
+      "clicks": {
+        "e6": "sms-review"
+      }
+    },
+    "sms-review": {
+      "url": "https://careers.example.com/apply/701/step-2",
+      "title": "示例科技 · 在线申请 · 核对信息",
+      "snapshot": [
+        "- heading \"核对信息\" [level=1] [ref=e20]",
+        "- text: 第 2/2 步",
+        "- button \"上一步\" [ref=e21]",
+        "- button \"提交申请\" [ref=e22]"
+      ],
+      "clicks": {
+        "e21": "sms",
+        "e22": "submitted"
+      }
+    },
+    "submitted": {
+      "url": "https://careers.example.com/apply/701/done",
+      "title": "示例科技 · 在线申请",
+      "snapshot": [
+        "- heading \"投递成功\" [level=1] [ref=e30]"
+      ]
+    }
+  }
+}

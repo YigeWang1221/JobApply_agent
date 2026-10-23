@@ -87,6 +87,33 @@ class ModelFactoryTest {
     }
 
     @Test
+    void withToolsFromAChatModelKeepsTheModelNameInBothFormats() {
+        try (FakeModelServer server = FakeModelServer.start().toolCalls(true)) {
+            for (ModelFactory.Endpoint endpoint : List.of(
+                    new ModelFactory.Endpoint("openai", server.openAiBase(), FakeModelServer.OPENAI_KEY, "fake-large"),
+                    new ModelFactory.Endpoint("anthropic", server.anthropicBase(), FakeModelServer.ANTHROPIC_KEY,
+                            "fake-claude"))) {
+                ChatModel model = ModelFactory.create(endpoint, TIMEOUT);
+
+                ChatResponse response = model.call(new Prompt("call it",
+                        ModelFactory.withTools(model, List.of(new ConnectionTester.ProbeTool()))));
+
+                assertThat(response.getResult().getOutput().getToolCalls()).as(endpoint.format()).singleElement()
+                        .satisfies(call -> assertThat(call.name()).isEqualTo(ConnectionTester.PROBE_TOOL));
+                assertThat(server.last().body()).as(endpoint.format())
+                        .contains(ConnectionTester.PROBE_TOOL)
+                        .contains("\"model\":\"" + endpoint.model() + "\"")
+                        .doesNotContain("gpt-5-mini").doesNotContain("claude-haiku");
+                if ("anthropic".equals(endpoint.format())) {
+                    assertThat(server.last().body()).contains("\"max_tokens\":" + ModelFactory.TOOL_MAX_TOKENS);
+                } else {
+                    assertThat(server.last().body()).doesNotContain("max_tokens");
+                }
+            }
+        }
+    }
+
+    @Test
     void endpointsAreValidatedAndNeverPrintTheKey() {
         ModelFactory.Endpoint endpoint = new ModelFactory.Endpoint("openai", "https://api.example.com/v1",
                 FakeModelServer.OPENAI_KEY, "fake-small");

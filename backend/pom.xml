@@ -20,7 +20,6 @@
     <properties>
         <java.version>25</java.version>
         <spring-ai.version>2.0.1</spring-ai.version>
-        <langgraph4j.version>1.9.6</langgraph4j.version>
         <jgit.version>7.8.0.202609011348-r</jgit.version>
         <tika.version>4.1.0</tika.version>
     </properties>
@@ -74,21 +73,6 @@
             <version>${tika.version}</version>
             <!-- 4.x 起这个包是 pom，只汇总各个解析器模块 -->
             <type>pom</type>
-        </dependency>
-        <dependency>
-            <groupId>org.bsc.langgraph4j</groupId>
-            <artifactId>langgraph4j-core</artifactId>
-            <version>${langgraph4j.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.bsc.langgraph4j</groupId>
-            <artifactId>langgraph4j-spring-ai</artifactId>
-            <version>${langgraph4j.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.bsc.langgraph4j</groupId>
-            <artifactId>langgraph4j-sqlite-saver</artifactId>
-            <version>${langgraph4j.version}</version>
         </dependency>
         <dependency>
             <groupId>org.yaml</groupId>

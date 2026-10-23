@@ -41,10 +41,9 @@ class ImportEstimatorTest {
 
     @Test
     void estimatesDirectoryAndGitHubSourcesAndRecordsTheScan() throws Exception {
-        TestStorage storage = TestStorage.create(temp.resolve("storage"), true);
+        TestStorage storage = TestStorage.create(temp.resolve("storage"));
         FactsFile.write(storage.layout.baseFacts(), "个人基础事实",
                 List.of(Fact.of("contact.email", "demo@example.com", FactClass.B, "user-confirmed", "2026-10-22")));
-        storage.git().commit("base 更新", List.of(storage.layout.baseFacts()));
         Path project = Files.createDirectories(temp.resolve("demo-project"));
         Files.writeString(project.resolve("README.md"), "# 示例\n" + "文字".repeat(100));
         Files.writeString(project.resolve(".env"), "不读");
@@ -85,13 +84,12 @@ class ImportEstimatorTest {
             assertThat(scanned.fileCount()).isEqualTo("1");
             assertThat(scanned.lastScannedAt()).isEqualTo("2026-10-22T10:00:00-04:00");
             assertThat(sources.find(repo).orElseThrow().fileCount()).isEqualTo("3");
-            assertThat(storage.isClean()).isTrue();
         }
     }
 
     @Test
     void overLimitAndBadSelectionsAreReported() throws Exception {
-        TestStorage storage = TestStorage.create(temp.resolve("storage"), false);
+        TestStorage storage = TestStorage.create(temp.resolve("storage"));
         Path project = Files.createDirectories(temp.resolve("demo-project"));
         for (int i = 0; i < 5; i++) {
             Files.writeString(project.resolve("note-" + i + ".md"), "虚构笔记 " + i);

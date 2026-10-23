@@ -1,0 +1,31 @@
+{
+  "name": "submitted-page",
+  "entry": "basic",
+  "pages": {
+    "basic": {
+      "url": "https://careers.example.com/apply/1100/step-1",
+      "title": "示例科技 · 在线申请 · 基本信息",
+      "snapshot": [
+        "- heading \"基本信息\" [level=1] [ref=e1]",
+        "- text: 第 1/2 步",
+        "- textbox \"姓名\" [ref=e2]",
+        "- textbox \"邮箱\" [ref=e3]",
+        "- button \"下一步\" [ref=e4]",
+        "- button \"提交申请\" [ref=e5]"
+      ],
+      "clicks": {
+        "e4": "submitted",
+        "e5": "submitted"
+      }
+    },
+    "submitted": {
+      "url": "https://careers.example.com/apply/1100/done",
+      "title": "示例科技 · 在线申请",
+      "snapshot": [
+        "- heading \"投递成功\" [level=1] [ref=e30]",
+        "- text: 我们会尽快与你联系",
+        "- link \"返回首页\" [ref=e31]"
+      ]
+    }
+  }
+}

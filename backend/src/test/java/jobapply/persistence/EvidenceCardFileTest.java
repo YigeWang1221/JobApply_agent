@@ -15,7 +15,7 @@ class EvidenceCardFileTest {
 
     @Test
     void roundTripsAndKeepsUnknownKeys() {
-        TestStorage storage = TestStorage.create(root, true);
+        TestStorage storage = TestStorage.create(root);
         EvidenceCardFile cards = new EvidenceCardFile(storage.layout, storage.clock);
         EvidenceCard card = new EvidenceCard("s-2026-10-22-001", "files:0123abcd", "2026-10-22T10:00:00-04:00",
                 Map.of("model", "示例模型"), "\n# 清单卡\n\n- README.md：示例项目的介绍\n");
@@ -24,7 +24,6 @@ class EvidenceCardFileTest {
 
         assertThat(cards.find("s-2026-10-22-001")).contains(card);
         assertThat(cards.find("s-2026-10-22-002")).isEmpty();
-        assertThat(storage.isClean()).isTrue();
 
         storage.write(storage.layout.evidenceCard("s-2026-10-22-003"), "---\nsource: s-2026-10-22-003\nextra: 1\n---\n正文\n");
         EvidenceCard handWritten = cards.find("s-2026-10-22-003").orElseThrow();
