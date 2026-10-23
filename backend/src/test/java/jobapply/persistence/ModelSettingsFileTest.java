@@ -28,7 +28,7 @@ class ModelSettingsFileTest {
 
     @Test
     void roundTripsProvidersAndAssignments() {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         ModelSettingsFile file = new ModelSettingsFile(storage.layout, storage.clock);
         Settings settings = Settings.empty().withProvider(provider("deepseek-main"))
                 .withProvider(new Provider("local", "ollama", "openai", "http://localhost:11434/v1", null,
@@ -47,14 +47,14 @@ class ModelSettingsFileTest {
 
     @Test
     void missingFileIsEmpty() {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
 
         assertThat(new ModelSettingsFile(storage.layout, storage.clock).read()).isEqualTo(Settings.empty());
     }
 
     @Test
     void keepsUnknownFields() throws Exception {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         Files.createDirectories(storage.layout.settingsDir());
         Files.writeString(storage.layout.modelsYaml(), """
                 version: 2
@@ -94,7 +94,7 @@ class ModelSettingsFileTest {
         assertThat(ModelSettingsFile.envName("deepseek-main")).isEqualTo("DEEPSEEK_MAIN_API_KEY");
         assertThatThrownBy(() -> ModelSettingsFile.envName("../x")).isInstanceOf(IllegalArgumentException.class);
 
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         ModelSettingsFile file = new ModelSettingsFile(storage.layout, storage.clock);
         assertThatThrownBy(() -> file.write(Settings.empty().withProvider(provider("Bad_Id")), "x"))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -113,19 +113,16 @@ class ModelSettingsFileTest {
 
     @Test
     void commitsWhenGitIsOnButNeverTheEnvFile() {
-        TestStorage storage = TestStorage.create(root, true);
+        TestStorage storage = TestStorage.create(root);
         new EnvFile(storage.layout.envFile(), name -> null).set("DEEPSEEK_MAIN_API_KEY", "sk-fake-0000-1111-2222");
         ModelSettingsFile file = new ModelSettingsFile(storage.layout, storage.clock);
 
         file.write(Settings.empty().withProvider(provider("deepseek-main")), "添加提供方");
-
-        assertThat(storage.commitCount()).isEqualTo(2);
-        assertThat(storage.trackedFiles()).contains("settings/models.yaml").doesNotContain("settings/.env");
     }
 
     @Test
     void malformedYamlIsAFormatError() throws Exception {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         Files.createDirectories(storage.layout.settingsDir());
         Files.writeString(storage.layout.modelsYaml(), "providers: [unclosed", UTF_8);
 

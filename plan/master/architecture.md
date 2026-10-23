@@ -17,11 +17,7 @@ JobApply_Agent/
 │   │   ├── runtime/
 │   │   ├── context/
 │   │   └── policies/
-│   ├── workflow/               # 基于 LangGraph4j
-│   │   ├── graphs/             # 主图与子图
-│   │   ├── nodes/              # Agent 执行节点
-│   │   ├── state/              # Graph State
-│   │   └── checkpoints/        # 状态保存与恢复
+│   ├── workflow/               # 申请线程：排队、运行状态、台账（不用图引擎）
 │   ├── memory/                 # 长期记忆（如用户求职画像）
 │   ├── tools/                  # Agent Tool 接口
 │   ├── domain/                 # 业务数据结构
@@ -40,7 +36,7 @@ JobApply_Agent/
 | `backend/config` | 系统配置 | 系统、模型与运行配置 |
 | `backend/agents` | Agent Management | 角色定义、Catalog、实例生命周期 |
 | `backend/harness` | Custom Harness | 自研单 Agent loop。子包 `runtime`、`context`、`policies` |
-| `backend/workflow` | Workflow + LangGraph4j | 子包 `graphs`、`nodes`、`state`、`checkpoints`。图执行用 LangGraph4j |
+| `backend/workflow` | Workflow | 申请线程：开始、回复、停止、状态；运行状态存 `storage/runs/<job-id>.json`。流程由 harness 里的模型决定，不用 LangGraph4j（用户确认，2026-10-23，见 agent-runtime.md 第 7 节） |
 | `backend/memory` | Memory | Session / 用户画像等 |
 | `backend/tools` | Tool Gateway | Agent 可调用的工具 |
 | `backend/domain` | 领域结构 | 业务数据结构 |
@@ -51,7 +47,7 @@ JobApply_Agent/
 
 ## 领域对象（来自 2026-10-22 的设计）
 
-`domain` 至少会有 Project、Session、Application 状态、Fact（带作用域与来源）、Company 额度。Project / Session 的含义和 storage 布局见 [memory.md](memory.md)。`persistence` 负责把它们读写到 `storage/` 下的 Markdown / JSONL，并维护可重建的 `storage/index.sqlite`；LangGraph4j Checkpoint 存到 `storage/checkpoints.sqlite`。存储格式见 [memory.md](memory.md)「存储格式」。
+`domain` 至少会有 Project、Session、Application 状态、Fact（带作用域与来源）、Company 额度。Project / Session 的含义和 storage 布局见 [memory.md](memory.md)。`persistence` 负责把它们读写到 `storage/` 下的 Markdown / JSONL，并维护可重建的 `storage/index.sqlite`；申请线程的运行状态存到 `storage/runs/<job-id>.json`。storage 不做版本控制。存储格式见 [memory.md](memory.md)「存储格式」。
 
 ## 暂不固定
 

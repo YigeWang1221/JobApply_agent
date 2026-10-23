@@ -38,11 +38,9 @@ public final class GlossaryFile {
     }
 
     private final StorageLayout layout;
-    private final StorageGit git;
 
     public GlossaryFile(StorageLayout layout, Clock clock) {
         this.layout = layout;
-        this.git = new StorageGit(layout, clock);
     }
 
     public synchronized List<Term> list() {
@@ -74,7 +72,6 @@ public final class GlossaryFile {
             table.rows.set(index, row);
         }
         AtomicFiles.write(layout.baseGlossary(), table.render());
-        git.commit("base：术语 " + term.zh(), List.of(layout.baseGlossary()));
         return term;
     }
 

@@ -57,7 +57,7 @@ class JobLedgerTest {
 
         @BeforeEach
         void setUp() {
-            storage = TestStorage.create(root, true);
+            storage = TestStorage.create(root);
             storage.project(PROJECT, "live");
             session = storage.session(PROJECT);
             ledger = storage.ledger();
@@ -65,7 +65,6 @@ class JobLedgerTest {
 
         @Test
         void addingLeadWritesJobEventTrackerAndCommit() {
-            int commitsBefore = storage.commitCount();
 
             Job job = ledger.addLead(PROJECT, session, Actor.AGENT, TestStorage.posting("示例公司甲", "JD-001"),
                     "职位描述（虚构）");
@@ -88,13 +87,6 @@ class JobLedgerTest {
             assertThat(storage.read(tracker.resolve("leads.md")))
                     .contains("| 示例公司甲 | [Backend Engineer](../jobs/2026-10-22-001/job.md) |");
             assertThat(storage.read(tracker.resolve("leads.csv"))).startsWith("﻿id,project,company");
-            assertThat(storage.commitCount()).isEqualTo(commitsBefore + 1);
-            assertThat(storage.headMessage()).startsWith("job 2026-10-22-001：新增候选 示例公司甲");
-            assertThat(storage.trackedFiles()).contains(
-                    "projects/fall-2026-v1/jobs/2026-10-22-001/job.md",
-                    "projects/fall-2026-v1/jobs/2026-10-22-001/events.jsonl",
-                    "projects/fall-2026-v1/tracker/leads.md",
-                    "jobs-index.md");
         }
 
         @Test
@@ -102,13 +94,11 @@ class JobLedgerTest {
             Job first = ledger.addLead(PROJECT, session, Actor.AGENT, TestStorage.posting("示例公司甲", "JD-001"), null);
             JobPosting sameJob = new JobPosting(" 示例公司甲 ", "2027 校园招聘 ", "后端工程师", "jd-001", null, null,
                     null, null, null, null);
-            int commitsBefore = storage.commitCount();
 
             assertThatThrownBy(() -> ledger.addLead(PROJECT, session, Actor.AGENT, sameJob, null))
                     .isInstanceOfSatisfying(DuplicateLeadException.class,
                             e -> assertThat(e.existingJobId()).isEqualTo(first.id()));
             assertThat(new JobRepository(storage.layout).list(PROJECT)).hasSize(1);
-            assertThat(storage.commitCount()).isEqualTo(commitsBefore);
         }
 
         @Test
@@ -144,7 +134,6 @@ class JobLedgerTest {
             assertThat(fm).containsEntry("lead_status", "converted").containsEntry("phase", "prep")
                     .containsEntry("prep_state", "selected");
             assertThat(storage.read(storage.layout.trackerDir(PROJECT).resolve("leads.md"))).contains("城市不合适");
-            assertThat(storage.headMessage()).startsWith("job 2026-10-22-002：lead:shortlisted → prep:selected");
         }
 
         @Test
@@ -228,7 +217,7 @@ class JobLedgerTest {
 
         @BeforeEach
         void setUp() {
-            storage = TestStorage.create(root, true);
+            storage = TestStorage.create(root);
             storage.project("a", "live");
             storage.project("b", "live");
             sessionA = storage.session("a");
@@ -291,7 +280,7 @@ class JobLedgerTest {
 
         @Test
         void rejectedTransitionsChangeNothing() {
-            TestStorage storage = TestStorage.create(root, true);
+            TestStorage storage = TestStorage.create(root);
             storage.project(PROJECT, "live");
             String session = storage.session(PROJECT);
             JobLedger ledger = storage.ledger();
@@ -301,7 +290,6 @@ class JobLedgerTest {
                     new Transition.ChangePrepState(PrepState.PREPARING));
 
             Map<String, String> before = storage.snapshot();
-            String head = storage.git().head().orElseThrow();
 
             assertThatThrownBy(() -> ledger.transition(PROJECT, job.id(), session, Actor.AGENT,
                     new Transition.MarkApplied(null))).isInstanceOf(IllegalTransitionException.class);
@@ -312,7 +300,6 @@ class JobLedgerTest {
                     new Transition.Convert())).isInstanceOf(IllegalTransitionException.class);
 
             assertThat(storage.snapshot()).isEqualTo(before);
-            assertThat(storage.git().head()).contains(head);
         }
     }
 
@@ -324,7 +311,7 @@ class JobLedgerTest {
 
         @Test
         void everythingWorksJustNoCommits() {
-            TestStorage storage = TestStorage.create(root, false);
+            TestStorage storage = TestStorage.create(root);
             storage.project(PROJECT, "live");
             String session = storage.session(PROJECT);
             JobLedger ledger = storage.ledger();
@@ -339,7 +326,6 @@ class JobLedgerTest {
             assertThat(storage.read(storage.layout.trackerDir(PROJECT).resolve("applications.md")))
                     .contains("prep · preparing");
             assertThat(storage.read(storage.layout.jobsIndex())).contains("示例公司甲");
-            assertThat(storage.layout.gitDir()).doesNotExist();
         }
     }
 }

@@ -58,12 +58,10 @@ public final class AssetRegistry {
 
     private final StorageLayout layout;
     private final Clock clock;
-    private final StorageGit git;
 
     public AssetRegistry(StorageLayout layout, Clock clock) {
         this.layout = layout;
         this.clock = clock;
-        this.git = new StorageGit(layout, clock);
     }
 
     public synchronized List<Asset> list() {
@@ -112,7 +110,6 @@ public final class AssetRegistry {
                 humanSize(content.length), sha, Timestamps.now(clock), "", Map.of());
         table.assets.put(key, asset);
         AtomicFiles.write(layout.baseAssets(), table.render());
-        git.commit("base：登记原件 " + key, List.of(layout.baseAssets(), target));
         return new Registered(asset, false);
     }
 
@@ -135,7 +132,6 @@ public final class AssetRegistry {
                 old.extra());
         table.assets.put(key, next);
         AtomicFiles.write(layout.baseAssets(), table.render());
-        git.commit("base：修改原件说明 " + key, List.of(layout.baseAssets()));
         return next;
     }
 

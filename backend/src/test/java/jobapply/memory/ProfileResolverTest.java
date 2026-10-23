@@ -24,7 +24,7 @@ class ProfileResolverTest {
 
     @Test
     void layersApplyInOrderWithSourceLabels() {
-        TestStorage storage = TestStorage.create(root, true);
+        TestStorage storage = TestStorage.create(root);
         writeBase(storage, "示例大学", "上海");
         storage.project("backend-2024", "live");
         storage.project("ai-infra-2025", "live", "backend-2024");
@@ -48,41 +48,8 @@ class ProfileResolverTest {
     }
 
     @Test
-    void pinnedCommitKeepsTheOldBase() {
-        TestStorage storage = TestStorage.create(root, true);
-        writeBase(storage, "旧学校写法", "上海");
-        String v1 = storage.git().head().orElseThrow();
-        writeBase(storage, "新学校写法", "北京");
-        storage.project("frozen", v1.substring(0, 10));
-        storage.project("following", "live");
-
-        assertThat(resolver(storage).resolve("frozen", List.of()).get("education.school").value()).isEqualTo("旧学校写法");
-        assertThat(resolver(storage).resolve("frozen", List.of()).get("education.school").label())
-                .isEqualTo("来自 base（pin " + v1.substring(0, 10) + "）");
-        assertThat(resolver(storage).resolve("following", List.of()).get("education.school").value())
-                .isEqualTo("新学校写法");
-    }
-
-    @Test
-    void pinnedDateReadsTheLastCommitOfThatDay() {
-        TestStorage storage = TestStorage.create(root, true);
-        storage.clock.set("2026-10-20T15:00:00Z");
-        writeBase(storage, "10 月 20 日的写法", "上海");
-        storage.clock.set("2026-10-23T15:00:00Z");
-        writeBase(storage, "10 月 23 日的写法", "上海");
-        storage.project("as-of-21", "2026-10-21");
-        storage.project("as-of-01", "2026-10-01");
-
-        assertThat(resolver(storage).resolve("as-of-21", List.of()).get("education.school").value())
-                .isEqualTo("10 月 20 日的写法");
-        assertThatThrownBy(() -> resolver(storage).resolve("as-of-01", List.of()))
-                .isInstanceOf(ProfileResolutionException.class)
-                .hasMessageContaining("找不到 base_pin 2026-10-01");
-    }
-
-    @Test
     void cyclesAndMissingParentsAreReported() {
-        TestStorage storage = TestStorage.create(root, true);
+        TestStorage storage = TestStorage.create(root);
         storage.project("a", "live");
         storage.project("b", "live", "a");
         setInherits(storage, "a", List.of("base", "projects/b"));
@@ -99,7 +66,7 @@ class ProfileResolverTest {
 
     @Test
     void inheritsMustContainBaseAndParentsMustExist() {
-        TestStorage storage = TestStorage.create(root, true);
+        TestStorage storage = TestStorage.create(root);
 
         assertThatThrownBy(() -> new ProjectSpec("x", "x", List.of("projects/a"), "live", null, null))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -110,13 +77,13 @@ class ProfileResolverTest {
     }
 
     @Test
-    void withoutGitOnlyLivePinsWork() {
-        TestStorage storage = TestStorage.create(root, false);
-        writeBaseWithoutCommit(storage, "示例大学");
+    void onlyLivePinsWork() {
+        TestStorage storage = TestStorage.create(root);
+        writeBase(storage, "示例大学", "上海");
 
         assertThatThrownBy(() -> storage.project("frozen", "2026-10-21"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("没有开启 git");
+                .hasMessageContaining("不做版本控制");
         storage.project("live-one", "live");
         assertThat(resolver(storage).resolve("live-one", List.of()).get("education.school").value()).isEqualTo("示例大学");
 
@@ -126,12 +93,12 @@ class ProfileResolverTest {
         FrontmatterFile.write(projectFile, document);
         assertThatThrownBy(() -> resolver(storage).resolve("live-one", List.of()))
                 .isInstanceOf(ProfileResolutionException.class)
-                .hasMessageContaining("需要开启 git");
+                .hasMessageContaining("不做版本控制");
     }
 
     @Test
     void resolvesByLanguageWithUnreviewedMarksAndLocalFormats() {
-        TestStorage storage = TestStorage.create(root, true);
+        TestStorage storage = TestStorage.create(root);
         FactsFile.write(storage.layout.baseFacts(), "个人基础事实", List.of(
                 Fact.bilingual("experience.internship-1.role", "后端开发实习生", "Backend Engineering Intern",
                         FactClass.A, "user-confirmed", "2026-10-22", Set.of(Language.ZH)),
@@ -167,16 +134,12 @@ class ProfileResolverTest {
     }
 
     @Test
-    void projectCardsJoinTheBaseLayerAndFollowThePin() {
-        TestStorage storage = TestStorage.create(root, true);
+    void projectCardsJoinTheBaseLayer() {
+        TestStorage storage = TestStorage.create(root);
         writeBase(storage, "示例大学", "上海");
         storage.write(storage.layout.baseProjectCard("demo"), card("12000"));
-        storage.git().commit("项目卡", List.of(storage.layout.baseProjectCard("demo")));
-        String v1 = storage.git().head().orElseThrow();
         storage.write(storage.layout.baseProjectCard("demo"), card("15000"));
-        storage.git().commit("项目卡更新", List.of(storage.layout.baseProjectCard("demo")));
         storage.project("live-one", "live");
-        storage.project("frozen", v1);
         FactsFile.write(storage.layout.overrides("live-one"), "overrides", List.of(
                 Fact.bilingual("projects.demo.title", "示例项目（本侧重的写法）", null, FactClass.A, "user-confirmed",
                         "2026-10-22", Set.of(Language.ZH))));
@@ -192,13 +155,11 @@ class ProfileResolverTest {
         assertThat(zh.get("projects.demo.period.from").display()).isEqualTo("2025年1月");
         assertThat(zh.get("projects.demo.links.code").value()).isEqualTo("https://github.com/example-owner/demo");
         assertThat(zh.get("projects.demo.title").label()).startsWith("来自 Project live-one / overrides");
-        assertThat(resolver(storage).resolve("frozen", List.of(), Language.EN).get("projects.demo.facts.qps").display())
-                .isEqualTo("12,000 QPS");
     }
 
     @Test
     void factsMdOverridingACardNumberAlsoOverridesItsDisplay() {
-        TestStorage storage = TestStorage.create(root, true);
+        TestStorage storage = TestStorage.create(root);
         storage.write(storage.layout.baseProjectCard("demo"), card("12000"));
         FactsFile.write(storage.layout.baseFacts(), "个人基础事实", List.of(
                 Fact.of("projects.demo.facts.qps", "15000", FactClass.A, "user-confirmed", "2026-10-22")));
@@ -245,12 +206,6 @@ class ProfileResolverTest {
                 Fact.of("contact.name", "示例用户", FactClass.B, "user-confirmed", "2026-10-01"),
                 Fact.of("education.school", school, FactClass.A, "user-confirmed", "2026-10-01"),
                 Fact.of("location.current_city", city, FactClass.B, "user-confirmed", "2026-10-01")));
-        storage.git().commit("base 更新", List.of(storage.layout.baseFacts()));
-    }
-
-    private static void writeBaseWithoutCommit(TestStorage storage, String school) {
-        FactsFile.write(storage.layout.baseFacts(), "个人基础事实",
-                List.of(Fact.of("education.school", school, FactClass.A, "user-confirmed", "2026-10-01")));
     }
 
     private static void setInherits(TestStorage storage, String projectId, List<String> inherits) {

@@ -1,0 +1,55 @@
+{
+  "name": "bilingual",
+  "entry": "profile",
+  "pages": {
+    "profile": {
+      "url": "https://careers.example.com/en/apply/1200/step-1",
+      "title": "Example Tech · Careers · Your profile",
+      "snapshot": [
+        "- heading \"Your profile\" [level=1] [ref=e1]",
+        "- text: Step 1 of 2",
+        "- group \"Personal information\" [ref=e2]:",
+        "  - textbox \"Full name\" [ref=e3]",
+        "  - textbox \"Email\" [ref=e4]",
+        "  - textbox \"Phone\" [ref=e5]",
+        "- group \"Education\" [ref=e6]:",
+        "  - textbox \"School\" [ref=e7]",
+        "  - textbox \"Major\" [ref=e8]",
+        "  - combobox \"Degree\" [ref=e9]:",
+        "    - option \"Bachelor\" [ref=e10]",
+        "    - option \"Master\" [ref=e11]",
+        "    - option \"PhD\" [ref=e12]",
+        "  - textbox \"Graduation date\" [ref=e13]",
+        "- group \"Experience\" [ref=e14]:",
+        "  - textbox \"Most recent job title\" [ref=e15]",
+        "  - textbox \"Key skills\" [ref=e16]",
+        "- button \"Next\" [ref=e17]"
+      ],
+      "clicks": {
+        "e17": "review"
+      }
+    },
+    "review": {
+      "url": "https://careers.example.com/en/apply/1200/step-2",
+      "title": "Example Tech · Careers · Review",
+      "snapshot": [
+        "- heading \"Review your details\" [level=1] [ref=e20]",
+        "- text: Step 2 of 2",
+        "- button \"Back\" [ref=e21]",
+        "- button \"Submit application\" [ref=e22]"
+      ],
+      "clicks": {
+        "e21": "profile",
+        "e22": "submitted"
+      }
+    },
+    "submitted": {
+      "url": "https://careers.example.com/en/apply/1200/done",
+      "title": "Example Tech · Careers",
+      "snapshot": [
+        "- heading \"Application submitted\" [level=1] [ref=e30]",
+        "- text: Thank you for applying"
+      ]
+    }
+  }
+}

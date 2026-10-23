@@ -26,12 +26,10 @@ public final class SiteRegistry {
 
     private final StorageLayout layout;
     private final Clock clock;
-    private final StorageGit git;
 
     public SiteRegistry(StorageLayout layout, Clock clock) {
         this.layout = layout;
         this.clock = clock;
-        this.git = new StorageGit(layout, clock);
     }
 
     /**
@@ -57,7 +55,6 @@ public final class SiteRegistry {
         row.put(STATUS, "logged_in");
         row.put(METHOD, method);
         AtomicFiles.write(file, table.render());
-        git.commit("browser：确认登录 " + origin, List.of(file));
     }
 
     /** 读出全部行（列名 → 值），按 origin 排序。 */

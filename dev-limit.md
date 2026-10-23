@@ -19,7 +19,7 @@
 
 - 技术栈、目录和模块以 `plan/` 里用户确认过的施工计划为准。未写入计划的选型不擅自锁定，也不提前搭工程。
 - 不上 Spring AI Alibaba Graph。默认 Agent Loop 不用框架封装的 ReActAgent。
-- LangGraph4j 1.9.x 负责图执行、Checkpoint 和暂停恢复。不在 Custom Harness 里再实现一套图引擎。
+- 申请流程是一个 LLM 驱动的 Agent 循环，不用固定的图；暂停和恢复靠把对话存进 Job 目录、回答作为下一条消息接上（用户同意，2026-10-23，见 `plan/master/agent-runtime.md` 第 7 节）。不引入 LangGraph4j 或其它图引擎。
 - 未得到用户指令时：不写应用代码，不做界面、账号、计费、部署。
 - **系统永远不执行申请的最终提交**。最终提交由用户本人在浏览器里完成。这条由 Harness 守卫与流程关卡强制执行，见 `plan/master/workflow.md`。
 - 不发邮件，不替用户注册或登录第三方账号（用户在本机 Chrome 里自己登录）。

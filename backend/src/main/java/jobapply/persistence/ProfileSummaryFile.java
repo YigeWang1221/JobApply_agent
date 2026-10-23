@@ -45,11 +45,9 @@ public final class ProfileSummaryFile {
     }
 
     private final StorageLayout layout;
-    private final StorageGit git;
 
     public ProfileSummaryFile(StorageLayout layout, Clock clock) {
         this.layout = layout;
-        this.git = new StorageGit(layout, clock);
     }
 
     public Optional<ProfileSummary> read() {
@@ -87,6 +85,5 @@ public final class ProfileSummaryFile {
         fm.putAll(summary.extra());
         AtomicFiles.write(layout.baseProfile(), FrontmatterFile.render(new FrontmatterFile.Document(fm,
                 BilingualSections.render(summary.preamble(), summary.zh(), summary.en(), summary.trailing()))));
-        git.commit("base：画像", List.of(layout.baseProfile()));
     }
 }

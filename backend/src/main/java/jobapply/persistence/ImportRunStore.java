@@ -38,12 +38,10 @@ public final class ImportRunStore {
 
     private final StorageLayout layout;
     private final Clock clock;
-    private final StorageGit git;
 
     public ImportRunStore(StorageLayout layout, Clock clock) {
         this.layout = layout;
         this.clock = clock;
-        this.git = new StorageGit(layout, clock);
     }
 
     /** 建一条 {@code estimated} 的记录。 */
@@ -99,7 +97,6 @@ public final class ImportRunStore {
                 removed.add(path);
             }
         }
-        git.commit("base：清理 " + removed.size() + " 条处理完的导入记录", removed);
         return removed.size();
     }
 
@@ -137,7 +134,6 @@ public final class ImportRunStore {
     private void write(ImportRun run) {
         Path path = layout.importRun(run.id());
         AtomicFiles.write(path, JSON.writerWithDefaultPrettyPrinter().writeValueAsString(toMap(run)) + "\n");
-        git.commit("base：导入记录 " + run.id() + "（" + run.status().code() + "）", List.of(path));
     }
 
     private List<String> ids() {

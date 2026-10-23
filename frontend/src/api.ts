@@ -293,7 +293,182 @@ export interface SummaryCandidate {
   warnings: string[];
 }
 
+// 申请线程（agent-runtime.md 7.1）。Agent 在后台跑；要用户时 status 是 waiting_user，message 写着要做什么。
+// 只放问题原文和选项；fieldClass 为 C 的问题不能在面板里回答，只能由用户在浏览器里亲自填
+export interface ApplicationQuestion {
+  id: string;
+  text: string;
+  options?: string[] | null;
+  required?: boolean | null;
+  fieldClass?: "A" | "B" | "C" | null;
+  page?: string | null;
+}
+
+// 页面上的一个上传位置（简历、作品集、成绩单等）
+export interface FileSlot {
+  id: string;
+  label: string;
+  accept?: string | null;
+  required?: boolean | null;
+  note?: string | null;
+}
+
+export interface PlanItem {
+  text: string;
+  status: "todo" | "doing" | "done" | "blocked" | string;
+}
+
+export interface ApplicationStatus {
+  job: string;
+  project?: string | null;
+  session?: string | null;
+  status: "running" | "waiting_user" | "ready" | "failed" | string;
+  message?: string | null;
+  questions?: ApplicationQuestion[] | null;
+  fileSlots?: FileSlot[] | null;
+  assets?: Asset[] | null;
+  disconnected?: boolean;
+  plan?: PlanItem[] | null;
+  usage?: { modelCalls: number; toolCalls: number; tokens: number } | null;
+  prepState?: string | null;
+  // 报告的状态：draft（填写中的草稿）、final（停在提交前时定稿）；还没有报告时为 null。正文用 api.report 读
+  report?: "draft" | "final" | null;
+  round?: number | null;
+  error?: string | null;
+}
+
+export interface ReplyBody {
+  session: string;
+  text?: string;
+  answers?: Record<string, string>;
+  // 原件键，按 fileSlots 的顺序，每个对应一个上传位置；跳过的选填位置写空字符串
+  files?: string[];
+}
+
+// Project / Session / Job（C005）：候选池、对话 Agent、申请工作台
+export type LeadStatus = "new" | "shortlisted" | "skipped" | "converted";
+
+export interface JobView {
+  id: string;
+  project: string;
+  company: string;
+  title: string;
+  city: string[];
+  type: string | null;
+  url: string | null;
+  site: string | null;
+  source: string | null;
+  discoveredIn: string | null;
+  leadStatus: LeadStatus;
+  skipReason: string | null;
+  phase: string | null;
+  prepState: string | null;
+  label: string;
+  verified: "verified" | "not_found" | null;
+  officialUrl: string | null;
+  note: string | null;
+  // 申请线程的状态：running / waiting_user / ready / failed；还没有申请线程时为 null
+  application: string | null;
+}
+
+export interface SessionSummary {
+  id: string;
+  project: string;
+  title: string;
+  createdAt: string;
+  tags: string[];
+  jobs: string[];
+  handoff: string;
+  // 运行中标记（C006-agent）；没有时不显示
+  status?: "running" | "idle" | null;
+}
+
+export interface ProjectCounts {
+  leads: number;
+  shortlisted: number;
+  preparing: number;
+  waiting: number;
+  ready: number;
+  applied: number;
+}
+
+export interface ProjectSummary {
+  id: string;
+  title: string;
+  status: string;
+  sessions: SessionSummary[];
+  counts: ProjectCounts;
+}
+
+// 一次工具调用：名字、一句说明（取自参数）、结果的第一行
+export type StepStatus = "running" | "done" | "failed" | "rejected";
+
+// 现在后端只给 name / summary / 结果首行；args、完整结果、状态和时间由 C006-agent 补，有了就显示
+export interface ToolStep {
+  name: string;
+  summary: string;
+  result: string | null;
+  args?: Record<string, unknown> | null;
+  status?: StepStatus | null;
+  startedAt?: string | null;
+  endedAt?: string | null;
+}
+
+// C006-agent 的过程步骤（按时间排列）。thinking 只在模型供应商真的给了思考内容时出现
+export interface ProcessStep {
+  kind: "thinking" | "tool";
+  text?: string | null;
+  name?: string | null;
+  summary?: string | null;
+  args?: Record<string, unknown> | null;
+  result?: string | null;
+  status?: StepStatus | null;
+  startedAt?: string | null;
+  endedAt?: string | null;
+}
+
+export type ChatMessage =
+  | { role: "user"; text: string; at: string | null }
+  | { role: "assistant"; text: string | null; tools: ToolStep[]; steps?: ProcessStep[] | null; at: string | null };
+
+// 现在在做什么（C006-agent）；没有时前端退回「对话里最后一个工具」
+export interface Activity {
+  kind: "thinking" | "tool";
+  name?: string | null;
+  summary?: string | null;
+  since?: string | null;
+}
+
+export interface SessionView {
+  session: SessionSummary;
+  status: "running" | "idle";
+  error: string | null;
+  messages: ChatMessage[];
+  jobs: JobView[];
+  activity?: Activity | null;
+}
+
+export interface JobEventView {
+  at: string;
+  session: string | null;
+  actor: string;
+  type: string;
+  from: string | null;
+  to: string;
+  reason: string | null;
+}
+
+export interface JobDetail {
+  job: JobView;
+  events: JobEventView[];
+  application: ApplicationStatus | null;
+  steps: ChatMessage[];
+  activity?: Activity | null;
+}
+
 const MODELS = "/api/settings/models";
+const enc = encodeURIComponent;
+const jobPath = (jobId: string) => `/api/jobs/${encodeURIComponent(jobId)}/application`;
 
 export const api = {
   modelSettings: () => request<ModelSettings>("GET", MODELS),
@@ -339,6 +514,35 @@ export const api = {
   generateSummary: () => request<SummaryCandidate>("POST", "/api/profile/summary"),
   confirmSummary: (body: { zh: Record<string, string>; en: Record<string, string>; userEdited: string[];
     reviewed: string[] }) => request<ProfileSummary>("PUT", "/api/profile/summary", body),
+
+  projects: () => request<{ projects: ProjectSummary[] }>("GET", "/api/projects"),
+  createProject: (id: string, title: string) => request<ProjectSummary>("POST", "/api/projects", { id, title }),
+  project: (id: string) => request<{ project: ProjectSummary; jobs: JobView[] }>("GET", `/api/projects/${enc(id)}`),
+  createSession: (projectId: string, title?: string) =>
+    request<SessionView>("POST", `/api/projects/${enc(projectId)}/sessions`, title ? { title } : {}),
+  session: (id: string) => request<SessionView>("GET", `/api/sessions/${enc(id)}`),
+  sendMessage: (id: string, text: string) => request<SessionView>("POST", `/api/sessions/${enc(id)}/messages`, { text }),
+  stopSession: (id: string) => request<SessionView>("POST", `/api/sessions/${enc(id)}/stop`),
+  job: (id: string) => request<JobDetail>("GET", `/api/jobs/${enc(id)}`),
+  markLead: (id: string, status: "new" | "shortlisted" | "skipped", reason?: string) =>
+    request<JobView>("PATCH", `/api/jobs/${enc(id)}/lead`, reason ? { status, reason } : { status }),
+
+  startApplication: (jobId: string, body: { project: string; session: string }) =>
+    request<ApplicationStatus>("POST", jobPath(jobId), body),
+  application: (jobId: string) => request<ApplicationStatus>("GET", jobPath(jobId)),
+  reply: (jobId: string, body: ReplyBody) => request<ApplicationStatus>("POST", `${jobPath(jobId)}/reply`, body),
+  stop: (jobId: string) => request<ApplicationStatus>("POST", `${jobPath(jobId)}/stop`),
+  // 报告是 Markdown 文本；还没有报告（404）时返回 null
+  report: async (jobId: string) => {
+    const response = await fetch(`${jobPath(jobId)}/report`);
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      return parse<never>(response);
+    }
+    return response.text();
+  },
 };
 
 export function errorText(error: unknown): string {

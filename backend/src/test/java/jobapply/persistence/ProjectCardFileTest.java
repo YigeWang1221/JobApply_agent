@@ -74,11 +74,10 @@ class ProjectCardFileTest {
         assertThat(card.render(card.zh().get(1).text(), Language.ZH)).isEqualTo("吞吐提升 3.9×。");
         assertThat(ProjectCardFile.parse(ProjectCardFile.render(card), "again.md")).isEqualTo(card);
 
-        TestStorage storage = TestStorage.create(root, true);
+        TestStorage storage = TestStorage.create(root);
         ProjectCardFile cards = new ProjectCardFile(storage.layout, storage.clock);
         cards.save(card, Set.of("c-0012", "c-0015"));
         assertThat(cards.list()).containsExactly(card);
-        assertThat(storage.isClean()).isTrue();
     }
 
     @Test
@@ -103,7 +102,7 @@ class ProjectCardFileTest {
         ProjectCard bare = card(List.of(new Section("results", "结果", "提速 {{fact:speedup}}")), List.of(),
                 Map.of("speedup", new CardFact("3.9", "×", null, null)));
 
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         ProjectCardFile cards = new ProjectCardFile(storage.layout, storage.clock);
         cards.save(direct, Set.of());
         assertThat(cards.find("demo").orElseThrow()).isEqualTo(direct);
@@ -118,7 +117,7 @@ class ProjectCardFileTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("{{fact:speedup}}");
 
         ProjectCard card = ProjectCardFile.parse(CARD, "card.md");
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         assertThatThrownBy(() -> new ProjectCardFile(storage.layout, storage.clock).save(card, Set.of("c-0012")))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("c-0015");
     }
@@ -131,7 +130,7 @@ class ProjectCardFileTest {
                 List.of(new Section("role", "My role", "Led the scheduler design and solely built the job queue.")),
                 null);
 
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         ProjectCardFile cards = new ProjectCardFile(storage.layout, storage.clock);
         cards.save(team, Set.of());
         assertThat(cards.find("demo").orElseThrow().en().getFirst().text()).contains("solely built");
@@ -144,7 +143,7 @@ class ProjectCardFileTest {
         assertThatThrownBy(() -> ProjectCardFile.parse(CARD.replace("### 一句话 {#summary}", "### 一句话"), "card.md"))
                 .isInstanceOf(StorageFormatException.class).hasMessageContaining("{#id}");
 
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         storage.write(storage.layout.baseProjectCard("other"), CARD);
         assertThatThrownBy(() -> new ProjectCardFile(storage.layout, storage.clock).find("other"))
                 .isInstanceOf(StorageFormatException.class).hasMessageContaining("slug");

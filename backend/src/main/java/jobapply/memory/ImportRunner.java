@@ -151,7 +151,7 @@ public final class ImportRunner implements AutoCloseable {
         return run;
     }
 
-    /** 这个进程里是不是还在整理这条记录（状态写进文件以后、提交 git 之前也算在跑）。 */
+    /** 这个进程里是不是还在整理这条记录（状态写进文件以后也算在跑）。 */
     boolean isRunning(String id) {
         return active.contains(id);
     }

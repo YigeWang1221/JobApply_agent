@@ -143,8 +143,14 @@ public final class BrowserToolPolicy {
         } else if ("new".equals(action)) {
             onlyKeys(TABS, args, Set.of("action", "url"));
             requireHttpUrl(TABS + " new", args.get("url"));
+        } else if ("select".equals(action)) {
+            // 切回某个 Session / Job 自己新开的标签页（系统按记下的序号切换）
+            onlyKeys(TABS, args, Set.of("action", "index"));
+            if (!(args.get("index") instanceof Integer index) || index < 0) {
+                throw new ToolNotAllowedException(TABS + " select 要给非负整数 index");
+            }
         } else {
-            throw new ToolNotAllowedException(TABS + " 只允许 action=list 或 action=new");
+            throw new ToolNotAllowedException(TABS + " 只允许 action=list、new 或 select");
         }
     }
 

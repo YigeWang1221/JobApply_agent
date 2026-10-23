@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.function.Predicate;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import jobapply.domain.Ids;
 
@@ -15,16 +16,10 @@ import jobapply.domain.Ids;
  */
 public record StorageLayout(Path root) {
 
+    private static final Pattern HOST = Pattern.compile("[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:[0-9]{1,5})?");
+
     public StorageLayout {
         root = root.toAbsolutePath().normalize();
-    }
-
-    public Path gitDir() {
-        return root.resolve(".git");
-    }
-
-    public Path gitignore() {
-        return root.resolve(".gitignore");
     }
 
     public Path baseDir() {
@@ -120,7 +115,7 @@ public record StorageLayout(Path root) {
         return settingsDir().resolve("models.yaml");
     }
 
-    /** API key；被 storage/.gitignore 忽略。 */
+    /** API key（开发代理不读）。 */
     public Path envFile() {
         return settingsDir().resolve(".env");
     }
@@ -128,6 +123,28 @@ public record StorageLayout(Path root) {
     /** 浏览器 MCP 允许读取的上传暂存区（MCP root）。 */
     public Path uploadsDir() {
         return root.resolve("uploads");
+    }
+
+    /** 这个 Job 的上传暂存目录：原件的等字节副本，到达关卡 B 或线程被丢弃时清空。 */
+    public Path uploadsDir(String jobId) {
+        return uploadsDir().resolve(Ids.requireJobId(jobId));
+    }
+
+    public Path playbookDir() {
+        return root.resolve("playbook");
+    }
+
+    /** skill 根目录：{@code apply-form/}、{@code components/*}、{@code platforms/*}，每个目录一个 {@code SKILL.md}。 */
+    public Path playbookSkills() {
+        return playbookDir().resolve("skills");
+    }
+
+    /** 站点的事实记录（不是 skill）。{@code host} 只能是小写的主机名，不能越出 {@code sites/}。 */
+    public Path playbookSite(String host) {
+        if (host == null || !HOST.matcher(host).matches() || host.contains("..")) {
+            throw new IllegalArgumentException("主机名不合法：" + host);
+        }
+        return playbookDir().resolve("sites").resolve(host + ".md");
     }
 
     /** 可以随时删除的缓存。 */
@@ -176,6 +193,16 @@ public record StorageLayout(Path root) {
         return jobDir(projectId, jobId).resolve("events.jsonl");
     }
 
+    /** 填写报告（草稿和定稿是同一个文件，草稿的头部标「草稿」）。 */
+    public Path fillReport(String projectId, String jobId) {
+        return jobDir(projectId, jobId).resolve("fill-report.md");
+    }
+
+    /** 填写过程日志；不记填进去的值和快照全文。 */
+    public Path runLog(String projectId, String jobId) {
+        return jobDir(projectId, jobId).resolve("run-log.jsonl");
+    }
+
     public Path sessionsDir(String projectId) {
         return projectDir(projectId).resolve("sessions");
     }
@@ -196,9 +223,9 @@ public record StorageLayout(Path root) {
         return projectDir(projectId).resolve("tracker");
     }
 
-    /** LangGraph4j Checkpoint（sqlite-saver）。 */
-    public Path checkpointsDb() {
-        return root.resolve("checkpoints.sqlite");
+    /** 一次申请的运行状态（对话、计划、给用户的话、用量），中断后接着做。 */
+    public Path agentRun(String jobId) {
+        return root.resolve("runs").resolve(Ids.requireJobId(jobId) + ".json");
     }
 
     /** 站点登录登记（全局，因为浏览器只有一个）。 */
@@ -233,7 +260,7 @@ public record StorageLayout(Path root) {
         return childDirectoryNames(sessionsDir(projectId), Ids::isSessionId);
     }
 
-    /** 相对 storage 根目录、用 / 分隔的路径，供 git 使用。 */
+    /** 相对 storage 根目录、用 / 分隔的路径。 */
     public String relative(Path path) {
         return root.relativize(path.toAbsolutePath().normalize()).toString().replace('\\', '/');
     }

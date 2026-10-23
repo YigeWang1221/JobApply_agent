@@ -15,7 +15,7 @@ class GlossaryFileTest {
 
     @Test
     void putReplacesByChineseAndKeepsOtherRowsAndColumns() {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         storage.write(storage.layout.baseGlossary(), """
                 # 术语对照
 

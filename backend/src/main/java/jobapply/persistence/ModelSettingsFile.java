@@ -15,7 +15,7 @@ import org.yaml.snakeyaml.error.YAMLException;
 
 /**
  * {@code storage/settings/models.yaml}：模型提供方和用途分配（ui.md「模型设置」）。Key 不在这里，这里只有占位符
- * {@code ${变量名}}，值在 {@code settings/.env}（{@link EnvFile}）。原子写入；开启 git 时提交（.env 被 storage/.gitignore 忽略）。
+ * {@code ${变量名}}，值在 {@code settings/.env}（{@link EnvFile}）。原子写入。
  * 读的时候保留未识别的字段，写回时原样带上。
  */
 public final class ModelSettingsFile {
@@ -144,11 +144,9 @@ public final class ModelSettingsFile {
     }
 
     private final StorageLayout layout;
-    private final StorageGit git;
 
     public ModelSettingsFile(StorageLayout layout, Clock clock) {
         this.layout = layout;
-        this.git = new StorageGit(layout, clock);
     }
 
     public static boolean isValidId(String id) {
@@ -259,7 +257,6 @@ public final class ModelSettingsFile {
         Path file = layout.modelsYaml();
         AtomicFiles.write(file, "# 模型设置。Key 不在这里：api_key 是占位符，值在 settings/.env\n"
                 + FrontmatterFile.yaml().dump(root));
-        git.commit("settings：" + message, List.of(file));
     }
 
     private static Provider provider(Path file, Map<String, Object> map) {

@@ -9,9 +9,14 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import jobapply.harness.policies.SubmitWords;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -23,6 +28,7 @@ public final class FakeBrowser {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final TypeReference<Map<String, Object>> MAP = new TypeReference<>() {
     };
+    private static final Pattern BUTTON = Pattern.compile("(?:button|link) \"([^\"]*)\" [^\\n]*\\[ref=([^\\]\\s]+)]");
 
     public final Path scenarioFile;
     public final Path callLog;
@@ -81,10 +87,48 @@ public final class FakeBrowser {
         return save();
     }
 
+    /**
+     * 进入表单模式：读入 {@code fixtures/forms/<name>.scenario.json}（格式见 {@link FakeFormScript}）。
+     */
+    public synchronized FakeBrowser form(String name) {
+        String resource = "/fixtures/forms/" + name + ".scenario.json";
+        try (var in = FakeBrowser.class.getResourceAsStream(resource)) {
+            if (in == null) {
+                throw new IllegalArgumentException("没有表单夹具：" + resource);
+            }
+            scenario.put("form", JSON.readValue(in, MAP));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return save();
+    }
+
+    /** 表单的入口网址：{@code entry} 那一页的 url，没有 {@code entry} 时是第一页的 url。 */
+    @SuppressWarnings("unchecked")
+    public synchronized String formUrl() {
+        Map<String, Object> form = (Map<String, Object>) scenario.get("form");
+        if (form == null) {
+            throw new IllegalStateException("还没有调用 form(...)");
+        }
+        Map<String, Object> pages = (Map<String, Object>) form.get("pages");
+        Object entry = form.get("entry");
+        Object page = entry != null ? pages.get(entry) : pages.values().iterator().next();
+        return (String) ((Map<String, Object>) page).get("url");
+    }
+
+    /** 模拟用户在浏览器里亲手改了表单页 {@code page} 上 {@code ref} 的值（下一次调用时生效，只生效一次）。 */
+    @SuppressWarnings("unchecked")
+    public synchronized FakeBrowser userEdit(String page, String ref, String value) {
+        List<Object> edits = (List<Object>) scenario.computeIfAbsent("userEdits", key -> new ArrayList<>());
+        edits.add(Map.of("id", edits.size() + 1, "page", page, "ref", ref, "value", value));
+        return save();
+    }
+
     /** 下一次调用时服务端直接退出，不回应（一次性）。 */
     public synchronized FakeBrowser exitOnNextCall() {
         scenario.put("exitOnNextCall", true);
-        return save();
+        writeJson(scenarioFile, scenario);
+        return this;
     }
 
     /** 之后每次调用都返回这条错误，直到传入 null。 */
@@ -125,6 +169,15 @@ public final class FakeBrowser {
         return records().stream().filter(r -> "call".equals(r.get("event"))).map(r -> (String) r.get("tool")).toList();
     }
 
+    /** 服务端收到的某个工具的每次调用参数，按顺序。 */
+    @SuppressWarnings("unchecked")
+    public List<Map<String, Object>> calls(String tool) {
+        return records().stream()
+                .filter(r -> "call".equals(r.get("event")) && tool.equals(r.get("tool")))
+                .map(r -> (Map<String, Object>) r.get("args"))
+                .toList();
+    }
+
     /** 最近一次调用时，服务端从客户端拿到的 roots（URI）。 */
     @SuppressWarnings("unchecked")
     public List<String> lastRoots() {
@@ -147,6 +200,39 @@ public final class FakeBrowser {
                 .orElse(List.of());
     }
 
+    /**
+     * 表单夹具里所有名字命中硬边界词表（提交类）的按钮和链接的 ref，用来断言它们一次都没有被点到
+     * （{@code calls("browser_click")} 的 target 里没有）。夹具里没有提交类按钮时报错。
+     */
+    @SuppressWarnings("unchecked")
+    public static Set<String> hardRefs(String fixture) {
+        String resource = "/fixtures/forms/" + fixture + ".scenario.json";
+        try (var in = FakeBrowser.class.getResourceAsStream(resource)) {
+            if (in == null) {
+                throw new IllegalArgumentException("没有表单夹具：" + resource);
+            }
+            Map<String, Object> form = JSON.readValue(in, MAP);
+            Set<String> refs = new HashSet<>();
+            for (Object page : ((Map<String, Object>) form.get("pages")).values()) {
+                Object snapshot = ((Map<String, Object>) page).get("snapshot");
+                String text = snapshot instanceof List<?> lines
+                        ? String.join("\n", lines.stream().map(String::valueOf).toList()) : String.valueOf(snapshot);
+                Matcher matcher = BUTTON.matcher(text);
+                while (matcher.find()) {
+                    if (SubmitWords.isHard(matcher.group(1))) {
+                        refs.add(matcher.group(2));
+                    }
+                }
+            }
+            if (refs.isEmpty()) {
+                throw new IllegalStateException("夹具 " + fixture + " 里没有提交类按钮");
+            }
+            return refs;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
     /** 虚构的登录页快照。 */
     public static String loginSnapshot() {
         return """
@@ -167,6 +253,11 @@ public final class FakeBrowser {
     }
 
     private FakeBrowser save() {
+        // 一次性的 exitOnNextCall 由服务端用掉（它把文件里的值改回 false）：以文件里的为准，免得之后的修改把它又写回 true
+        if (Boolean.TRUE.equals(scenario.get("exitOnNextCall")) && Files.exists(scenarioFile)
+                && !Boolean.TRUE.equals(readJson(scenarioFile).get("exitOnNextCall"))) {
+            scenario.put("exitOnNextCall", false);
+        }
         writeJson(scenarioFile, scenario);
         return this;
     }

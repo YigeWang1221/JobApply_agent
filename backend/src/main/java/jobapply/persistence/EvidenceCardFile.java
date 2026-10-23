@@ -33,11 +33,9 @@ public final class EvidenceCardFile {
     private static final List<String> KNOWN = List.of("source", "source_version", "generated_at");
 
     private final StorageLayout layout;
-    private final StorageGit git;
 
     public EvidenceCardFile(StorageLayout layout, Clock clock) {
         this.layout = layout;
-        this.git = new StorageGit(layout, clock);
     }
 
     public Optional<EvidenceCard> find(String sourceKey) {
@@ -69,7 +67,6 @@ public final class EvidenceCardFile {
         fm.putAll(card.extra());
         Path path = layout.evidenceCard(card.sourceKey());
         FrontmatterFile.write(path, new FrontmatterFile.Document(fm, card.body()));
-        git.commit("base：清单卡 " + card.sourceKey(), List.of(path));
     }
 
     private static String string(Object value) {

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Example Tech · Careers · Your profile</title>
+<!-- Fictional form for manual smoke tests; same form as bilingual.scenario.json: an English application page. -->
+<style>
+  body { font-family: sans-serif; max-width: 40rem; margin: 2rem auto; }
+  section[hidden] { display: none; }
+  fieldset { margin: 1rem 0; }
+  label { display: block; margin: .75rem 0; }
+</style>
+</head>
+<body>
+<section id="profile" data-title="Example Tech · Careers · Your profile">
+  <h1>Your profile</h1>
+  <p>Step 1 of 2</p>
+  <fieldset>
+    <legend>Personal information</legend>
+    <label>Full name <input type="text" aria-label="Full name"></label>
+    <label>Email <input type="email" aria-label="Email"></label>
+    <label>Phone <input type="tel" aria-label="Phone"></label>
+  </fieldset>
+  <fieldset>
+    <legend>Education</legend>
+    <label>School <input type="text" aria-label="School"></label>
+    <label>Major <input type="text" aria-label="Major"></label>
+    <label>Degree
+      <select aria-label="Degree"><option>Bachelor</option><option>Master</option><option>PhD</option></select>
+    </label>
+    <label>Graduation date <input type="text" aria-label="Graduation date"></label>
+  </fieldset>
+  <fieldset>
+    <legend>Experience</legend>
+    <label>Most recent job title <input type="text" aria-label="Most recent job title"></label>
+    <label>Key skills <input type="text" aria-label="Key skills"></label>
+  </fieldset>
+  <button type="button" data-go="review">Next</button>
+</section>
+<section id="review" data-title="Example Tech · Careers · Review" hidden>
+  <h1>Review your details</h1>
+  <p>Step 2 of 2</p>
+  <button type="button" data-go="profile">Back</button>
+  <button type="button" data-go="submitted">Submit application</button>
+</section>
+<section id="submitted" data-title="Example Tech · Careers" hidden>
+  <h1>Application submitted</h1>
+  <p>Thank you for applying</p>
+</section>
+<script>
+  document.querySelectorAll('[data-go]').forEach(button => button.addEventListener('click', () => {
+    document.querySelectorAll('section').forEach(section => { section.hidden = section.id !== button.dataset.go; });
+    document.title = document.getElementById(button.dataset.go).dataset.title;
+  }));
+</script>
+</body>
+</html>

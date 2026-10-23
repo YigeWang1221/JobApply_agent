@@ -24,6 +24,13 @@ public record Job(
         return new Job(id, project, discoveredIn, posting, next, extra);
     }
 
+    /** 覆盖 {@code extra} 里的几个键（值为 null 时写成空值）。 */
+    public Job withExtra(Map<String, Object> changes) {
+        Map<String, Object> next = new LinkedHashMap<>(extra);
+        next.putAll(changes);
+        return new Job(id, project, discoveredIn, posting, status, next);
+    }
+
     public String extraString(String key) {
         Object value = extra.get(key);
         return value == null ? null : value.toString();

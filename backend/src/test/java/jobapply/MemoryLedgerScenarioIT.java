@@ -42,7 +42,7 @@ class MemoryLedgerScenarioIT {
 
     @Test
     void researchThenApplyThenCloseLeavesConsistentFilesAndHistory() {
-        TestStorage storage = TestStorage.create(root, true);
+        TestStorage storage = TestStorage.create(root);
         JobLedger ledger = storage.ledger();
         SessionRepository sessions = storage.sessions();
 
@@ -50,12 +50,9 @@ class MemoryLedgerScenarioIT {
         FactsFile.write(storage.layout.baseFacts(), "个人基础事实", List.of(
                 Fact.of("contact.name", "示例用户", FactClass.B, "user-confirmed", "2026-10-01"),
                 Fact.of("education.school", "示例大学", FactClass.A, "user-confirmed", "2026-10-01")));
-        storage.git().commit("base：录入", List.of(storage.layout.baseFacts()));
         storage.project(PROJECT, "live");
         FactsFile.write(storage.layout.overrides(PROJECT), "overrides", List.of(
                 Fact.of("education.school", "示例大学（2026 写法）", FactClass.A, "user-confirmed", "2026-10-20")));
-        storage.git().commit("overrides：录入", List.of(storage.layout.overrides(PROJECT)));
-        int commitsAfterSetup = storage.commitCount();
 
         // Session 1：调研
         String research = sessions.create(PROJECT, "调研后端岗位").id();
@@ -128,8 +125,6 @@ class MemoryLedgerScenarioIT {
 
         // 历史：每个写操作一次提交，写过的文件全部已提交
         int writes = 1 + 1 + 3 + 2 + 1 + 1 + 1 + steps.size();
-        assertThat(storage.commitCount()).isEqualTo(commitsAfterSetup + writes);
-        assertThat(storage.isClean()).isTrue();
         assertThat(FrontmatterFile.read(storage.layout.sessionFile(PROJECT, apply)).frontmatter())
                 .containsEntry("created_at", "2026-10-23T10:00:00-04:00");
     }

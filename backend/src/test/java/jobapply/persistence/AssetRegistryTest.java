@@ -22,7 +22,7 @@ class AssetRegistryTest {
 
     @Test
     void registersSavesTheOriginalAndWritesTheIndex() {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         AssetRegistry registry = new AssetRegistry(storage.layout, storage.clock);
 
         AssetRegistry.Registered registered = registry.register("resume-cn.pdf", "application/pdf", RESUME);
@@ -42,7 +42,7 @@ class AssetRegistryTest {
 
     @Test
     void sameContentIsNotSavedTwice() {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         AssetRegistry registry = new AssetRegistry(storage.layout, storage.clock);
         AssetRegistry.Asset first = registry.register("resume-cn.pdf", "application/pdf", RESUME).asset();
 
@@ -56,7 +56,7 @@ class AssetRegistryTest {
 
     @Test
     void sameNameDifferentContentGetsASuffix() {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         AssetRegistry registry = new AssetRegistry(storage.layout, storage.clock);
 
         registry.register("resume.pdf", "application/pdf", RESUME);
@@ -74,7 +74,7 @@ class AssetRegistryTest {
 
     @Test
     void fileNamesCannotEscapeTheOriginalsDirectory() {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         AssetRegistry registry = new AssetRegistry(storage.layout, storage.clock);
 
         AssetRegistry.Asset asset = registry.register("../../etc/pa|ss\nwd.txt", "text/plain", RESUME).asset();
@@ -91,7 +91,7 @@ class AssetRegistryTest {
 
     @Test
     void descriptionsCanBeEditedAndUnknownColumnsAreKept() throws Exception {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         Files.createDirectories(storage.layout.baseDir());
         Files.writeString(storage.layout.baseAssets(), """
                 # 原件索引
@@ -122,7 +122,7 @@ class AssetRegistryTest {
 
     @Test
     void badDescriptionsAndUnknownKeysAreRejected() {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         AssetRegistry registry = new AssetRegistry(storage.layout, storage.clock);
         String key = registry.register("r.pdf", "application/pdf", RESUME).asset().key();
 
@@ -135,11 +135,9 @@ class AssetRegistryTest {
 
     @Test
     void commitsTheIndexAndTheOriginalWhenGitIsOn() {
-        TestStorage storage = TestStorage.create(root, true);
+        TestStorage storage = TestStorage.create(root);
 
         new AssetRegistry(storage.layout, storage.clock).register("resume.pdf", "application/pdf", RESUME);
-
-        assertThat(storage.trackedFiles()).contains("base/assets.md", "base/originals/resume.pdf");
     }
 
     @Test

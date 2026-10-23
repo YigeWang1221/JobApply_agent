@@ -7,6 +7,7 @@ import org.springframework.ai.anthropic.AnthropicChatOptions;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.model.tool.StructuredOutputChatOptions;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.tool.ToolCallback;
@@ -22,6 +23,9 @@ public final class ModelFactory {
 
     /** 失败时重试一次（SDK 默认两次）；测试连接用 0。 */
     static final int MAX_RETRIES = 1;
+
+    /** 带工具的多轮调用（填表循环）在 Anthropic 格式下的 {@code max_tokens}：默认 4096 不够。 */
+    public static final int TOOL_MAX_TOKENS = 16_000;
 
     /**
      * 一个可调用的端点。{@link #toString()} 不带 Key。
@@ -89,6 +93,22 @@ public final class ModelFactory {
             return AnthropicChatOptions.builder().model(endpoint.model()).toolCallbacks(tools).build();
         }
         return OpenAiChatOptions.builder().model(endpoint.model()).toolCallbacks(tools).build();
+    }
+
+    /**
+     * 带工具定义的单次请求选项，从模型创建时的选项复制（{@code mutate()}），模型名、Base URL 等不会被 SDK 默认值盖掉。
+     * 主模型只有 {@link ChatModel}（来自 {@code ModelRegistry}），拿不到 {@link Endpoint}，所以用这个版本。
+     * Anthropic 格式把 {@code max_tokens} 调到 {@link #TOOL_MAX_TOKENS}；OpenAI 格式不设。
+     */
+    public static ChatOptions withTools(ChatModel model, List<ToolCallback> tools) {
+        if (!(model.getOptions() instanceof ToolCallingChatOptions options)) {
+            throw new IllegalArgumentException("这个模型不支持工具调用");
+        }
+        ToolCallingChatOptions.Builder<?> builder = options.mutate().toolCallbacks(tools);
+        if (options instanceof AnthropicChatOptions) {
+            builder.maxTokens(TOOL_MAX_TOKENS);
+        }
+        return builder.build();
     }
 
     /**

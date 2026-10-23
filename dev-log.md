@@ -479,3 +479,96 @@
 - 验证：新增 5 个后端用例，在修复前的代码上都失败；修复后 `mvn -B clean verify` 退出码 0，surefire 594、failsafe 2；`npm run build` 通过。第 2 个问题只改了组件身份，页面上的复现：未运行。
 - 偏差：第 4 个问题除了「先检查再写」，还加了失败时恢复文件（审核意见两种做法二选一，这里都做了）。没有提交 git。
 
+
+## 2026-10-23 · C004-B 施工前核对
+
+- 日期：2026-10-23
+- 指令：对照已实现的 C004-A、A-1、A-2 查看 C004-B 是否需要改动；用户确认 9 项和可选项都按建议，先只更新文档。
+- 结果：C004-B 加「施工前核对」一节和「关键规则 · 资料与语言」；改「要改的文件」（`FieldIntent`、`SnapshotRedactor`、`ModelFactory.withTools(ChatModel, …)`）、「隐私」、「不做」、夹具表（`verification`、`c-class` 补情况，新增 `bilingual`）、`HarnessLoopTest`、实现步骤第 2 片。C004 总表决定 3 改为「B 写夹具」。`dev-plan.md` 索引行更新。
+- 验证：未运行（本步只改文档）。
+- 偏差：无。没有提交 git。
+
+## 2026-10-23 · C004-B 施工
+
+- 日期：2026-10-23
+- 指令：「开始开发，multi-agent 模式」；页面语言阈值定为 40% 中文字符；真实公司冒烟用哪个 Project，等真实 Project 的流程走完再定。
+- 结果：7 个切片做完（切片 2、3、6 和前端面板由并行代理在 worktree 里做，主代理合并；4、5、7 依次做）。细节写在 C004-B「实际结果」「偏差」。
+- 验证：`mvn -B clean verify` 退出码 0，surefire 715、failsafe 3，Failures / Errors / Skipped 均为 0；测试假 Key 在构建日志和测试报告里出现 0 次；自动测试没有访问外部网络、没有调用 npx、没有连真实浏览器、没有调用真实模型；夹具里的提交类按钮没有被点到。`npm run build` 通过。`ApplicationLlmManualCheck`：未运行。`ApplicationManualSmoke`（真实 Chrome）：未运行。真实公司冒烟：未运行。用户的手动检查：未运行。
+- 偏差：见 C004-B「偏差」（17 条）；其中 `materials` 的形状和 memory.md 不一致，等用户确认后再回写 Master。没有读取或修改真实的 `storage/`、`storage/example.data/`；没有读 `.env`；没有提交 git。
+
+## 2026-10-23 · 重构方向、代码恢复、交接
+
+- 日期：2026-10-23
+- 指令：用户指出 C004-B 的架构是「Java 驱动的脚本加 LLM」，要参考 Hermes、Deep Agents、OpenMAIC 按 Agent 方式重构；界面要做真的；不要遇到问题就写测试（写进 `AGENTS.md`）；资料层要用用户写好的原文。用户决定 Agent 运行时用 Java，代码恢复到最近一次全部通过的构建，重构和研究计划写进 master plan，交接给下一个 Claude session。
+- 结果：`AGENTS.md` 加「Agent 开发原则」；新增 `plan/reference/research-agent-design.md`、`plan/master/agent-runtime.md`（交接文档：问题、目标架构方向、资料层、界面、研究计划、清理、顺序、代码现状、待确认）；草案 C004-C 作废。浏览器连接改成属于应用（连接失败后不自动重连、`reconnected` 在连接正常时沿用、连不上 Chrome 算断开）并保留。之后的改动（多标签页、草案 C004-C 的一半）已撤回：被删的 4 个类从当时的代理记录里还原。
+- 验证：恢复后 `mvn -B clean verify` 退出码 0，surefire 718、failsafe 3。真实模型检查（`ApplicationLlmManualCheck`）：13 个夹具都停在该停的地方，构建日志里没有 Key。真实 Chrome 冒烟：`multi-page`、`submit-labels`、`verification` 通过，`file-slots` 未运行。
+- 偏差：无。没有提交 git。
+
+## 2026-10-23 · 研究三个 Agent 项目、新设计、处理清单
+
+- 日期：2026-10-23
+- 指令：只做 agent-runtime.md 第 2、3 节和第 4 节的清单：读 Hermes、Deep Agents、OpenMAIC 源码，写研究结论、新设计和旧代码处理清单，等用户确认方向后再写代码；不写测试，不加额外守卫和确认。
+- 结果：`plan/reference/research-agent-design.md` 加「源码阅读（2026-10-23）」（每个项目 7 个问题 + 对照表，推翻了原表的 3 处）；`plan/master/agent-runtime.md` 第 7 节写入新设计（循环、工具、提示词、skill、问用户、代码里留的线、处理清单、施工顺序）。Deep Agents、OpenMAIC 浅克隆到会话临时目录，只读。
+- 验证：未运行（本步只改文档，没有改代码）。
+- 偏差：无。`dev-limit.md` 里 LangGraph4j 那条没改，等用户同意。没有提交 git。
+
+## 2026-10-23 · 用户确认新设计
+
+- 指令：用户同意第 7 节的方向、不再用 LangGraph4j、去掉软边界按钮确认、7.7 删除清单。
+- 结果：`dev-limit.md`「范围边界」里 LangGraph4j 那条改成 Agent 循环 + 对话存盘；agent-runtime.md 第 7 节标为已确认。
+- 验证：未运行（只改文档）。
+
+## 2026-10-23 · C004-D Agent 循环施工
+
+- 指令：用户同意第 7 节方向后，做 7.8 第 1 步：删旧流程，接上新循环和工具，在夹具上用真实模型跑。
+- 结果：见 `plan/coding/C004-D-agent-loop.md`「实际结果」。
+- 验证：`mvn -B clean verify` 退出码 0（surefire 624、failsafe 1）；`npm run build` 通过。`ApplicationLlmManualCheck` 13 个夹具：12 个 ready、`verification` 停在等用户完成滑块；提交类按钮没被点到。真实 Chrome 冒烟：未运行。
+- 偏差：`submitted-page` 里伪装成「下一步」的按钮被模型点了，页面显示投递成功；`dialog` 里模型说已翻页但实际没有。都等用户决定。没有提交 git。
+
+## 2026-10-23 · 方案 A：拿不准的「下一步」先问用户
+
+- 指令：用户选 A。
+- 结果：`SubmitGuard` 新增 `AskUser`（看不出第几步、最后一步、同页有提交按钮时）；用户回复后同一个按钮放行；提示词加一条说明。细节见 C004-D「实际结果」。
+- 验证：`mvn -B clean verify` 退出码 0（surefire 623、failsafe 1）；`ApplicationLlmManualCheck` 重跑 3 个夹具都先问后点或直接翻页，停在提交前或投递成功后请用户核对。真实 Chrome：未运行。
+- 偏差：无。没有提交 git。
+
+## 2026-10-23 · storage 去掉版本控制、清理旧 worktree
+
+- 指令：memory / storage 不再用 git、不做任何版本控制；有的 git 删掉；旧的多代理 worktree 有用的合并、没用的删掉；然后在当前分支提交一次。
+- 结果：删 `StorageGit` 和所有自动提交调用（21 个源文件）、`StorageInitializer` 不再建 `.git` 和 `.gitignore`、`StorageLayout` 去掉 git 路径；`base_pin` 只能是 `live`。jgit 依赖保留：只用于资料导入时只读扫描用户自己代码仓库的提交摘要（`LocalDirectoryScanner`），不是 storage 的版本控制。plan 里 memory.md、workflow.md、architecture.md、ui.md 同步改。`storage/` 下原本就没有 `.git`。5 个 `.claude/worktrees/agent-*`（C004-B 并行代理留下的）逐个比对：缺的文件都是已删的旧图流程，不同的文件主目录都是更新的版本，没有要合并的内容，已删除 worktree 和对应分支；主仓库 `.gitignore` 加 `.claude/`。
+- 验证：`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）；`npm run build` 通过。
+
+## 2026-10-23 · C005 调研 Agent + 界面（两个代理并行）
+
+- 指令：同时开发 C005 界面和调研 Agent 两份计划，用多个代理并行。
+- 结果：先定前后端共用的接口形状，再由两个代理分别改 `backend/`、`frontend/`。后端：对话 Agent（`ResearchAgent`、`ResearchTools`、`SessionLoop`、`SessionRunner`、`WebFetch`）、Project / Session / Job 只读接口、`POST /api/projects`、候选「开始申请」先转为申请、每个 Job / Session 一个标签页、两个调研 skill。前端：侧栏、全局、Project 主页（候选池）、对话视图、申请工作台、设置；旧「申请」调试页删除。细节见两份 C005 计划的「实际结果」。
+- 验证：`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）；`npm run build` 通过。后端代理在临时 storage 上启动应用调了一遍 Project / Session 接口，形状和约定一致；没配主模型时 Session 报「还没有配置主模型」。真实模型 + 真实搜索、官网核验、真实 Chrome、前端在浏览器里走一遍：未运行。
+- 偏差：没有提交 git。
+
+## 2026-10-23 · 去掉站点黑名单，搜索来源交给模型
+
+- 指令：代码只保护真正的安全边界，LLM 尽量自主；能合规读到的公开招聘信息直接读；搜索工具和来源由模型选；不因为网址是 LinkedIn、Google 就拦。
+- 结果：`WebUrlPolicy` 删掉站点黑名单，只留 http/https、疑似凭证的网址、内网/回环/云元数据；`WebSearch` 加 `available()` 和按名字选来源，`web_search` 加可选 `provider`（不写时仍是免费优先、自动换）；调研提示词和 broad-search skill 去掉「不许访问」的说法，改成模型自己选来源、碰到验证码或登录再请用户处理。workflow.md「安全检查」、C005 计划同步。
+- 追加（用户同一轮指令）：不要固定黑名单，下载、付款这类倾向用提示词交给模型判断。调研提示词加「只读：不下载、不安装、不付款、不开会员；广告和无关跳转不点」，申请提示词加「下载和付款」一条（遇到报名费、要下载 App 时问用户）。代码里没有新增任何拦截。
+- 验证：`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）。真实模型下的效果：未运行。没有提交 git。
+
+## 2026-10-23 · 网址检查照 Hermes
+
+- 指令：参考 Hermes，它怎么做就怎么做（黑名单默认关、用户自己配；SSRF 默认开；凭证防泄漏单独做；多个搜索来源）。
+- 结果：新增 `config/WebProperties`（`jobapply.web.blocklist.enabled` 默认 false、`domains` 默认空）；`WebUrlPolicy.check(url, blocklist)` 按用户名单拦，子域名也算；`WebFetch.checkUrl` 带上名单，重定向后再查；调研 Agent 的 `web_fetch` 和浏览器导航都走它。SSRF 和带凭证网址照旧一直拦。`research-hermes.md` 里「增加禁止自动化站点名单」那一行是我当时的偏差，已更正；workflow.md 同步。
+- 验证：`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）。没有提交 git。
+
+## 2026-10-23 · 修评审发现的 5 个问题
+
+- 指令：用户贴了一份评审结果（标签页串任务、URL 账号密码、初次连接失败反复重试、核验参数不对却已改状态、DuckDuckGo 摘要丢失）。
+- 结果：
+  1. `BrowserSession`：每个使用者记标签页序号和最近一次的网址；每次操作前列一次标签页核对（序号 + 网址对得上就用；对不上时按网址唯一匹配找回；标签页没变少时信序号；都不行就不操作、去掉这个使用者的标签页，下次运行重新打开）。当前标签页被关掉的情况也会发现。
+  2. `WebUrlPolicy`：`user:password@host` 形式的网址拒绝。
+  3. `BrowserSession.connect`：连接失败也记为 `needsUser`，之后不再自己去连。
+  4. `SessionLoop.updateLead`：先校验 status、verified、official_url，全部通过再写。
+  5. `WebSearch`：先找每条结果的标题，再在它和下一条标题之间找摘要（`a` / `div` / `td` 都认）。
+- 验证：`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）；改了 `BrowserSessionActTest`、`PlaywrightMcpClientTest` 里的调用序列（每次操作前多一次 `browser_tabs`）。用编译后的类手动核对：账号密码网址被拒绝；连接器抛错时连续调用两次只连 1 次、`needsUser=true`；DuckDuckGo 样例 HTML 第 1 条取到摘要、第 2 条没有摘要时为空。第 1 条（多标签页关掉前面的一个）和第 4 条：未运行（假浏览器只有一个标签页；第 4 条要搭 storage）。没有提交 git。
+
+## 2026-10-23 · C005 真实冒烟（用户执行）
+
+- 用户报告：真实模型 + 真实搜索、真实 Chrome 已经跑过，没有问题；`mvn -B clean verify`（surefire 611、failsafe 1）、`npm run build` 通过。代理没有在场观察，细节（用了哪个模型、哪些站点）未记录。

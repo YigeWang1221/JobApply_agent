@@ -23,7 +23,7 @@ public final class LocalApi {
     private static final TypeReference<Map<String, Object>> MAP = new TypeReference<>() {
     };
 
-    public record Response(int status, String body) {
+    public record Response(int status, String body, String contentType) {
 
         public Map<String, Object> json() {
             return JSON.readValue(body, MAP);
@@ -106,7 +106,7 @@ public final class LocalApi {
     }
 
     public static String path(String jobId) {
-        return "/api/jobs/" + jobId + "/login-handoff";
+        return "/api/jobs/" + jobId + "/application";
     }
 
     private HttpRequest.Builder request(String path, String... headers) {
@@ -120,7 +120,8 @@ public final class LocalApi {
     private Response send(HttpRequest.Builder builder) {
         try {
             HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
-            return new Response(response.statusCode(), response.body());
+            return new Response(response.statusCode(), response.body(),
+                    response.headers().firstValue("Content-Type").orElse(null));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } catch (InterruptedException e) {

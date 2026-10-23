@@ -16,7 +16,7 @@ class SourceRegistryTest {
 
     @Test
     void registersOnceScansAndDeletesWithoutReusingKeys() {
-        TestStorage storage = TestStorage.create(root, true);
+        TestStorage storage = TestStorage.create(root);
         SourceRegistry registry = new SourceRegistry(storage.layout, storage.clock);
 
         SourceRegistry.Registered dir = registry.register(Source.Type.DIR, "/tmp/demo-project", "");
@@ -38,13 +38,12 @@ class SourceRegistryTest {
         assertThat(registry.status("s-2026-10-22-099")).isEqualTo(SourceRegistry.Status.UNKNOWN);
         assertThat(registry.register(Source.Type.GITHUB, "example-owner/other", "").source().key())
                 .isEqualTo("s-2026-10-22-003");
-        assertThat(storage.isClean()).isTrue();
         assertThatThrownBy(() -> registry.delete("s-2026-10-22-002")).isInstanceOf(NoSuchElementException.class);
     }
 
     @Test
     void unknownColumnsAndTextArePreserved() {
-        TestStorage storage = TestStorage.create(root, false);
+        TestStorage storage = TestStorage.create(root);
         storage.write(storage.layout.baseSources(), """
                 # 来源登记
 

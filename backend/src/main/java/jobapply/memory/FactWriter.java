@@ -32,12 +32,11 @@ import jobapply.persistence.FactsFile;
 import jobapply.persistence.GlossaryFile;
 import jobapply.persistence.LedgerFile;
 import jobapply.persistence.ProjectCardFile;
-import jobapply.persistence.StorageGit;
 import jobapply.persistence.StorageLayout;
 
 /**
  * 确认写入：把用户对一个候选的决定写进事实层（{@code facts.md}、{@code projects/<slug>.md}）、台账、术语表或
- * {@code conflicts.md}；开启 git 时每个决定提交一次。
+ * {@code conflicts.md}。
  * <ul>
  *   <li>用户确认即可写入，不要求论断引用、出处或条件（memory.md「来源与使用：用户确认优先」）；填了的论断引用必须存在；</li>
  *   <li>C 级内容不写入（键命中 C 级词表或值里有 C 级的值时拒绝）；</li>
@@ -70,7 +69,6 @@ public final class FactWriter {
     private final GlossaryFile glossary;
     private final ConflictsFile conflicts;
     private final TranslationDrafter translator;
-    private final StorageGit git;
     private final Clock clock;
 
     public FactWriter(StorageLayout layout, LedgerFile ledger, ProjectCardFile cards, GlossaryFile glossary,
@@ -81,7 +79,6 @@ public final class FactWriter {
         this.glossary = glossary;
         this.conflicts = conflicts;
         this.translator = translator;
-        this.git = new StorageGit(layout, clock);
         this.clock = clock;
     }
 
@@ -318,7 +315,6 @@ public final class FactWriter {
             facts.set(index, fact);
         }
         FactsFile.replace(layout.baseFacts(), FACTS_TITLE, facts);
-        git.commit("base：事实 " + fact.key(), List.of(layout.baseFacts()));
         String field = fact.key().substring(fact.key().lastIndexOf('.') + 1);
         if (GLOSSARY_FIELDS.contains(field)) {
             glossaryTerm(new Text(fact.zh(), fact.en()), fact.reviewed(), GLOSSARY_KIND.get(field));
@@ -477,7 +473,7 @@ public final class FactWriter {
     // ---------------------------------------------------------------- 工具
 
     /**
-     * 一个决定里的所有写入：合并成一次 git 提交；中途失败时把这几个文件恢复成写之前的样子，再把错误交给调用方，
+     * 一个决定里的所有写入：中途失败时把这几个文件恢复成写之前的样子，再把错误交给调用方，
      * 不留下一半的修改（台账已改、事实没写这种）。
      */
     private void transaction(String message, String slug, Supplier<Void> work) {
@@ -491,7 +487,7 @@ public final class FactWriter {
             before.put(path, read(path));
         }
         try {
-            git.inOneCommit(message, work);
+            work.get();
         } catch (RuntimeException e) {
             before.forEach(FactWriter::restore);
             throw e;

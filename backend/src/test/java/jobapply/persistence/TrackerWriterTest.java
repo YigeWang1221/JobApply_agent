@@ -31,7 +31,7 @@ class TrackerWriterTest {
 
     @BeforeEach
     void setUp() {
-        storage = TestStorage.create(root, true);
+        storage = TestStorage.create(root);
         storage.project(PROJECT, "live");
         session = storage.session(PROJECT);
         ledger = storage.ledger();

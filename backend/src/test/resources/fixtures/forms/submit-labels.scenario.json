@@ -1,0 +1,57 @@
+{
+  "name": "submit-labels",
+  "entry": "buttons",
+  "pages": {
+    "buttons": {
+      "url": "https://careers.example.com/apply/200",
+      "title": "示例科技 · 在线申请 · 按钮",
+      "snapshot": [
+        "- heading \"申请岗位：后端工程师（示例）\" [level=1] [ref=e1]",
+        "- text: 第 1/2 步",
+        "- textbox \"姓名\" [ref=e2]",
+        "- button \"立即申请\" [ref=e3]",
+        "- button \"确认意向并投递\" [ref=e4]",
+        "- button \"预览并提交\" [ref=e5]",
+        "- button \"保存并提交\" [ref=e6]",
+        "- button \"Submit\" [ref=e7]",
+        "- button \"Apply\" [ref=e8]",
+        "- button \"Send\" [ref=e9]",
+        "- button \"Finish\" [ref=e10]",
+        "- button \"Confirm\" [ref=e11]",
+        "- button \"下一步\" [ref=e12]"
+      ],
+      "clicks": {
+        "e3": "submitted",
+        "e4": "submitted",
+        "e5": "submitted",
+        "e6": "submitted",
+        "e7": "submitted",
+        "e8": "submitted",
+        "e9": "submitted",
+        "e10": "submitted",
+        "e11": "submitted",
+        "e12": "second"
+      }
+    },
+    "second": {
+      "url": "https://careers.example.com/apply/200",
+      "title": "示例科技 · 在线申请 · 补充信息",
+      "snapshot": [
+        "- heading \"补充信息\" [level=1] [ref=e20]",
+        "- text: 第 2/2 步",
+        "- textbox \"个人主页\" [ref=e21]",
+        "- button \"提交\" [ref=e22]"
+      ],
+      "clicks": {
+        "e22": "submitted"
+      }
+    },
+    "submitted": {
+      "url": "https://careers.example.com/apply/200/done",
+      "title": "示例科技 · 在线申请",
+      "snapshot": [
+        "- heading \"申请已提交\" [level=1] [ref=e30]"
+      ]
+    }
+  }
+}

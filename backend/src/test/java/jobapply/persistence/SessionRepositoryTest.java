@@ -25,7 +25,7 @@ class SessionRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        storage = TestStorage.create(root, true);
+        storage = TestStorage.create(root);
         storage.project(PROJECT, "live");
         sessions = storage.sessions();
     }
@@ -77,7 +77,6 @@ class SessionRepositoryTest {
         assertThat(lines.get(0)).containsEntry("role", "user").containsEntry("text", "下一家投什么？");
         assertThat(lines.get(1)).containsEntry("at", "2026-10-22T10:01:00-04:00");
         assertThat(storage.read(storage.layout.transcript(PROJECT, id)).lines()).hasSize(2);
-        assertThat(storage.headMessage()).isEqualTo("session " + id + "：对话");
     }
 
     @Test

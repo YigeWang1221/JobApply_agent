@@ -8,7 +8,10 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.util.List;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
 /**
@@ -35,6 +38,8 @@ public final class FakeModelServer implements AutoCloseable {
     private volatile List<String> models = List.of("fake-small", "fake-large");
     private volatile String reply = "OK";
     private volatile Function<String, String> responder;
+    private final Queue<String> scripted = new ConcurrentLinkedQueue<>();
+    private final AtomicInteger scriptedIds = new AtomicInteger();
 
     private FakeModelServer() {
         try {
@@ -92,6 +97,29 @@ public final class FakeModelServer implements AutoCloseable {
         return this;
     }
 
+    /**
+     * 脚本化的工具调用（OpenAI 兼容格式）：之后的 {@code /v1/chat/completions} 请求按顺序各返回一个工具调用，
+     * 用完后回到 {@link #toolCalls(boolean)} 的行为。用来把这个服务端当成填写和登录核对的主模型，走真实的
+     * 设置 → 模型注册 → 请求路径（工具不会被 SDK 执行，交回调用方）。
+     *
+     * @param arguments 工具参数的 JSON 对象
+     */
+    public FakeModelServer thenTool(String name, String arguments) {
+        int id = scriptedIds.incrementAndGet();
+        scripted.add("""
+                {"id":"s%d","object":"chat.completion","created":1,"model":"fake-large",
+                 "choices":[{"index":0,"finish_reason":"tool_calls","message":{"role":"assistant","content":null,
+                   "tool_calls":[{"id":"call-%d","type":"function","function":{"name":%s,"arguments":%s}}]}}],
+                 "usage":{"prompt_tokens":1000,"completion_tokens":100,"total_tokens":1100}}"""
+                .formatted(id, id, json(name), json(arguments)));
+        return this;
+    }
+
+    /** 还没用掉的脚本化工具调用。 */
+    public int scriptedRemaining() {
+        return scripted.size();
+    }
+
     public FakeModelServer models(List<String> ids) {
         this.models = List.copyOf(ids);
         return this;
@@ -130,7 +158,10 @@ public final class FakeModelServer implements AutoCloseable {
         }
         String response = switch (path) {
             case "/v1/models" -> modelList();
-            case "/v1/chat/completions" -> toolCalls ? openAiToolCall() : openAiText(text(body, reply));
+            case "/v1/chat/completions" -> {
+                String next = scripted.poll();
+                yield next != null ? next : toolCalls ? openAiToolCall() : openAiText(text(body, reply));
+            }
             case "/v1/messages" -> toolCalls ? anthropicToolUse() : anthropicText(text(body, "OK"));
             default -> null;
         };

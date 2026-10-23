@@ -19,14 +19,13 @@ import jobapply.domain.Transition;
 
 /**
  * Job 写操作的唯一入口。一次调用是一个工作单元：
- * 校验参数并构造事件 → 状态机校验 → 写 job.md → 追加事件 → 更新 session.md → 重新生成台账 → git 提交（开启时）。
+ * 校验参数并构造事件 → 状态机校验 → 写 job.md → 追加事件 → 更新 session.md → 重新生成台账。
  * 所有校验都在第一次写文件之前完成，校验失败时什么都不写。本段假定只有一个进程，同一实例内串行。
  */
 public final class JobLedger {
 
     private final StorageLayout layout;
     private final Clock clock;
-    private final StorageGit git;
     private final JobRepository jobs;
     private final ProjectRepository projects;
     private final SessionRepository sessions;
@@ -36,7 +35,6 @@ public final class JobLedger {
     public JobLedger(StorageLayout layout, Clock clock) {
         this.layout = layout;
         this.clock = clock;
-        this.git = new StorageGit(layout, clock);
         this.jobs = new JobRepository(layout);
         this.projects = new ProjectRepository(layout, clock);
         this.sessions = new SessionRepository(layout, clock);
@@ -64,7 +62,6 @@ public final class JobLedger {
         written.add(jobs.create(job, jdSnapshot));
         written.add(appendEvent(job, event));
         written.addAll(afterChange(projectId, sessionId));
-        git.commit("job " + id + "：新增候选 " + posting.company() + " · " + posting.title(), written);
         return job;
     }
 
@@ -83,7 +80,19 @@ public final class JobLedger {
         written.add(jobs.update(next));
         written.add(appendEvent(next, event));
         written.addAll(afterChange(projectId, sessionId));
-        git.commit("job " + jobId + "：" + current.status().label() + " → " + nextStatus.label(), written);
+        return next;
+    }
+
+    /**
+     * 改 job.md 里不属于状态的几个键（例如调研 Agent 记下的核验结果、官方链接、备注），然后重新生成台账。
+     * 不改状态，不写事件。
+     */
+    public synchronized Job annotate(String projectId, String jobId, String sessionId, Map<String, Object> changes) {
+        require(changes, "changes");
+        requireProjectAndSession(projectId, sessionId);
+        Job next = jobs.load(projectId, jobId).withExtra(changes);
+        jobs.update(next);
+        afterChange(projectId, sessionId);
         return next;
     }
 
@@ -101,7 +110,6 @@ public final class JobLedger {
         List<Path> written = new ArrayList<>();
         written.add(appendEvent(current, event));
         written.addAll(afterChange(projectId, sessionId));
-        git.commit("job " + jobId + "：登录识别被用户 override", written);
     }
 
     public List<JobEvent> events(String projectId, String jobId) {

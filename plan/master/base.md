@@ -37,11 +37,10 @@ Frontend
         ↓
 Spring Boot 应用层（API、配置、权限、业务服务）
         ↓
-LangGraph4j 1.9.x — Workflow Runtime
-  图状态 · 条件路由 · 并行 · Checkpoint · 暂停/恢复（人工确认点）
+申请线程（workflow）：排队 · 运行状态存盘 · 用户回复后接着跑
         ↓
-Custom Agent Harness（自研 Model → Tool → Model）
-  Context / Memory / Tool / Budget / Stop
+Custom Agent Harness（自研 Model → Tool → Model，LLM 主持流程）
+  Context / Memory / Tool / Skill / 兜底上限
         ↓
 Spring AI ChatModel          Tools
 ```
@@ -52,7 +51,7 @@ Spring AI ChatModel          Tools
 | 构建 | Maven 单模块（`backend/`） | 已确认；是否拆多模块后置 |
 | 应用框架 | Spring Boot 4.1.1 | 已确认 |
 | 模型 / 消息 / 工具 | Spring AI 2.0.1 | 已确认；脚手架不注册可用模型 |
-| Workflow Runtime | LangGraph4j 1.9.6 | 已确认 |
+| Workflow Runtime | 不用图引擎：一个 Agent 循环 + 运行状态文件 | 2026-10-23 用户确认，取代 LangGraph4j 1.9.6（见 agent-runtime.md 第 7 节） |
 | Agent 循环 | 自研 Custom Harness | 已确认 |
 
 ## 后置

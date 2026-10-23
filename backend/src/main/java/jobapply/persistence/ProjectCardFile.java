@@ -28,11 +28,9 @@ public final class ProjectCardFile {
             "role_claim", "stack", "links", "facts", "sources", "reviewed");
 
     private final StorageLayout layout;
-    private final StorageGit git;
 
     public ProjectCardFile(StorageLayout layout, Clock clock) {
         this.layout = layout;
-        this.git = new StorageGit(layout, clock);
     }
 
     public List<ProjectCard> list() {
@@ -60,7 +58,6 @@ public final class ProjectCardFile {
         card.requireKnownClaims(claimIds);
         Path path = layout.baseProjectCard(card.slug());
         AtomicFiles.write(path, render(card));
-        git.commit("base：项目卡 " + card.slug(), List.of(path));
     }
 
     public static ProjectCard parse(String content, String source) {

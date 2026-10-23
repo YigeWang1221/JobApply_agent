@@ -95,11 +95,19 @@ class BrowserToolPolicyTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"select", "close", ""})
-    void tabsMayNotSwitchOrCloseTabs(String action) {
+    @ValueSource(strings = {"close", ""})
+    void tabsMayNotCloseTabs(String action) {
         assertThatThrownBy(() -> BrowserToolPolicy.check("browser_tabs", Map.of("action", action, "index", 0)))
                 .isInstanceOf(ToolNotAllowedException.class)
-                .hasMessageContaining("action=list 或 action=new");
+                .hasMessageContaining("action=list、new 或 select");
+    }
+
+    @Test
+    void theSystemSelectsTabsByIndex() {
+        BrowserToolPolicy.check("browser_tabs", Map.of("action", "select", "index", 1));
+        assertThatThrownBy(() -> BrowserToolPolicy.check("browser_tabs", Map.of("action", "select")))
+                .isInstanceOf(ToolNotAllowedException.class);
+        rejected("browser_tabs", Map.of("action", "select", "index", 0), "只能由系统调用");
     }
 
     @Test

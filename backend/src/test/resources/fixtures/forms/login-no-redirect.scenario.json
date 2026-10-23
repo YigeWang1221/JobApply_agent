@@ -1,0 +1,48 @@
+{
+  "name": "login-no-redirect",
+  "entry": "guest",
+  "pages": {
+    "guest": {
+      "url": "https://careers.example.com/jobs/1000",
+      "title": "示例科技 · 后端工程师（示例）",
+      "snapshot": [
+        "- banner [ref=e1]:",
+        "  - link \"示例科技招聘\" [ref=e2]",
+        "  - button \"登录\" [ref=e3]",
+        "  - link \"注册\" [ref=e4]",
+        "- heading \"后端工程师（示例）\" [level=1] [ref=e5]",
+        "- text: 示例城市 · 全职 · 请先登录",
+        "- button \"去登录\" [ref=e6]"
+      ],
+      "clicks": {
+        "e3": "member",
+        "e6": "member"
+      }
+    },
+    "member": {
+      "url": "https://careers.example.com/jobs/1000",
+      "title": "示例科技 · 后端工程师（示例）",
+      "snapshot": [
+        "- banner [ref=e10]:",
+        "  - link \"示例科技招聘\" [ref=e11]",
+        "  - generic [ref=e12]: 示例用户",
+        "  - link \"我的投递\" [ref=e13]",
+        "  - button \"退出登录\" [ref=e14]",
+        "- heading \"后端工程师（示例）\" [level=1] [ref=e15]",
+        "- text: 示例城市 · 全职",
+        "- button \"立即申请\" [ref=e16]"
+      ],
+      "clicks": {
+        "e14": "guest",
+        "e16": "submitted"
+      }
+    },
+    "submitted": {
+      "url": "https://careers.example.com/jobs/1000/done",
+      "title": "示例科技 · 后端工程师（示例）",
+      "snapshot": [
+        "- heading \"投递成功\" [level=1] [ref=e30]"
+      ]
+    }
+  }
+}
