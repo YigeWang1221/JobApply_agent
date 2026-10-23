@@ -31,7 +31,7 @@
 | [C004-A](plan/coding/C004-A-model-guard.md) | 模型接入、资料原件、设置页、提交守卫 | 完成 |
 | [C004-A-1](plan/coding/C004-A-1-profile-import.md) | 资料导入（一）：事实格式、按语言取值、来源扫描（不调用模型） | 施工完成，等手动检查 |
 | [C004-A-2](plan/coding/C004-A-2-profile-review.md) | 资料导入（二）：整理、确认、画像 | 施工完成，等手动检查（表达提示词按用户指令重新放宽） |
-| [C004-B](plan/coding/C004-B-harness-review.md) | Harness 循环、skill、申请线程、关卡 B | 已确认（在 C004-A-2 之后施工） |
+| [C004-B](plan/coding/C004-B-harness-review.md) | Harness 循环、skill、申请线程、关卡 B | 已确认，施工前核对已补入（2026-10-23），待施工 |
 
 ## 参考（不是施工步骤）
 

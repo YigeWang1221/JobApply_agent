@@ -2,8 +2,8 @@
 
 - 对应 Master：[workflow.md](../master/workflow.md)「里程碑」第 3 段；「主流程」（用户登录、身份核对、上传与解析、逐页填写、集中问答、接力、保存并回读、关卡 B）「提交保护」「登录状态」「预算与停止条件」「流程优化的安全边界」「遗漏检查」第 5、6 项；[memory.md](../master/memory.md)「字段分级」「继承与解析」「Job 记录」；[ui.md](../master/ui.md)「隐私说明」
 - 总表：[C004](C004-harness-guard.md)（拆分方式、共用的事实、已定决定、回写 Master 清单）
-- 前置：[C004-A](C004-A-model-guard.md) 完成（模型、资料原件、MCP 参数、守卫）；[C004-A-1](C004-A-1-profile-import.md)、[C004-A-2](C004-A-2-profile-review.md) 完成（资料导入与画像，用户确认 2026-10-22 放在本段之前）。C004-A-1 把事实改成中英双语、给 `ProfileResolver` 加按语言取值，C004-A-2 把事实层写满；本段的来源层和填写报告要按这两段的结果对齐，施工前先核对一遍。
-- 状态：**已确认**（用户确认，2026-10-22：「待确认」1–5 按建议；第 6 项在冒烟前由用户决定）。在 C004-A 完成后施工。
+- 前置：[C004-A](C004-A-model-guard.md) 完成（模型、资料原件、MCP 参数、守卫）；[C004-A-1](C004-A-1-profile-import.md)、[C004-A-2](C004-A-2-profile-review.md) 完成（资料导入与画像，用户确认 2026-10-22 放在本段之前）。C004-A-1 把事实改成中英双语、给 `ProfileResolver` 加按语言取值，C004-A-2 把事实层写满；本段的来源层和填写报告要按这两段的结果对齐，施工前先核对一遍（已核对，2026-10-23，见「施工前核对」）。
+- 状态：**已确认**（用户确认，2026-10-22：「待确认」1–5 按建议；第 6 项在冒烟前由用户决定）。施工前核对的 9 项和可选项按建议补入（用户确认，2026-10-23）。在 C004-A-2 之后施工。
 
 ## 目标
 
@@ -35,6 +35,8 @@
 - 提交后的只读核验、`user_submitting` 及之后的状态、`applied`：后续的 Coding Plan。
 - skill 修补候选的流程（模型提出、用户确认后写入）：决定 6，另写一份 Coding Plan。本段只写过程日志，以及用户回答软边界时往 `sites/<host>.md` 里追加的记录。
 - 对话视图、子任务、对话线程（thread id = session id）。
+- 给「填表」单独分配模型（ui.md「隐私说明」提到可以单独指定本地模型）：本段只用 `main`，以后再加用途。
+- 把画像 `base/profile.md` 和项目卡全文发给模型：项目卡的字段已经通过 `projects.<slug>.*` 进了有效资料，开放式的长问题走 `ask_user`。
 - 关闭自己新开的标签页；MCP 崩溃时更快判断断开。
 
 ## skill 体系（决定 6）
@@ -70,7 +72,7 @@ storage/playbook/
 - `LoopDetector`：同一个元素连续失败 5 次；相同操作得到相同结果连续 4 次；页面连续 10 次操作没有变化。
 
 **`jobapply.harness.context`**
-- `FillContext`：系统提示词（规则、不能提交、被拒绝时不要重试、软边界按钮要给出用途和依据）、有效资料（过滤掉 C 级）、skill 目录和已加载的正文、本次答案、报告草稿、最新快照。
+- `FillContext`：系统提示词（规则、不能提交、被拒绝时不要重试、软边界按钮要给出用途和依据）、有效资料（按「关键规则 · 资料与语言」选出和取值）、skill 目录和已加载的正文、本次答案、报告草稿、最新快照。
 - `SkillCatalog`：读 `storage/playbook/skills/**/SKILL.md` 的 frontmatter，按 `url_patterns` 选出要自动带上的 skill；`load_skill` 时读正文（超过预算就截断并注明）。
 
 **`jobapply.agents`**
@@ -78,7 +80,7 @@ storage/playbook/
 - `LoginCheckAgent`：登录与身份核对的提示词和只读工具清单。
 
 **`jobapply.tools`**
-- `BrowserTools`：交给模型的工具定义（Spring AI `ToolDefinition`，`call()` 一律抛异常）和参数翻译。`fill_form` / `type` / `select_option` 的每个字段多两个参数：`fact`（资料键、答案编号或 `none`）和 `confidence`（high / medium / low）；`click` 多 `purpose`、`final_step_suspected`、`evidence`；`file_upload` 只收文件编号。这些多出来的参数由系统记进报告和日志，去掉以后再发给 MCP。
+- `BrowserTools`：交给模型的工具定义（Spring AI `ToolDefinition`，`call()` 一律抛异常）和参数翻译。`fill_form` / `type` / `select_option` 的每个字段多两个参数：`fact`（资料键、答案编号或 `none`）和 `confidence`（high / medium / low）；`click` 多 `purpose`、`final_step_suspected`、`evidence`；`file_upload` 只收文件编号。字段还可以带可选的 `language`（zh / en，指明用另一种语言的值）。这些多出来的参数由系统记进报告和日志；**先取出并去掉，再过 `BrowserToolPolicy` 和守卫**，最后发给 MCP（白名单不接受这些键）。字段参数的取出和去掉仿照 `SubmitGuard.ClickIntent`，写成对应的字段版本（`FieldIntent`，放在 `harness.policies`）。
 - `ControlTools`：`ask_user`、`request_files`、`hand_to_user`、`load_skill`、`finish_filling`、`report_login` 的定义。
 - `BrowserSession`：新增 `act(jobId, tool, args)`：先确认标签页属于这个 Job（沿用 `ownsTab`），发出写操作，再取一次快照返回。
 - `LoginPageDetector`：保留，只作提示。
@@ -98,7 +100,9 @@ storage/playbook/
 - `PlaybookSeeder`：第一次使用时复制初始 skill。
 - `StorageLayout`：加 `playbookSkills()`、`playbookSite(host)`、`fillReport(...)`、`runLog(...)`、`uploadsDir(jobId)`。
 
-**`jobapply.config`**：`HarnessProperties`（预算与打转检测的数字）；`LoginHandoffConfiguration` → `ApplicationConfiguration`。
+**`jobapply.config`**：`HarnessProperties`（预算与打转检测的数字）；`LoginHandoffConfiguration` → `ApplicationConfiguration`；`ModelFactory` 加 `withTools(ChatModel, tools)`：仿照 `withSchema`，从模型自己的选项 `mutate()` 复制再挂工具，模型名不会被 SDK 默认值盖掉（`ModelRegistry.main()` 只给 `ChatModel`，拿不到 `Endpoint`）；Anthropic 格式把 `max_tokens` 调大（默认 4096 不够）。原来的 `withTools(Endpoint, …)` 留给 `ConnectionTester`。
+
+**`jobapply.harness.policies`**：`FieldIntent`（见 `BrowserTools`）；`SnapshotRedactor`：按字段名遮掉快照里 C 级输入框的值（见「关键规则 · 隐私」）。
 
 **`jobapply.api`**：`LoginHandoffController` → `ApplicationController`，接口见「关键规则 · HTTP」；新增 `GET .../report`，返回报告的 Markdown 文本。
 
@@ -154,6 +158,12 @@ finish → fill ⟲ ─┬→ [wait_input]     ─ answers                  → 
 - B 级字段加粗；C 级字段只写「用户已填」，**系统不读取、不记录它的值**。
 - 填写过程中报告以草稿的形式写出，头部标「草稿」；中断后恢复时交给模型，作为「已经填过什么」的依据。
 
+### 资料与语言（施工前核对补入，2026-10-23）
+
+- **选哪些条目**：`ProfileResolver` 的结果里，只发两类：没有关联论断的条目；关联论断的用途是 `forms_and_resume`、状态不是 `discrepancy` 的条目。`interview_only`、`none`（包括 `needs_verification` 的默认用途）和 `discrepancy` 的条目不发、不填。资料层本来存不进 C 级（`Fact` 拒绝构造）。
+- **语言**：系统按每一页快照里中文字符的比例判断页面语言（确定性规则，用测试固定），按这个语言调用 `resolve(project, answers, language)`。中英混排、判断错了时，模型在字段上带 `language` 指明用另一种语言的值；系统按那个语言再取一次。报告记下每个字段用的语言。
+- **未审阅的译文**：可以填。报告里那一项的来源层带「未审阅」（`ResolvedFact.label()` 已经这样写），并在「未解决」里汇总一行「N 个字段用了未审阅的译文」，用户在关卡 B 看得到。
+
 ### 过程日志（`run-log.jsonl`）
 
 每行一条：`{ts, session, step, kind, tool, ref, element, decision, purpose, evidence, page_title, url_path, outcome, note}`。
@@ -167,6 +177,7 @@ finish → fill ⟲ ─┬→ [wait_input]     ─ answers                  → 
 - 快照全文、模型对话、填进去的值：不写进 Checkpoint、日志和 `run-log.jsonl`。Checkpoint 只放状态、计数、问题原文和选项、按钮名字、文件编号。
 - 填进去的值只写进 `fill-report.md` 和 `job.md`「本次答案」（都在 `storage/` 下，不进主仓库的 Git）。
 - 发给模型的资料过滤掉 C 级（ui.md「隐私说明」）。
+- **快照里的 C 级值**：用户接力时亲手填的 C 级字段，之后的快照里会带着值（例如 `textbox "身份证号" [ref=e5]: …`）。`SnapshotRedactor` 按 `FieldClassGuard` 的词表判断字段名，把这类输入框的值换成「[已省略]」；发给模型、写报告、交给 `LoopDetector` 比较之前都先过一遍。守卫仍然用原始快照判断（只在内存里，不落盘）。
 
 ### HTTP（只监听 127.0.0.1；`Origin` 必须在允许名单里）
 
@@ -181,10 +192,25 @@ finish → fill ⟲ ─┬→ [wait_input]     ─ answers                  → 
 - 每个等待点能接受的信号：`wait_login`：`logged_in`（可以带 `override`）；`wait_identity`：`identity_confirmed` / `wrong_account`；`wait_reconnect`：`reconnected`；`wait_input`：`answers`；`wait_materials`：`files`（原件键的列表，每个对应一个上传位置）；`wait_handoff`：`handed_back`；`wait_confirm`：`button_safe` / `button_unsafe`；`wait_budget`：`continue`；`wait_review`：`request_changes`。
 - `answers` 里不能回答 C 级的问题（返回 400，那一项只能由用户在浏览器里亲自填）。
 
+## 施工前核对（2026-10-23，用户确认按建议）
+
+对照 C004-A、A-1、A-2 写出的代码核对本计划，补了下面几项（已写进上面对应的小节）：
+
+1. 快照里的 C 级值：加 `SnapshotRedactor`（「关键规则 · 隐私」）。
+2. 填表的语言：系统按页面判断，模型可以用 `language` 指明另一种（「关键规则 · 资料与语言」）。
+3. 未审阅的译文：可以填，报告标出并在「未解决」汇总。
+4. 论断的用途和状态：`FillContext` 只发 `forms_and_resume` 且不是 `discrepancy` 的条目，以及没有关联论断的条目。
+5. 夹具由本段写（C004 总表决定 3 原写「A 写夹具」，C004-A 实际没有写 `forms/*`，总表已改）。
+6. `ModelFactory.withTools(ChatModel, tools)`：主模型拿不到 `Endpoint`。
+7. `fact` / `confidence` / `language` 先去掉再过白名单（`FieldIntent`）。
+8. 「验证码」词表连短信验证码输入框也拦：保持接力，`verification` 夹具固定。
+9. 填表单独分配模型：本段不做，只用 `main`。
+- 可选项：画像和项目卡全文不发给模型（「不做」）。
+
 ## 实现步骤（7 个垂直切片，每片结束时 `mvn -B clean verify` 全绿）
 
 1. **改名**：`LoginHandoff*` → `Application*`，接口路径改为 `/application`，行为不变，C003 的测试全部改名后照样通过。
-2. **写操作与文件**：`BrowserSession.act`、`BrowserTools`、`UploadArea`、`JobMaterials`；假 MCP 服务端支持新工具和「按页面脚本变化」的夹具。
+2. **写操作与文件**：`BrowserSession.act`、`BrowserTools`、`FieldIntent`、`SnapshotRedactor`、`ModelFactory.withTools(ChatModel, …)`、`UploadArea`、`JobMaterials`；夹具 `forms/*`；假 MCP 服务端支持新工具和「按页面脚本变化」的夹具。
 3. **skill**：`SkillCatalog`、`PlaybookSeeder`、初始 skill 的内容、`SiteNotes`。
 4. **Harness 循环**：`HarnessLoop`、`Budget`、`LoopDetector`、`FillContext`、`ControlTools`、`FillAgent`，以及脚本化的假模型。先跑通「多页表单填完 → `finish_filling`」，再加上拒绝、软边界确认、打转、预算。
 5. **图**：`FillNode`、`StageFilesNode`、`ReviewNode`、新的等待点和信号，接上 `JobLedger`（`needs_input`、`handoff_user`、`awaiting_review` 的跳转，C002 的状态机都已允许）；登录核对改用 `LoginCheckAgent`。
@@ -207,16 +233,17 @@ finish → fill ⟲ ─┬→ [wait_input]     ─ answers                  → 
 | `readonly-select` | 只读下拉框：用 `select_option` 或点选项，不能 `type` |
 | `grouped-cities` | 按省份分组的城市多选：只选资料里的意向城市 |
 | `file-slots` | 简历和作品集两个上传位置：进入 `wait_materials`，选择后上传的是 `uploads/` 里的副本 |
-| `verification` | 点「下一步」后弹出「请完成安全验证」：立即停止写操作，转接力，不重试 |
+| `verification` | 点「下一步」后弹出「请完成安全验证」：立即停止写操作，转接力，不重试；另一页表单上自带「短信验证码」输入框：同样转接力（验证码只能由用户收、用户填；沿用 C004-A「宁可多拦」，不细分词表） |
 | `dialog` | 网页弹出确认框：转接力，不调用 `handle_dialog` |
-| `c-class` | 身份证号、工作授权、期望薪资、声明勾选框：都不填，转接力，报告里记「用户亲填」 |
+| `c-class` | 身份证号、工作授权、期望薪资、声明勾选框：都不填，转接力，报告里记「用户亲填」；用户填完交回后，模型收到的快照、报告和日志里都没有用户填的值 |
+| `bilingual` | 英文页面：按英文取值；其中一项只有模型起草的英文：照填，报告标「未审阅」并在「未解决」汇总；关联论断用途为 `interview_only` 和状态为 `discrepancy` 的条目没有发给模型 |
 | `login-no-redirect` | 登录后 URL 不变，只是页头多出用户名和「退出登录」：模型判断为已登录 |
 | `submitted-page` | 某次点击后出现「投递成功」：立即停止，转接力，标为「可能已提交」 |
 
 | 测试类 | 固定的行为 |
 | --- | --- |
 | `SkillCatalogTest`、`PlaybookSeederTest`、`SiteNotesTest` | frontmatter 解析；按 `url_patterns` 自动带上；正文超过预算时截断；预置不覆盖已有的文件；确认记录只追加；`safe` 记录不能放行硬边界按钮 |
-| `HarnessLoopTest` | 用假模型加假服务端跑各夹具；预算软上限、80% 提醒、三种打转检测；对话里只保留最新一份快照；**发给模型的内容里没有 C 级资料**；被拒绝的调用没有到达服务端 |
+| `HarnessLoopTest` | 用假模型加假服务端跑各夹具；预算软上限、80% 提醒、三种打转检测；对话里只保留最新一份快照；**发给模型的内容里没有 C 级资料，也没有快照里的 C 级值**；页面语言判断；`fact` / `confidence` / `language` 在白名单检查前去掉、没有到达服务端；被拒绝的调用没有到达服务端 |
 | `ApplicationRunnerTest` | 每个等待点的进入和恢复；`prep_state` 的跳转；断开 → 重连 → 先只读核对，**不重放写操作**（用假服务端的调用记录断言）；重启恢复；信号不符时返回 409 且 Checkpoint 不变；**Checkpoint 里没有快照文字和填进去的值**（直接读 sqlite 断言）；C003 原有的登录接力场景全部保留 |
 | `FillReportWriterTest`、`JobAnswersTest`、`JobMaterialsTest`、`UploadAreaTest`、`RunLogTest` | 格式；追加而不是覆盖；SHA-256 不符时报错；C 级答案被拒绝；**日志里没有填进去的值**（用夹具里的假资料逐条断言） |
 | `ApplicationControllerTest` | 新接口的 202 / 200 / 404 / 409 / 400 / 403 / 415 |
