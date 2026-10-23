@@ -3,7 +3,7 @@
 - 对应 Master：[memory.md](../master/memory.md)「资料导入与画像」「事实条目格式」「字段分级」「继承与解析」；[workflow.md](../master/workflow.md)「里程碑」第 3 段的前置
 - 前置：[C004-A](C004-A-model-guard.md)（原件登记、「资料」页、C 级词表）。
 - 后续：[C004-A-2](C004-A-2-profile-review.md)（整理、确认、画像），然后 [C004-B](C004-B-harness-review.md)。
-- 状态：**已确认，待施工**（用户确认（2026-10-22）：「同意拆分，其他的也同意」。）。C004-A 已完成，可以施工。
+- 状态：**施工完成，等用户找人审核代码和手动检查**（2026-10-22）。用户确认（2026-10-22）：「同意拆分，其他的也同意」。见文末「实际结果」「偏差」。
 
 ## 本次规则修订（用户指令，2026-10-22）
 
@@ -200,3 +200,53 @@ reviewed: [zh]
 4. **本地目录的读取范围和上限**：源代码只读文件树和每个文件的前 40 行；单个来源最多 400 个文件、150 万字符。
 5. **画像的小节**：见 C004-A-2「画像的小节」。
 6. **手动检查用的材料**：到手动检查时由用户当次决定。本段的手动检查不调用模型。
+7. **施工后确认的两处偏差**（用户确认，2026-10-22：「没有问题了」）：登记的目录也不能在 storage 里面（避免把事实层当来源再抽一遍；用资料填表走 `ProfileResolver`，不受影响）；估算时重新读仓库信息和 SHA，按当时的最新版本估算（开始整理前最多 5 次 GitHub 请求）。
+
+## 实际结果（2026-10-22）
+
+**切片 1：小样核实**（会话临时目录，没进仓库）
+- JGit 7.8：`FileRepositoryBuilder().setGitDir(…).setMustExist(true)` 只读打开仓库可行；空仓库的 `HEAD` 是 null，直接 `log()` 会抛 `NoHeadException`，所以先判断 `HEAD`；`RevCommit.getShortMessage()` 会把多行标题拼成一行，标题改为取完整信息的第一行。
+- GitHub REST（docs.github.com/en/rest，API 版本 2022-11-28）：按文档写了假服务端 `FakeGitHubServer`，覆盖仓库信息、`/commits/{branch}`、`/git/trees/{sha}?recursive=1`、`/contents/{path}?ref=`（base64）、`/languages`、`/commits?sha=&per_page=30`、`/users/{owner}/repos`，以及 404、409（空仓库）、403 / 429（额度，`x-ratelimit-remaining`、`x-ratelimit-reset`、`retry-after`）。**用户指定公开仓库的真实调用：未运行**（等用户指定仓库，见「手动检查」第 1 项）。
+
+**切片 2–5：代码**
+- `domain`：`Fact` 加 `zh`、`en`、`claim`、`reviewed`（`value` 与 `zh` / `en` 二选一）；新增 `Language`（`zh` / `en`，日期和数值的语言格式）、`Claim`（状态、用途、默认用途）、`EvidenceTier`（只分组；`requireKnownClaims` 只检查填了的引用）、`ProjectCard`（小节对应、`{{fact:}}` 检查和渲染）、`Source`、`SourceScan`、`ImportRun`；`Ids` 加来源键、导入记录 id、论断 id、项目 slug。
+- `persistence`：`FactsFile` 扩展（旧格式照常读）；新增 `LedgerFile`、`ProjectCardFile`、`SourceRegistry`、`EvidenceCardFile`、`GlossaryFile`、`ProfileSummaryFile`、`ImportRunStore`，共用的 `MarkdownTable`（表格，保留未识别的列和表格前后内容）、`BilingualSections`（`## zh` / `## en` 小节）；`StorageLayout` 加对应路径和 `projectCardSlugs()`；`StorageGit` 加 `commitAtEndOfDay`、`listAtCommit`（项目卡按 `base_pin` 取版本时用）。所有写入在开启 git 时各提交一次。
+- `memory`：`ProfileResolver` 加 `resolve(projectId, answers, Language)`（原来的两参数版本取中文）；base 层加入项目卡推出的 `projects.<slug>.title / kind / period.from / period.to / team_size / stack / links.<kind> / facts.<名字> / sections.<小节 id>`，`facts.md` 写了同名键时以 `facts.md` 为准；`ResolvedFact` 加 `display`、`language`、`unreviewed`，`label()` 在未审阅时追加「；en 文字未审阅」。新增 `ImportEstimator`。
+- `tools`：`SecretFileRules`、`LocalDirectoryScanner`（JGit 只读的提交摘要、按目录层级读 `.gitignore`、Tika 算 pdf / docx 字数）、`GitHubPublicReader`（JDK `HttpClient`，不带 token，不跟随重定向）。
+- `config`：`ImportProperties`（`jobapply.import.*`，默认值即「已确认」第 4 项）、`ImportConfiguration`。
+- `api`：`SourceController`（`GET` / `POST` / `DELETE /api/sources`）、`ImportRunController`（`POST /api/import-runs`、`GET /api/import-runs/{id}`）；`ApiErrors` 加 GitHub 错误的映射：仓库不存在 / 不公开 / 空仓库 400，额度 429，其它 502。
+- `frontend/`：「资料」页改成「原件」「来源」两个页签；新增 `src/pages/Sources.tsx`（登记、只给 owner 时选仓库、删除登记、勾选后估算、会读和跳过的文件、提交摘要、页面提示）；`src/api.ts` 补接口；`styles.css` 加页签和统计样式。
+- 测试：新增 `EvidenceTierTest`、`LedgerFileTest`、`ProjectCardFileTest`、`SourceRegistryTest`、`EvidenceCardFileTest`、`GlossaryFileTest`、`ProfileSummaryFileTest`、`ImportRunStoreTest`、`SecretFileRulesTest`、`LocalDirectoryScannerTest`、`GitHubPublicReaderTest`、`ImportEstimatorTest`、`SourceControllerTest`、`ImportRunControllerTest`；扩展 `FactsFileTest`、`ProfileResolverTest`。辅助类 `FakeGitHubServer`。数据全部虚构。
+
+**格式细节（计划没写、施工时定的）**
+- 导入记录 id：`r-YYYY-MM-DD-NNN`，文件 `base/import-runs/<id>.json`；顶层字段 `id`、`status`、`created_at`、`updated_at`、`sources`、`estimate`，其它字段原样保留（给 C004-A-2 放进度和候选）。
+- `ledger.md` 的 frontmatter `last_claim` 记用过的最大编号，删除后不复用；`sources.md` 的 frontmatter `deleted` 记删除过的来源键，键不复用，`SourceRegistry.status()` 能区分「还在 / 已删除 / 没有过」，给「出处标为来源已删除」用。
+- 清单卡：frontmatter `source`、`source_version`、`generated_at`，正文自由 Markdown。术语表：`| 中文 | English | 类别 | 说明 |`，以中文为键。画像：frontmatter `generated_at`、`user_edited`（例如 `zh.highlights`）、`reviewed`，正文同项目卡的双语小节，小节 id 是 `directions`、`skills`、`highlights`、`positioning`。
+- 模型调用估算：每个来源按 6 万字一批，多于一批时每批摘要一次，再加清单卡、拆候选各一次；有两个以上来源时再加一次合并；没有可读内容的来源不算。GitHub：登记 2 次（仓库信息、固定 SHA），估算 3 次（仓库信息、固定 SHA、文件列表），整理时还要「语言 1 + 每个 README / 依赖清单 1 + 提交摘要 1」次。
+
+**验证**
+- `mvn -B clean verify` 退出码 0：surefire 535、failsafe 2，Failures / Errors / Skipped 均为 0。自动测试只连本机假服务端，没有访问外部网络、没有调用模型；本地目录都在 `@TempDir` 里现造；秘密文件在测试里设成不可读（`chmod 000`），扫描照常成功，证明没有被打开。
+- `npm run build` 通过。
+- 代理在会话临时目录的 storage 上启动打包后的后端（GitHub 接口地址指向一个不存在的本机端口），用 curl 登记了一个虚构目录并估算：`.env` 按名字跳过、`node_modules/` 整个跳过、源代码只算前 40 行；`sources.md` 记下了版本和文件数；登记 GitHub 时返回 `{"error":"连不上 GitHub：ConnectException"}`（502）。
+
+**代码审核修复**（2026-10-22，用户找人审核代码；先用测试在旧代码上复现，再修复）
+- 用 `facts.md` 覆盖项目卡的数值后，显示值仍是项目卡的旧数字（value=15000、display=12,000 QPS）。原因是格式化时按键去找项目卡数值。修复：`ProfileResolver` 改为按条目对象记录项目卡数值，只有取到的值确实来自项目卡时才带单位格式化。测试：`ProfileResolverTest.factsMdOverridingACardNumberAlsoOverridesItsDisplay`。
+- 最后一个文件让累计字数超过上限时不报超限（上限 100 字、唯一文件 101 字，结果 `overLimit=false`、没有警告）。原因是只在读下一个文件之前检查累计量。修复：`LocalDirectoryScanner` 在计入当前文件时也检查，超出时这个文件跳过（原因「超过字符数上限」），同时报警告和 `overLimit`。测试：`LocalDirectoryScannerTest.theFileThatCrossesTheCharLimitIsReportedAndNotRead`。
+- 另外两个问题属于 C004-A，记在 C004-A「代码审核修复」。
+- 验证：5 个新用例在修复前的代码上都失败；修复后 `mvn -B clean verify` 退出码 0，surefire 541、failsafe 2，构建日志里没有测试 Key。
+
+**手动检查**
+- 第 1 项（2026-10-22，用户指定 `https://github.com/YigeWang1221/JobApply_agent`）：代理在会话临时目录的 storage 上启动打包后的后端，走真实流程。登记返回 201，位置是 `YigeWang1221/JobApply_agent`，SHA 固定为 `3243b3b849ac9f0da6a437c939641acd3fe47e48`。估算读到 `README.md`、`backend/pom.xml`、`frontend/package.json` 和文件列表，约 2.2 万字，模型 2 次；GitHub 已用 3 次、整理时还要 5 次；没有跳过的文件，也没有警告。另外用 curl 只读查看 `/languages`、`/contents/README.md?ref=`、`/commits?sha=&per_page=30` 的字段（只打印字段名，不打印内容）：结构和假服务端一致；`content` 是 base64、内容里带换行，`Base64.getMimeDecoder()` 能处理；`/commits` 的作者在 `commit.author.{name,email,date}`。全程不带 token；curl 看到的剩余额度是 59 → 57。
+- 第 2 项（用户在「来源」页登记一个本地目录看估算）：**未运行**。
+
+## 偏差
+
+- 计划外的类：`domain` 的 `Language`、`SourceScan`、`ImportRun`；`persistence` 的 `MarkdownTable`、`BilingualSections`；`config` 的 `ImportConfiguration`；测试辅助类 `FakeGitHubServer`。职责都在计划列出的范围内，只是拆开放。C004-A 的 `AssetRegistry` 没有改用 `MarkdownTable`（表格代码暂时重复一份）。
+- 比计划更严的几处：登记的目录也不能在 storage **里面**（计划只写了本身和上级）；名字像秘密文件的**目录**（例如 `secrets/`）整个跳过；文本类文件超过 2MB、pdf / docx 超过 20MB 记为「文件太大」跳过；跳过列表最多列 300 条（多的在警告里给总数）；提交摘要最多数 5 万个提交、列 5 条标题；GitHub 的 owner 只接受字母、数字和 `-`。
+- GitHub：topics 从仓库信息里取，没有单独调 `/topics`（省一次额度）；估算阶段 README 和依赖清单的字数按文件大小估算，不读内容；只读仓库根目录的 README，依赖清单不限目录（跳过规则照用）。`content()`、`languages()`、`commitSummary()` 已实现并有测试，留给 C004-A-2 在整理时调用。
+- 按语言取值：要的语言没有文字时用另一种语言代替，`language` 写实际用的语言，并标为未审阅（没有直接返回空）。纯数字不按语言格式化（电话尾号、邮编也是数字），只格式化 `YYYY-MM` / `YYYY-MM-DD` 日期和项目卡里带单位的数值。
+- 项目卡：只写了一种语言时不检查小节对应（另一种还没起草）；正文里两个语言块以外的内容会被拒绝（画像文件则原样保留）。
+- 默认用途：`discrepancy` 默认仍是 `forms_and_resume`（按「不自动禁用」理解），`needs_verification` 默认 `none`。
+- 导入记录也在 storage git 里提交（和其它写入一致）。
+- 导入记录 JSON 的顶层字段是 snake_case，`estimate` 里面是 camelCase（Jackson 按记录字段名输出），接口原样返回。
+

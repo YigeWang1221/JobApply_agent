@@ -1,8 +1,10 @@
 package jobapply.config;
 
+import java.net.URI;
 import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import jobapply.domain.Timestamps;
@@ -75,9 +77,13 @@ public final class ModelSettingsService {
         }
         Settings settings = file.read();
         Optional<Provider> old = settings.provider(id);
+        // 接口格式或 Base URL 真的变了（写法差异不算），旧的测试结果对新端点不成立，作废；用途分配不动
+        boolean endpointChanged = old.isPresent() && (!old.get().format().equals(resolvedFormat)
+                || !sameEndpoint(old.get().baseUrl(), resolvedBase));
         Provider provider = new Provider(id, preset, resolvedFormat, resolvedBase,
                 old.map(Provider::apiKey).orElse(null), cleanModels,
-                old.map(p -> p.tested().stream().filter(t -> cleanModels.contains(t.model())).toList()).orElse(List.of()),
+                endpointChanged ? List.of() : old.map(p -> p.tested().stream()
+                        .filter(t -> cleanModels.contains(t.model())).toList()).orElse(List.of()),
                 old.map(Provider::extra).orElse(Map.of()));
         Settings next = settings.withProvider(provider);
         for (String usage : next.usagesOf(id)) {
@@ -89,6 +95,34 @@ public final class ModelSettingsService {
         file.write(next, (old.isPresent() ? "修改" : "添加") + "提供方 " + id);
         registry.reload();
         return view(next, provider);
+    }
+
+    /**
+     * 两个 Base URL 是不是同一个端点：忽略末尾的 /、协议和主机名的大小写、默认端口（http 80、https 443）。
+     * 占位符 {@code ${变量名}} 只比较原文。
+     */
+    static boolean sameEndpoint(String a, String b) {
+        return normalizeEndpoint(a).equals(normalizeEndpoint(b));
+    }
+
+    private static String normalizeEndpoint(String url) {
+        String text = url.strip().replaceAll("/+$", "");
+        if (text.startsWith("${")) {
+            return text;
+        }
+        try {
+            URI uri = URI.create(text);
+            String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            int port = uri.getPort();
+            boolean defaultPort = port == -1 || (scheme.equals("http") && port == 80)
+                    || (scheme.equals("https") && port == 443);
+            String path = uri.getRawPath() == null ? "" : uri.getRawPath();
+            String query = uri.getRawQuery() == null ? "" : "?" + uri.getRawQuery();
+            return scheme + "://" + host + (defaultPort ? "" : ":" + port) + path + query;
+        } catch (IllegalArgumentException e) {
+            return text;
+        }
     }
 
     /** 删除提供方，同时删掉 .env 里对应的那一行。正被某个用途使用时拒绝。 */

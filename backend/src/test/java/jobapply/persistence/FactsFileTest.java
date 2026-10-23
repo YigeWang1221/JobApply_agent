@@ -5,8 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 import jobapply.domain.Fact;
 import jobapply.domain.FactClass;
+import jobapply.domain.Language;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -56,8 +58,8 @@ class FactsFileTest {
     void writeThenReadRoundTripsIncludingUnset() {
         Path file = root.resolve("overrides.md");
         List<Fact> facts = List.of(
-                new Fact("skills.languages", "Java, Go", FactClass.A, "resume:resume-demo", "2026-10-13",
-                        "2024-09", null, null, null, false),
+                new Fact("skills.languages", "Java, Go", null, null, FactClass.A, "resume:resume-demo", null, null,
+                        "2026-10-13", "2024-09", null, null, null, false),
                 Fact.unsetOf("location.current_city"));
 
         FactsFile.write(file, "overrides", facts);
@@ -99,5 +101,42 @@ class FactsFileTest {
                 .isInstanceOf(StorageFormatException.class).hasMessageContaining("未知字段");
         assertThatThrownBy(() -> FactsFile.parse("## a\n- value: 1\n", "f.md"))
                 .isInstanceOf(StorageFormatException.class).hasMessageContaining("class");
+    }
+
+    @Test
+    void bilingualFieldsRoundTripAndOldValueOnlyFilesStillRead() {
+        Path file = root.resolve("facts.md");
+        List<Fact> facts = List.of(
+                new Fact("experience.internship-1.role", null, "后端开发实习生", "Backend Engineering Intern",
+                        FactClass.A, "user-confirmed", "c-0007", Set.of(Language.ZH), "2026-10-22", "2025-06",
+                        "2025-09", "year-month", null, false),
+                Fact.bilingual("education.school", "示例大学", null, FactClass.A, "resume:a-2026-10-22-001",
+                        "2026-10-22", Set.of(Language.ZH, Language.EN)),
+                Fact.of("contact.email", "someone@example.com", FactClass.B, "user-confirmed", "2026-10-22"));
+
+        FactsFile.write(file, "个人基础事实", facts);
+
+        assertThat(FactsFile.read(file)).isEqualTo(facts);
+        String text = TestStorage.open(root).read(file);
+        assertThat(text).contains("- zh: 后端开发实习生\n- en: Backend Engineering Intern\n")
+                .contains("- claim: c-0007\n- reviewed: zh\n")
+                .contains("- reviewed: zh, en\n");
+        Fact old = FactsFile.parse("## skills.languages\n- value: Java\n- class: A\n", "f.md").getFirst();
+        assertThat(old.value()).isEqualTo("Java");
+        assertThat(old.isBilingual()).isFalse();
+        assertThat(old.reviewed()).isEmpty();
+    }
+
+    @Test
+    void valueAndLanguageTextCannotBeMixed() {
+        assertThatThrownBy(() -> FactsFile.parse("## a\n- value: 1\n- zh: 一\n- class: A\n", "f.md"))
+                .isInstanceOf(StorageFormatException.class).hasMessageContaining("二选一");
+        assertThatThrownBy(() -> new Fact("a", "1", null, "one", FactClass.A, null, null, null, null, null, null,
+                null, null, false))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("二选一");
+        assertThatThrownBy(() -> FactsFile.parse("## a\n- zh: 一\n- class: A\n- reviewed: fr\n", "f.md"))
+                .isInstanceOf(StorageFormatException.class).hasMessageContaining("语言");
+        assertThatThrownBy(() -> FactsFile.parse("## a\n- zh: 一\n- class: A\n- claim: 7\n", "f.md"))
+                .isInstanceOf(StorageFormatException.class).hasMessageContaining("c-NNNN");
     }
 }

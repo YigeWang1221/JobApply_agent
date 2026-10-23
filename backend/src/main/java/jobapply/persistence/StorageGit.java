@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -139,6 +140,53 @@ public final class StorageGit {
             return Optional.empty();
         } catch (IOException | GitAPIException e) {
             throw new IllegalStateException("读取历史版本失败：" + day, e);
+        }
+    }
+
+    /** 某天结束前（按时钟所在时区）最后一个提交的 id；没有时返回空。 */
+    public Optional<String> commitAtEndOfDay(LocalDate day) {
+        Instant endExclusive = day.plusDays(1).atStartOfDay(clock.getZone()).toInstant();
+        try (Git git = Git.open(layout.root().toFile())) {
+            if (git.getRepository().resolve("HEAD") == null) {
+                return Optional.empty();
+            }
+            for (RevCommit commit : git.log().call()) {
+                if (commit.getCommitterIdent().getWhenAsInstant().isBefore(endExclusive)) {
+                    return Optional.of(commit.name());
+                }
+            }
+            return Optional.empty();
+        } catch (IOException | GitAPIException e) {
+            throw new IllegalStateException("读取历史版本失败：" + day, e);
+        }
+    }
+
+    /** 某个提交里一个目录下直接包含的文件名（不含子目录）。提交或目录不存在时返回空列表。 */
+    public List<String> listAtCommit(String revision, String relativeDir) {
+        try (Git git = Git.open(layout.root().toFile())) {
+            Repository repository = git.getRepository();
+            ObjectId id = repository.resolve(revision + "^{commit}");
+            if (id == null) {
+                return List.of();
+            }
+            try (RevWalk walk = new RevWalk(repository);
+                 TreeWalk dir = TreeWalk.forPath(repository, relativeDir, walk.parseCommit(id).getTree())) {
+                if (dir == null || !dir.isSubtree()) {
+                    return List.of();
+                }
+                try (TreeWalk children = new TreeWalk(repository)) {
+                    children.addTree(dir.getObjectId(0));
+                    List<String> names = new ArrayList<>();
+                    while (children.next()) {
+                        if (!children.isSubtree()) {
+                            names.add(children.getNameString());
+                        }
+                    }
+                    return names;
+                }
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("读取历史版本失败：" + revision, e);
         }
     }
 
