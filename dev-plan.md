@@ -48,6 +48,7 @@
 | [C011](plan/coding/C011-concurrent-workers.md) | 多个申请 Worker 并发：共享一个 Chrome、各自的标签页，Worker 池 | 完成（用户真实 Chrome 冒烟通过，2026-10-24；同站点对话框卡住 K1 仍是已知问题） |
 | [C012](plan/coding/C012-worker-settings.md) | 设置页改 Worker 数量（同时申请数、每站上限），保存后马上生效、存进 settings/workers.yaml | 已施工，等用户试（2026-10-24） |
 | [C013](plan/coding/C013-delete-session-project.md) | 删除 Session / Project：挪进 storage/.trash/（软删、可手动恢复），侧栏一个确认框；删 Session 时 Job 留在 Project 里 | 已施工，等用户试（2026-10-24；memory.md 加 `.trash/` 待确认） |
+| [C005-fix 开场](plan/coding/C005-fix-session-opening.md) | 新建 Session 不再自动写项目总结：空白对话，项目状态看 Project 主页 | 已施工，等用户试（2026-10-24） |
 
 ## 参考（不是施工步骤）
 

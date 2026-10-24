@@ -31,7 +31,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;
 
 /**
- * Session 对话的入口（C005）：新建 Session（Agent 先给开场）、发消息、重新生成、停止、查状态。每条消息在后台跑一次
+ * Session 对话的入口（C005）：新建 Session（空白对话，C005-fix 开场）、发消息、重新生成、停止、查状态。每条消息在后台跑一次
  * {@link SessionLoop}，对话一条一条写进 {@code transcript.jsonl}。在跑的 Session 在内存里；上一次运行的状态和错误
  * 记在 {@code session.md}（C006-agent），应用重启时还在跑的那次显示为「中断」。现在在做什么在 {@link #events()} 里。
  * 同一个 Session 同一时间只跑一次；不同 Session 可以同时跑（浏览器按使用者切换标签页）。
@@ -40,11 +40,6 @@ public final class SessionRunner implements AutoCloseable {
 
     /** 一条消息最多这么多字符。 */
     public static final int MAX_TEXT = 4000;
-    static final String OPENING = """
-            系统：用户刚新建了这个 Session。先用 list_jobs 看看这个 Project 的状态，然后用几句话给出开场：\
-            候选池里有几个待投的岗位（同一家公司有几个就按公司说）、哪些申请在等用户回复、哪些停在提交前等用户审阅\
-            （问一句是不是已经在 Chrome 里提交了）。标了「该查看了」的已投递申请单独列出来（「这几个申请有几天没看了：…，\
-            去邮箱或官网看看有没有新消息，看完告诉我」）。最后问用户今天想先做什么（继续调研、投哪几个、看申请进度）。还什么都没有时，请用户说说想找什么岗位。""";
     private static final DateTimeFormatter TITLE = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
     /** 没写标题时的标题开头；第一条用户消息到了以后换成消息的前 {@link #TITLE_LENGTH} 个字。 */
     static final String UNTITLED = "新对话 · ";
@@ -128,7 +123,10 @@ public final class SessionRunner implements AutoCloseable {
         events.changed(sessionId, jobId);
     }
 
-    /** 新建 Session，Agent 在后台读 Project 状态并写开场。{@code title} 为空时用「新对话 · 日期 时间」。 */
+    /**
+     * 新建 Session：空白对话，不调模型（C005-fix 开场）。用户发第一条消息时 Agent 才开始跑；项目状态看 Project 主页。
+     * {@code title} 为空时用「新对话 · 日期 时间」。
+     */
     public synchronized SessionRecord create(String projectId, String title) {
         if (!projects.exists(projectId)) {
             throw new ApplicationException.NotFound("Project 不存在：" + projectId);
@@ -136,8 +134,7 @@ public final class SessionRunner implements AutoCloseable {
         String name = title == null || title.isBlank() ? UNTITLED + LocalDateTime.now(clock).format(TITLE)
                 : title.strip();
         SessionRecord session = sessions.create(projectId, name);
-        sessions.appendTurn(projectId, session.id(), AgentRun.Turn.note(OPENING));
-        submit(projectId, session.id());
+        events.changed(session.id(), null);
         return session;
     }
 

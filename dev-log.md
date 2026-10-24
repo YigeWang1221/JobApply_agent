@@ -802,3 +802,11 @@
 - 指令：用户说明已在本机真实测试，都正常投递；记录里不再写「用户口述、非本会话证据」这类话。
 - 结果：C011「验收」表里的只弹一次允许、运行中插话、填表阶段后台点击改为通过（用户本机测试），结论改为用户真实 Chrome 冒烟通过；C011 状态和 `dev-plan.md` 索引行改为完成。K1 照旧记为已知问题。
 - 验证：只改文档。
+
+## 2026-10-24 · C005-fix 新建 Session 不再自动写开场
+
+- 日期：2026-10-24
+- 指令：用户：每开一个新 Session，Agent 都先写一大段项目状态；新建 Session 改成空白对话，用户第一条消息前不调模型，项目状态放在 Project 主页 / Dashboard。
+- 结果：`SessionRunner` 去掉 `OPENING` 和新建时的自动运行（`create` 只建 Session、发 `changed`，新建 `POST` 返回 201）；Session 页空白时一行固定提示 + 输入框，去掉三个建议按钮；Project 主页的等审阅（「待你」）、「该查看了」（「待追踪」）已有，缺的候选池待投数加成 KPI 第 9 格「候选池待投」。`ui.md`「新建 Session」、`tracking.md`「匹配反馈与提醒」、`workflow.md` 遗漏检查第 10 项改成空白对话 / Project 主页里提醒。已有 Session 里的开场 note 不动。细节见 [C005-fix 开场](plan/coding/C005-fix-session-opening.md)。
+- 验证：`JAVA_HOME=… mvn -B -q clean verify` 退出码 0（没有测试依赖开场，测试未改）；`frontend/` 下 `npm run build` 通过。用户本机新建 Session、看 Project 主页：未运行。
+- 偏差：建议按钮去掉（计划写的是一行提示 + 输入框）；新建接口 202 改 201。
