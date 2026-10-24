@@ -1,5 +1,9 @@
 package jobapply.api;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
@@ -13,6 +17,7 @@ import jobapply.domain.JobStatus;
 import jobapply.domain.LeadStatus;
 import jobapply.domain.Outcome;
 import jobapply.domain.PrepState;
+import jobapply.domain.HiringRound;
 import jobapply.domain.Transition;
 import jobapply.persistence.JobLedger;
 import jobapply.persistence.JobRepository;
@@ -22,6 +27,7 @@ import jobapply.workflow.ApplicationException;
 import jobapply.workflow.ApplicationRunner;
 import jobapply.workflow.ApplicationStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -183,6 +189,23 @@ public class JobController {
         }
         Job next = ledger.transition(job.project(), id, sessionOf(job), Actor.USER, transition);
         return view(next);
+    }
+
+    /** 第 {@code seq} 轮的复盘 Markdown（C014-A，含 frontmatter）；还没写复盘时 404。 */
+    @GetMapping("/rounds/{seq}/review")
+    public ResponseEntity<String> review(@PathVariable String id, @PathVariable int seq) {
+        Job job = find(id);
+        HiringRound round = HiringRound.of(job).stream().filter(r -> r.seq() == seq && r.review() != null).findFirst()
+                .orElseThrow(() -> new ApplicationException.NotFound("第 " + seq + " 轮还没有复盘"));
+        Path file = layout.jobDir(job.project(), id).resolve(round.review()).normalize();
+        if (!file.startsWith(layout.roundsDir(job.project(), id)) || !Files.exists(file)) {
+            throw new ApplicationException.NotFound("复盘文件不在了：" + round.review());
+        }
+        try {
+            return ResponseEntity.ok().contentType(ApplicationController.MARKDOWN).body(Files.readString(file));
+        } catch (IOException e) {
+            throw new UncheckedIOException("读取复盘失败：" + round.review(), e);
+        }
     }
 
     /** 申请线程所在的 Session；没有申请线程时用发现它的 Session。 */

@@ -27,6 +27,8 @@ public final class SessionRepository {
     static final String TAG = "jobapply/session";
     static final String RESEARCH = "research";
     static final String APPLY = "apply";
+    /** 记录了轮次或复盘（C014-A）。 */
+    static final String REVIEW = "review";
     private static final String HANDOFF_HEADING = "## 交接摘要";
     private static final Set<JobEvent.Type> APPLY_EVENTS = EnumSet.of(
             JobEvent.Type.CONVERTED, JobEvent.Type.PREP_STATE_CHANGED, JobEvent.Type.PHASE_CHANGED, JobEvent.Type.CLOSED,
@@ -291,10 +293,13 @@ public final class SessionRepository {
                 if (APPLY_EVENTS.contains(event.type())) {
                     tags.add(APPLY);
                 }
+                if (event.type() == JobEvent.Type.ROUND_RECORDED || event.type() == JobEvent.Type.REVIEW_SAVED) {
+                    tags.add(REVIEW);
+                }
             }
         }
         List<String> orderedTags = new ArrayList<>();
-        for (String tag : List.of(RESEARCH, APPLY)) {
+        for (String tag : List.of(RESEARCH, APPLY, REVIEW)) {
             if (tags.contains(tag)) {
                 orderedTags.add(tag);
             }

@@ -6,10 +6,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import jobapply.domain.Ids;
+import jobapply.domain.HiringRound;
 
 /**
  * storage 目录里所有路径的唯一来源。布局见 plan/master/memory.md「storage 目录」。
@@ -212,6 +214,46 @@ public record StorageLayout(Path root) {
     /** 填写过程日志；不记填进去的值和快照全文。 */
     public Path runLog(String projectId, String jobId) {
         return jobDir(projectId, jobId).resolve("run-log.jsonl");
+    }
+
+    /** 每一轮的记录与复盘（C014-A）。 */
+    public Path roundsDir(String projectId, String jobId) {
+        return jobDir(projectId, jobId).resolve("rounds");
+    }
+
+    /** 一轮的复盘文件 {@code rounds/<seq>-<type>.md}；{@code type} 只能是 {@link HiringRound#TYPES} 里的。 */
+    public Path roundReview(String projectId, String jobId, int seq, String type) {
+        if (seq < 1 || !HiringRound.TYPES.contains(type)) {
+            throw new IllegalArgumentException("轮次不合法：" + seq + "-" + type);
+        }
+        return roundsDir(projectId, jobId).resolve(seq + "-" + type + ".md");
+    }
+
+    /** 复盘（跨 Project）：题库、按公司汇总、经验总结。 */
+    public Path reviewDir() {
+        return root.resolve("review");
+    }
+
+    public Path reviewQuestions() {
+        return reviewDir().resolve("questions.md");
+    }
+
+    public Path reviewCompaniesDir() {
+        return reviewDir().resolve("companies");
+    }
+
+    /** 按公司汇总的文件；公司名里字母、数字、汉字以外的字符换成 {@code -}，不会越出目录。 */
+    public Path reviewCompany(String company) {
+        return reviewCompaniesDir().resolve(companySlug(company) + ".md");
+    }
+
+    static String companySlug(String company) {
+        String slug = company == null ? "" : company.strip().toLowerCase(Locale.ROOT)
+                .replaceAll("[^\\p{L}\\p{N}]+", "-").replaceAll("^-+|-+$", "");
+        if (slug.length() > 80) {
+            slug = slug.substring(0, 80);
+        }
+        return slug.isEmpty() ? "unknown" : slug;
     }
 
     public Path sessionsDir(String projectId) {

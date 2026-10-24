@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, errorText, type JobView } from "./api";
+import { api, errorText, type JobView, type RoundView } from "./api";
 import { toast } from "./toast";
 
 // 状态的中文说法和小标签，几个页面共用
@@ -77,6 +77,33 @@ const APPLICATION_CHIP: Record<string, string> = {
   interrupted: "wait",
   done: "",
 };
+
+// 轮次结果（C014-A）：unknown 是服务器算的「用户未同步」（约定时间过了 7 天还是待结果）
+export const ROUND_RESULT: Record<string, string> = {
+  pending: "待结果",
+  passed: "通过",
+  failed: "未通过",
+  cancelled: "取消",
+  unknown: "未同步",
+};
+const ROUND_DOT: Record<string, string> = { pending: "◐", passed: "●", failed: "✕", cancelled: "⊘", unknown: "◐" };
+export const ROUND_CHIP: Record<string, string> = { pending: "rev", passed: "good", failed: "bad", unknown: "wait" };
+
+// 申请的「进度」（tracking.md 表 1）：一轮一个圆点（● 通过、◐ 进行中或待结果、✕ 未通过、⊘ 取消），后面是最新一轮
+export function RoundProgress({ rounds }: { rounds: RoundView[] }) {
+  if (rounds.length === 0) {
+    return <span className="muted">—</span>;
+  }
+  const latest = rounds[rounds.length - 1];
+  return (
+    <span className="rprog" title={rounds.map((r) => `${r.seq}. ${r.name}：${ROUND_RESULT[r.result] ?? r.result}`).join("\n")}>
+      <span className="rdots" aria-hidden="true">
+        {rounds.map((r) => <i key={r.seq} className={r.result}>{ROUND_DOT[r.result] ?? "○"}</i>)}
+      </span>
+      {latest.name} · {ROUND_RESULT[latest.result] ?? latest.result}
+    </span>
+  );
+}
 
 export function LeadChip({ status }: { status: string }) {
   const kind = status === "shortlisted" ? "rev" : status === "new" ? "inp" : status === "closed" ? "bad" : "";

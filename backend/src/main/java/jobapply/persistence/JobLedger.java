@@ -1,10 +1,13 @@
 package jobapply.persistence;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +22,7 @@ import jobapply.domain.JobStatus;
 import jobapply.domain.Outcome;
 import jobapply.domain.Phase;
 import jobapply.domain.PrepState;
+import jobapply.domain.HiringRound;
 import jobapply.domain.Timestamps;
 import jobapply.domain.Transition;
 
@@ -63,7 +67,7 @@ public final class JobLedger {
         this.jobs = new JobRepository(layout);
         this.projects = new ProjectRepository(layout, clock);
         this.sessions = new SessionRepository(layout, clock);
-        this.tracker = new TrackerWriter(layout);
+        this.tracker = new TrackerWriter(layout, clock);
     }
 
     public Job addLead(String projectId, String sessionId, Actor actor, JobPosting posting, String jdSnapshot) {
@@ -352,6 +356,167 @@ public final class JobLedger {
                 afterChange(projectId, sessionId, jobId);
                 return next;
             }
+        } finally {
+            publish();
+        }
+    }
+
+    /**
+     * 记下或更新一轮（C014-A，tracking.md「轮次」）。{@code fields} 用 job.md 里的键（name、type、scheduled_at、
+     * happened_at、format、interviewer_role、result、result_source），为 null 的不改。{@code seq} 已有时只覆盖给了的字段
+     * （例如只给 result），没有时新加一轮；{@code seq} 为空时加在最后。
+     * <p>
+     * 阶段由轮次推出（{@link HiringRound#phaseOf}）：最新一轮 failed 时以 rejected 结束；已经在 offer 的不退回；已经结束的只改
+     * 轮次、不改状态。结果从 pending 变了时记 {@code result_at}，之前已经算作 unknown 的在事件里写明。{@code next_event}
+     * 是最近一个还没到的 pending 轮次。来源是用户（actor user）。和现在一样时什么都不写（可重放）。
+     */
+    public Job recordRound(String projectId, String jobId, String sessionId, Integer seq, Map<String, String> fields,
+            String note) {
+        try {
+            synchronized (StorageLock.WRITES) {
+                return recordRoundLocked(projectId, jobId, sessionId, seq, fields, note);
+            }
+        } finally {
+            publish();
+        }
+    }
+
+    private Job recordRoundLocked(String projectId, String jobId, String sessionId, Integer seq,
+            Map<String, String> fields, String note) {
+        requireProjectAndSession(projectId, sessionId);
+        Job current = jobs.load(projectId, jobId);
+        JobStatus status = current.status();
+        if (status.phase() == null || status.phase() == Phase.PREP) {
+            throw new IllegalArgumentException(jobId + " 还没记为已投递（现在是 " + status.label() + "）。用户说已经投了、"
+                    + "有了笔试或面试时，先 mark_submitted，再记轮次");
+        }
+        List<HiringRound> rounds = new ArrayList<>(HiringRound.of(current));
+        // 没给 seq 时，名称一样的那一轮就是同一轮（重复调用不多加一轮），没有才加在最后
+        String name = fields.get("name") == null ? null : fields.get("name").strip();
+        int target = seq != null ? seq : rounds.stream().filter(r -> r.name().equalsIgnoreCase(name))
+                .mapToInt(HiringRound::seq).findFirst()
+                .orElse(rounds.stream().mapToInt(HiringRound::seq).max().orElse(0) + 1);
+        HiringRound old = rounds.stream().filter(r -> r.seq() == target).findFirst().orElse(null);
+        Map<String, Object> merged = old == null ? new LinkedHashMap<>() : new LinkedHashMap<>(old.toMap());
+        merged.put("seq", target);
+        fields.forEach((key, value) -> {
+            if (value != null && !value.isBlank()) {
+                merged.put(key, value.strip());
+            }
+        });
+        merged.putIfAbsent("result", "pending");
+        merged.putIfAbsent("result_source", "user");
+        String before = old == null ? null : old.result();
+        if (!Objects.equals(before, merged.get("result")) && !"pending".equals(merged.get("result"))) {
+            merged.put("result_at", Timestamps.now(clock));
+        }
+        HiringRound round = HiringRound.fromMap(merged);
+        if (round.equals(old)) {
+            return current;
+        }
+        rounds.removeIf(r -> r.seq() == target);
+        rounds.add(round);
+        rounds.sort(Comparator.comparingInt(HiringRound::seq));
+
+        LocalDate today = LocalDate.now(clock);
+        StringBuilder said = new StringBuilder(round.name()).append("（").append(round.type()).append("）")
+                .append(round.result());
+        if (old != null && HiringRound.UNKNOWN.equals(old.effectiveResult(today)) && !"pending".equals(round.result())) {
+            said.append("，之前算作 unknown（用户未同步）");
+        }
+        if (note != null && !note.isBlank()) {
+            said.append("：").append(note.strip());
+        }
+        Phase derived = HiringRound.phaseOf(rounds);
+        JobStatus nextStatus = status;
+        JobEvent phaseEvent = null;
+        if (status.phase() != Phase.CLOSED) {
+            if (derived == Phase.CLOSED) {
+                nextStatus = ApplicationStateMachine.next(status,
+                        new Transition.Close(Outcome.REJECTED, "挂在第 " + round.seq() + " 轮 " + round.name()), Actor.USER);
+                phaseEvent = event(sessionId, Actor.USER, JobEvent.Type.CLOSED, status, nextStatus,
+                        "挂在第 " + round.seq() + " 轮 " + round.name(), null);
+            } else if (derived != status.phase() && status.phase() != Phase.OFFER) {
+                nextStatus = ApplicationStateMachine.next(status, new Transition.ChangePhase(derived), Actor.USER);
+                phaseEvent = event(sessionId, Actor.USER, JobEvent.Type.PHASE_CHANGED, status, nextStatus,
+                        said.toString(), null);
+            }
+        }
+        Map<String, Object> changes = new LinkedHashMap<>();
+        changes.put("rounds", rounds.stream().map(HiringRound::toMap).toList());
+        HiringRound upcoming = rounds.stream()
+                .filter(r -> "pending".equals(r.result()) && HiringRound.day(r.scheduledAt()) != null
+                        && !HiringRound.day(r.scheduledAt()).isBefore(today))
+                .min(Comparator.comparing(r -> HiringRound.day(r.scheduledAt()))).orElse(null);
+        Map<String, Object> nextEvent = null;
+        if (upcoming != null) {
+            nextEvent = new LinkedHashMap<>();
+            nextEvent.put("what", upcoming.name());
+            nextEvent.put("at", upcoming.scheduledAt());
+        }
+        changes.put("next_event", nextEvent);
+        // 下次提醒去看：这一轮还没到就从那天算，否则从今天算
+        LocalDate roundDay = HiringRound.day(round.date());
+        LocalDate base = roundDay != null && roundDay.isAfter(today) ? roundDay : today;
+        changes.put("next_check_at", nextStatus.phase() == Phase.CLOSED ? null
+                : base.plusDays(checkEveryDays(projectId)).toString());
+        Job next = current.withStatus(nextStatus).withExtra(changes);
+        JobEvent roundEvent = event(sessionId, Actor.USER, JobEvent.Type.ROUND_RECORDED, status, status,
+                said.toString(), null);
+
+        jobs.update(next);
+        appendEvent(next, roundEvent);
+        if (phaseEvent != null) {
+            appendEvent(next, phaseEvent);
+        }
+        afterChange(projectId, sessionId, jobId);
+        return next;
+    }
+
+    /**
+     * 写第 {@code seq} 轮的复盘（C014-A）：{@code rounds/<seq>-<type>.md}，再写一次就整个换掉（这一轮的类型改过时，
+     * 旧类型的那个文件删掉）。轮次摘要里记下复盘文件、题数和主题，事件记一条 {@code review_saved}，然后和别的台账一起
+     * 重新生成题库和按公司汇总。这一轮要先用 {@link #recordRound} 记下。返回写好的复盘文件。
+     */
+    public Path saveReview(String projectId, String jobId, String sessionId, int seq, RoundReviews.Review review) {
+        try {
+            synchronized (StorageLock.WRITES) {
+                require(review, "review");
+                requireProjectAndSession(projectId, sessionId);
+                Job current = jobs.load(projectId, jobId);
+                List<HiringRound> rounds = new ArrayList<>(HiringRound.of(current));
+                HiringRound round = rounds.stream().filter(r -> r.seq() == seq).findFirst()
+                        .orElseThrow(() -> new IllegalArgumentException(jobId + " 还没有第 " + seq
+                                + " 轮，先用 record_round 记下这一轮"));
+                for (RoundReviews.Question q : review.questions()) {
+                    if (q.title() == null || q.title().isBlank()) {
+                        throw new IllegalArgumentException("每道题都要有 title");
+                    }
+                    if (q.status() != null && !RoundReviews.REVIEW_STATES.contains(q.status())) {
+                        throw new IllegalArgumentException("复习状态只能是 todo / reviewed / mastered");
+                    }
+                }
+                Path file = layout.roundReview(projectId, jobId, seq, round.type());
+                String relative = "rounds/" + file.getFileName();
+                HiringRound reviewed = round.withReview(relative, review.questions().size(), review.topics());
+                rounds.replaceAll(r -> r.seq() == seq ? reviewed : r);
+
+                if (round.review() != null && !round.review().equals(relative)) {
+                    Path old = layout.jobDir(projectId, jobId).resolve(round.review()).normalize();
+                    if (old.startsWith(layout.roundsDir(projectId, jobId))) {
+                        Files.deleteIfExists(old);
+                    }
+                }
+                FrontmatterFile.write(file, RoundReviews.render(current, reviewed, sessionId, review));
+                Job next = current.withExtra(Map.of("rounds", rounds.stream().map(HiringRound::toMap).toList()));
+                jobs.update(next);
+                appendEvent(next, event(sessionId, Actor.USER, JobEvent.Type.REVIEW_SAVED, next.status(),
+                        next.status(), round.name() + " 复盘：" + review.questions().size() + " 道题", null));
+                afterChange(projectId, sessionId, jobId);
+                return file;
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException("删除旧复盘失败", e);
         } finally {
             publish();
         }

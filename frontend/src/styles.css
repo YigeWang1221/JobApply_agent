@@ -632,6 +632,32 @@ button.cohead span:last-child {
   border-color: color-mix(in srgb, var(--crit) 45%, transparent);
 }
 
+/* 轮次圆点（C014-A）：通过绿、未通过红、未同步黄，其它用正文色 */
+.rprog {
+  white-space: nowrap;
+}
+
+.rdots {
+  margin-right: 6px;
+  letter-spacing: 1px;
+}
+
+.rdots i {
+  font-style: normal;
+}
+
+.rdots i.passed {
+  color: var(--good-ink);
+}
+
+.rdots i.failed {
+  color: var(--crit-ink);
+}
+
+.rdots i.unknown {
+  color: var(--warn-ink);
+}
+
 .tagc {
   font-family: var(--mono);
   font-size: 10.5px;
