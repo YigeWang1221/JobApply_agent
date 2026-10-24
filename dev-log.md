@@ -711,3 +711,10 @@
 - 提示词 `ApplyAgent`「上传」加一句（带 target、照错误说明做、不推测成安全限制）；skill file-upload 流程改写；`storage/playbook` 的副本同步覆盖（覆盖前 = git 里的种子 + 主会话加的一行，没有用户改动）。
 - 夹具：`file-slots` 的作品集按钮改成被遮罩挡住（场景脚本 `blocked`，HTML 加透明层）；`FakeFormScript` 认固定模板的 run_code；`BrowserSessionActTest` 上传用例加几行（点击超时 → 带 target 上传成功）。
 - 验证：`mvn -B -q clean verify` 退出码 0（surefire 621、failsafe 1）。用 MCP 同版本的 playwright-core 在无头 Chrome 里打开 `file-slots.html`：点被盖住的按钮超时，模板设上文件、页面显示文件名。真实小米页面、真实模型：未运行。
+## 2026-10-23 · 可重复条目「添加」与简历超链接（C006-fix-real-run 14、15）
+
+- 日期：2026-10-23
+- 指令：小米校招表（飞书招聘）上点「添加」没加出第二个项目，模型编了「需要真实用户触发」的原因；简历里的项目超链接没有填进链接字段。通过 skill 和提示词解决，读简历时保留超链接网址。
+- 结果：新 skill `playbook/skills/components/repeatable-entries/SKILL.md`（先数段数、先保存当前卡片、点添加后看快照确认新卡片、加不上的排查顺序、不编原因、链接字段取简历超链接），`PlaybookSeeder.BUNDLED` 加上它；`ApplyAgent`「教育、实习、工作、项目」补几句并新增「链接」一条；skill apply-form「其它」加一句指向新 skill。`AssetAnalyzer.text` 用 `BodyContentHandler` + `LinkContentHandler` 解析，在正文前列出「文件里的超链接（链接文字：网址）」，只列 http(s)、去重、最多 50 条，整段仍去掉 C 级的值。
+- 验证：`mvn -B -q clean verify` 退出码 0（没有改测试）。自制的 docx（3 个 http 超链接 + 1 个 mailto）跑 `AssetAnalyzer.text`：3 个网址按链接文字列出，mailto 不列；字数上限 60 时不报错，已读到的链接照常列出。PDF 超链接：未运行。真实 Chrome、真实模型：未运行。
+- 偏差：本机 `storage/playbook/skills/` 里已有的 apply-form 不会被覆盖（PlaybookSeeder 只补缺），新 skill repeatable-entries 下次启动会自动补上。
