@@ -4,16 +4,19 @@ import { formatSize, type AttachmentsState, type PendingFile } from "./useAttach
 
 const MAX_HEIGHT = 8 * 25; // 约 8 行
 
-// 底部输入框：随内容长高；Enter 发送，Shift+Enter 换行，输入法组字时 Enter 不发送；运行中发送键变停止。
+// 底部输入框：随内容长高；Enter 发送，Shift+Enter 换行，输入法组字时 Enter 不发送。
+// 运行中也能发（C010）：发出的话插进这次运行，Agent 下一步看到；旁边留着停止，给了 onInterrupt 时还有「打断并发送」。
 // 给了 attach 才能附文件（C006-fix）：回形针选、拖进来、粘贴截图；上传中不能发送；只有附件没有文字也能发
 export function Composer({
-  value, onChange, onSend, onStop, running, disabled, placeholder, attach, allowEmpty, blocked, lockedReason,
+  value, onChange, onSend, onStop, onInterrupt, running, disabled, placeholder, attach, allowEmpty, blocked, lockedReason,
   sendLabel = "发送（Enter）",
 }: {
   value: string;
   onChange: (text: string) => void;
   onSend: () => void;
   onStop: () => void;
+  // 先停下这次运行，再按这条消息开始（C010）
+  onInterrupt?: () => void;
   running: boolean;
   disabled?: boolean;
   placeholder?: string;
@@ -39,7 +42,7 @@ export function Composer({
 
   const locked = !!lockedReason;
   const hasContent = value.trim().length > 0 || (attach?.ready.length ?? 0) > 0;
-  const canSend = !running && !disabled && !locked && !blocked && !attach?.uploading && (allowEmpty || hasContent);
+  const canSend = !disabled && !locked && !blocked && !attach?.uploading && (allowEmpty || hasContent);
   const canAttach = !!attach && !locked;
 
   return (
@@ -99,14 +102,14 @@ export function Composer({
               }
             }
           }} />
-        {running
-          ? <button className="sendbtn stop" title="停止" aria-label="停止" onClick={onStop}><Icon name="stop" size={14} /></button>
-          : (
-            <button className="sendbtn" title={attach?.uploading ? "附件还在上传" : sendLabel} aria-label={sendLabel}
-              disabled={!canSend} onClick={onSend}>
-              <Icon name="send" size={16} />
-            </button>
-          )}
+        {running && onInterrupt && canSend && (
+          <button className="textbtn" title="停下现在做的，马上按这条做" onClick={onInterrupt}>打断并发送</button>
+        )}
+        {running && <button className="sendbtn stop" title="停止" aria-label="停止" onClick={onStop}><Icon name="stop" size={14} /></button>}
+        <button className="sendbtn" title={attach?.uploading ? "附件还在上传" : running ? "插话（Enter）：Agent 下一步会看到" : sendLabel}
+          aria-label={running ? "插话" : sendLabel} disabled={!canSend} onClick={onSend}>
+          <Icon name="send" size={16} />
+        </button>
       </div>
     </div>
   );

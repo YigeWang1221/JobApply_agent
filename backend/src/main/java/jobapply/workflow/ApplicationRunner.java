@@ -23,10 +23,12 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 import java.util.function.Supplier;
 import jobapply.config.HarnessProperties;
 import jobapply.domain.Actor;
 import jobapply.domain.AgentRun;
+import jobapply.domain.Inbox;
 import jobapply.domain.Job;
 import jobapply.domain.LeadStatus;
 import jobapply.domain.LiveRuns;
@@ -89,6 +91,8 @@ public final class ApplicationRunner implements AutoCloseable {
     /** 文件写着在跑、这个进程里没有（应用重启前被中断）时，状态里的 {@code error}。 */
     static final String INTERRUPTED_ERROR = "应用重启了，这次申请被中断，填了一半的表可能还在 Chrome 里。回复后接着做。";
     /** 排队时用户要求停下：轮到它时不跑。 */
+    /** 运行中插话在对话里的开头（C010；申请 Agent 的提示词里说插话优先）。 */
+    static final String INSERTED = "用户插话：";
     static final String STOPPED_IN_QUEUE = "排队时按你的要求停下了，还没有开始。回复后重新排队。";
 
     private static final Logger log = LoggerFactory.getLogger(ApplicationRunner.class);
@@ -116,6 +120,8 @@ public final class ApplicationRunner implements AutoCloseable {
     });
     private final Set<String> stopRequested = new HashSet<>();
     private final RuntimeEvents events;
+    /** 运行中（或排队时）用户插的话（C010）：循环下一次调模型之前取走；跑完还剩的写进对话并接着跑。 */
+    private final Inbox inbox = new Inbox();
 
     /** 交给执行器、还没跑完的 Job（排队的和正在跑的）。 */
     private final LiveRuns live = new LiveRuns();
@@ -232,12 +238,13 @@ public final class ApplicationRunner implements AutoCloseable {
 
     /**
      * 回复：回答问题、选文件、告诉模型做好了，或者在提交前要求修改。不在跑的线程都可以回复；
+     * 在跑或排队时是插话（C010）：只收一句话，Agent 下一步看到。
      * 内容不对时拒绝（{@link ApplicationException.BadRequest}），不写任何东西。
      */
     public synchronized ApplicationStatus reply(String jobId, Reply reply) {
         AgentRun run = find(jobId);
         if (live.contains(jobId)) {
-            throw new ApplicationException.Conflict("Job " + jobId + " " + busy(jobId) + "，等它停下来再回复（或者先停止）");
+            return insert(run, reply);
         }
         // 用户已经定下了（已提交、已投递、结束了）：不再让申请 Agent 接着做（C006-fix-2 回归第 1 条）。先放着的可以回复
         Job job = jobs.load(run.project(), jobId);
@@ -327,6 +334,67 @@ public final class ApplicationRunner implements AutoCloseable {
         return status(jobId);
     }
 
+    /**
+     * 运行中插话（C010）：放进 {@link #inbox}，循环下一次调模型之前取走，不打断正在执行的工具。回答问题、选文件、
+     * 附件要排文件编号、改上传区，运行中不收，等它停下来再发。
+     */
+    private ApplicationStatus insert(AgentRun run, Reply reply) {
+        requireSession(run.project(), reply.session());
+        String text = reply.text() == null ? "" : reply.text().strip();
+        boolean more = reply.answers() != null && !reply.answers().isEmpty()
+                || reply.files() != null && reply.files().stream().anyMatch(file -> file != null && !file.isBlank())
+                || reply.attachments() != null && !reply.attachments().isEmpty();
+        if (more) {
+            throw new ApplicationException.Conflict("Agent 正在做，运行中只能插一句话；回答问题、选文件、附件等它停下来再发");
+        }
+        if (text.isEmpty()) {
+            throw new ApplicationException.BadRequest("插话不能为空");
+        }
+        if (text.length() > MAX_TEXT) {
+            throw new ApplicationException.BadRequest("回复不能超过 " + MAX_TEXT + " 个字符");
+        }
+        inbox.put(run.job(), AgentRun.Turn.user(INSERTED + text));
+        events.changed(run.session(), run.job());
+        return status(run.job());
+    }
+
+    /**
+     * 跑完（或排队时停下）还有没被看到的插话：合成一条用户消息接着跑，不丢（C010）。停在提交前时算一轮修改。
+     * 用户已经定下了（已提交、结束了）时不再跑，只记日志。调用方持有锁；接不上时记日志，返回 false。
+     */
+    private boolean resumeWithInserted(AgentRun run) {
+        List<AgentRun.Turn> said = inbox.take(run.job());
+        if (said.isEmpty()) {
+            return false;
+        }
+        try {
+            if (JobLedger.userDecided(jobs.load(run.project(), run.job()).status(), Actor.USER)) {
+                log.warn("Job {} 已经由用户定下，运行中插的 {} 句话没有再交给申请 Agent", run.job(), said.size());
+                return false;
+            }
+            String text = said.stream().map(AgentRun.Turn::text).collect(Collectors.joining("\n"));
+            int round = run.round();
+            if (AgentRun.READY.equals(run.status())) {
+                round++;
+                text = "用户在提交前审阅后要求修改（第 " + round + " 轮）。" + text;
+                runLog.append(run.project(), run.job(), RunLog.Entry.requestChanges(run.session(), step(run), text));
+            } else {
+                runLog.append(run.project(), run.job(), RunLog.Entry.userSignal(run.session(), step(run), "reply"));
+            }
+            // 停在提交前时上传区清空了（settle）；接着做时把已经排上编号的原件放回去，文件编号不变
+            run.files().stream().filter(file -> file.assetKey() != null)
+                    .forEach(file -> uploads.stage(run.job(), file.assetKey()));
+            AgentRun resumed = run.resumed(AgentRun.Turn.user(text), new ArrayList<>(run.files()), round);
+            moveTo(resumed, PrepState.PREPARING, Actor.USER, "用户插话，继续申请");
+            runs.save(resumed);
+            submit(resumed);
+            return true;
+        } catch (RuntimeException e) {
+            log.warn("Job {} 没有接着处理运行中插的话：{}", run.job(), rootMessage(e));
+            return false;
+        }
+    }
+
     /** 这个 Job 申请线程的附件（C006 附件）；没有申请线程时 404。运行中也可以上传，发出去要等它停下。 */
     public synchronized AttachmentStore attachments(String jobId) {
         find(jobId);
@@ -359,7 +427,9 @@ public final class ApplicationRunner implements AutoCloseable {
                 live.remove(jobId);
                 stopRequested.remove(jobId);
             }
-            events.finished(result.session(), jobId, result.status());
+            if (!resumeWithInserted(result)) {
+                events.finished(result.session(), jobId, result.status());
+            }
             return status(jobId);
         }
         // 在跑（排着队但取消没成功的，轮到时不跑）
@@ -403,7 +473,8 @@ public final class ApplicationRunner implements AutoCloseable {
         return new ApplicationStatus(jobId, run.project(), run.session(), status,
                 AgentRun.RUNNING.equals(status) ? null : run.message(), run.questions(), run.fileSlots(),
                 run.fileSlots().isEmpty() ? List.of() : assets.list(), storedAttachments(jobId), disconnected,
-                run.plan(), run.usage(), prepState, report, run.round(), interrupted ? INTERRUPTED_ERROR : run.error());
+                run.plan(), run.usage(), prepState, report, run.round(), interrupted ? INTERRUPTED_ERROR : run.error(),
+                inbox.peek(jobId).stream().map(turn -> turn.text().substring(INSERTED.length())).toList());
     }
 
     /** 这个申请已经上传的附件（上传位置的下拉框里和原件一起列出，C006-fix 第 5 节）。 */
@@ -498,6 +569,7 @@ public final class ApplicationRunner implements AutoCloseable {
             }
             // 用户按停止停下的（在跑时停、排队时停）：用户自己知道，不回报（C006-fix-2 回归第 6 条）
             boolean stoppedByUser;
+            boolean again;
             synchronized (this) {
                 stoppedByUser = stopRequested.contains(jobId) && AgentRun.WAITING_USER.equals(result.status());
                 try {
@@ -507,6 +579,11 @@ public final class ApplicationRunner implements AutoCloseable {
                     live.remove(jobId);
                     stopRequested.remove(jobId);
                 }
+                // 跑完时还没被看到的插话（最后一步正好到的、或者「打断并发送」）：接着跑，不回报（C010）
+                again = resumeWithInserted(result);
+            }
+            if (again) {
+                return;
             }
             events.finished(result.session(), jobId, result.status());
             if (!stoppedByUser) {
@@ -563,7 +640,8 @@ public final class ApplicationRunner implements AutoCloseable {
         String jobId = run.job();
         // 每次运行再取模型（C006-fix-2 第 6 条）：改了模型设置，下一次运行就用新的
         HarnessLoop loop = new HarnessLoop(mainModel.get(), browser, layout, clock, limits);
-        return loop.run(run, () -> stopRequested(jobId), runs::save, events.observer(run.session(), jobId));
+        return loop.run(run, () -> stopRequested(jobId), runs::save, events.observer(run.session(), jobId),
+                () -> inbox.take(jobId));
     }
 
     /** 一次运行结束：按结果更新 {@code prep_state}；停在提交前时把报告定稿、清空上传区。 */

@@ -14,6 +14,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Supplier;
 import jobapply.domain.AgentRun;
+import jobapply.domain.Inbox;
 import jobapply.domain.LiveRuns;
 import jobapply.domain.SessionRecord;
 import jobapply.harness.runtime.SessionLoop;
@@ -86,6 +87,8 @@ public final class SessionRunner implements AutoCloseable {
     private final RuntimeEvents events;
     /** 申请线程的回报：Session 在跑时先放在这里，跑完再写进对话（不插进正在进行的工具调用中间）。 */
     private final Map<String, List<AgentRun.Turn>> pendingReports = new HashMap<>();
+    /** 运行中用户插的话（C010）：循环下一次调模型之前取走；跑完还剩的写进对话并接着跑。 */
+    private final Inbox inbox = new Inbox();
 
     /** 事件日志和 {@code applications} 共用；申请线程的回报写进发起它的 Session（{@link #report}）。 */
     public SessionRunner(StorageLayout layout, Clock clock, BrowserSession browser, Supplier<ChatModel> mainModel,
@@ -133,7 +136,7 @@ public final class SessionRunner implements AutoCloseable {
         return session;
     }
 
-    /** 发一条消息，在后台跑。正在跑时 409。 */
+    /** 发一条消息，在后台跑。正在跑时插进这次运行（C010），Agent 下一步看到。 */
     public synchronized void send(String sessionId, String text) {
         send(sessionId, text, null);
     }
@@ -151,17 +154,26 @@ public final class SessionRunner implements AutoCloseable {
         if (message.length() > MAX_TEXT) {
             throw new ApplicationException.BadRequest("消息不能超过 " + MAX_TEXT + " 个字符");
         }
-        if (running.contains(sessionId)) {
-            throw new ApplicationException.Conflict("Agent 还在回上一条消息，等它说完再发（或者先停止）");
-        }
-        boolean first = sessions.readTurns(projectId, sessionId).stream()
+        boolean first = inbox.peek(sessionId).isEmpty() && sessions.readTurns(projectId, sessionId).stream()
                 .noneMatch(timed -> AgentRun.Turn.USER.equals(timed.turn().role()));
-        sessions.appendTurn(projectId, sessionId, AgentRun.Turn.user(message, attached));
         if (first && sessions.load(projectId, sessionId).title().startsWith(UNTITLED)) {
             sessions.rename(projectId, sessionId, title(message.isEmpty() ? attached.getFirst().name() : message));
             events.changed(sessionId, null);
         }
+        AgentRun.Turn turn = AgentRun.Turn.user(message, attached);
+        if (running.contains(sessionId)) {
+            // 运行中插话（C010）：不拒绝、不打断正在执行的工具；循环下一次调模型之前取走
+            inbox.put(sessionId, turn);
+            events.changed(sessionId, null);
+            return;
+        }
+        sessions.appendTurn(projectId, sessionId, turn);
         submit(projectId, sessionId);
+    }
+
+    /** 运行中插了、Agent 还没看到的消息（C010）。 */
+    public List<AgentRun.Turn> inserted(String sessionId) {
+        return inbox.peek(sessionId);
     }
 
     /** 这个 Session 的附件（C006 附件）；没有这个 Session 时 404。 */
@@ -294,11 +306,13 @@ public final class SessionRunner implements AutoCloseable {
                 SessionLoop loop = new SessionLoop(mainModel.get(), browser, layout, clock, search, fetch,
                         applicationTools(), events::changed);
                 loop.run(projectId, sessionId, history, () -> stopRequested(sessionId),
-                        turn -> sessions.appendTurn(projectId, sessionId, turn), events.observer(sessionId, null));
+                        turn -> sessions.appendTurn(projectId, sessionId, turn), events.observer(sessionId, null),
+                        () -> inbox.take(sessionId));
             } catch (RuntimeException e) {
                 error = rootMessage(e);
                 log.warn("Session {} 的对话 Agent 出错：{}", sessionId, error);
             }
+            boolean again = false;
             synchronized (this) {
                 try {
                     sessions.writeStatus(projectId, sessionId, Status.IDLE, error);
@@ -316,10 +330,30 @@ public final class SessionRunner implements AutoCloseable {
                     }
                 }
                 pendingReports.remove(sessionId);
+                // 跑完时还没被看到的插话（最后一步正好到的、或者「打断并发送」）：写进对话，接着跑一次，不丢（C010）
+                again = resumeWithInserted(projectId, sessionId);
             }
-            events.finished(sessionId, null, Status.IDLE);
+            if (!again) {
+                events.finished(sessionId, null, Status.IDLE);
+            }
             events.changed(sessionId, null);
         });
+    }
+
+    /** 有没被看到的插话时写进对话、再开始一次运行。调用方持有锁。写不进去时记日志，不再跑。 */
+    private boolean resumeWithInserted(String projectId, String sessionId) {
+        List<AgentRun.Turn> said = inbox.take(sessionId);
+        if (said.isEmpty()) {
+            return false;
+        }
+        try {
+            said.forEach(turn -> sessions.appendTurn(projectId, sessionId, turn));
+            submit(projectId, sessionId);
+            return true;
+        } catch (RuntimeException e) {
+            log.warn("Session {} 没有接着处理运行中插的话：{}", sessionId, rootMessage(e));
+            return false;
+        }
     }
 
     /** 对话 Agent 的 {@code start_application}，以及记下用户说的事实之前停下申请线程。 */

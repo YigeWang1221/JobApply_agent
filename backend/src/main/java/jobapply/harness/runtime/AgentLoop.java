@@ -20,7 +20,7 @@ import org.springframework.ai.tool.ToolCallback;
 
 /**
  * 申请 Agent 和对话 Agent 共用的一次运行（C006-fix-runtime-2 第 4 条；deepagents 的主 Agent 和子 Agent 是同一个
- * {@code create_agent}，只差工具和中间件）：停止检查 → 上限检查 → 调模型 → 模型只回了文字就结束 → 依次执行工具调用
+ * {@code create_agent}，只差工具和中间件）：停止检查 → 取走用户插话（C010）→ 上限检查 → 调模型 → 模型只回了文字就结束 → 依次执行工具调用
  * （计时、告诉观察的一方、记下最新的页面）→ 结果放回对话 → 下一轮。
  * <p>
  * 每个 Agent 只提供 {@link Agent}：拼给模型的消息、怎么执行一个工具、几种结束时返回什么。没有结果的工具调用在
@@ -65,6 +65,10 @@ final class AgentLoop<R> {
 
         /** 一轮的工具都执行完、结果放进对话之后。 */
         default void roundDone() {
+        }
+
+        /** 用户插话已经加进对话（C010，在下一次调模型之前）。 */
+        default void heard(List<AgentRun.Turn> said) {
         }
     }
 
@@ -114,6 +118,7 @@ final class AgentLoop<R> {
     private final BooleanSupplier stop;
     private final LoopObserver observer;
     private final Consumer<AgentRun.Turn> appended;
+    private final Supplier<List<AgentRun.Turn>> inbox;
     private final List<AgentRun.Turn> turns;
     private Conversation.LatestPage latestPage;
     private int calls;
@@ -124,10 +129,11 @@ final class AgentLoop<R> {
      *                             照常记下回复，它的工具调用写「没有执行」，下一轮再停（对话 Agent）
      * @param history              到现在的对话（复制一份，之后的新对话都加在这份上）
      * @param appended             每一条新对话都交给它（对话 Agent 写进 transcript）
+     * @param inbox                取走运行中用户插的话（C010）；没有时返回空
      */
     AgentLoop(ChatModel model, List<ToolCallback> tools, Clock clock, int toolCallLimit, boolean dropReplyWhenStopped,
               BooleanSupplier stop, LoopObserver observer, List<AgentRun.Turn> history,
-              Consumer<AgentRun.Turn> appended) {
+              Consumer<AgentRun.Turn> appended, Supplier<List<AgentRun.Turn>> inbox) {
         this.model = model;
         this.tools = tools;
         this.clock = clock;
@@ -137,6 +143,7 @@ final class AgentLoop<R> {
         this.observer = observer == null ? LoopObserver.NONE : observer;
         this.appended = appended == null ? ignored -> {
         } : appended;
+        this.inbox = inbox == null ? List::of : inbox;
         this.turns = new ArrayList<>(history);
     }
 
@@ -146,6 +153,7 @@ final class AgentLoop<R> {
             if (stop.getAsBoolean()) {
                 return agent.stopped();
             }
+            heard(agent);
             if (calls >= toolCallLimit) {
                 return limitReached(agent);
             }
@@ -193,6 +201,20 @@ final class AgentLoop<R> {
                 return end.get();
             }
         }
+    }
+
+    /**
+     * 用户插话（C010）：上一轮的工具都执行完、结果放进对话之后，下一次调模型之前，作为用户消息加进对话。正在执行的工具
+     * 不打断（浏览器的写操作不会做一半）；先查停止再取，「打断并发送」的那句话留给下一次运行。
+     */
+    private void heard(Agent<R> agent) {
+        List<AgentRun.Turn> said = inbox.get();
+        if (said.isEmpty()) {
+            return;
+        }
+        said.forEach(this::add);
+        agent.heard(said);
+        observer.heard(said);
     }
 
     /** 到了上限：让模型总结做到哪了（不再执行工具），交给用户决定要不要继续。 */

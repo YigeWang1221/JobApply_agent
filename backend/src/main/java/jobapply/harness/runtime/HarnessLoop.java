@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import jobapply.agents.ApplyAgent;
 import jobapply.config.HarnessProperties;
@@ -126,11 +127,17 @@ public final class HarnessLoop {
 
     /** 同上；{@code observer} 收到「正在做什么」（调模型、执行工具）和每一步的结果。 */
     public AgentRun run(AgentRun run, BooleanSupplier stop, Consumer<AgentRun> progress, LoopObserver observer) {
+        return run(run, stop, progress, observer, null);
+    }
+
+    /** 同上；{@code inbox} 取走运行中用户插的话（C010），每次调模型之前取一次。 */
+    public AgentRun run(AgentRun run, BooleanSupplier stop, Consumer<AgentRun> progress, LoopObserver observer,
+                        Supplier<List<AgentRun.Turn>> inbox) {
         if (!seeded) {
             seeder.seed();
             seeded = true;
         }
-        return new Round(run, stop, progress, observer == null ? LoopObserver.NONE : observer).go();
+        return new Round(run, stop, progress, observer == null ? LoopObserver.NONE : observer, inbox).go();
     }
 
     /** 一个 Job 的报告草稿：按「页面 + 字段」去重，后填的覆盖先填的。 */
@@ -192,13 +199,14 @@ public final class HarnessLoop {
         /** 用户批准过的一次点击（存在 {@link AgentRun#lastPage()} 里）；用过或者翻到别的网址就清掉。 */
         private SubmitGuard.Approval approval;
 
-        Round(AgentRun run, BooleanSupplier stop, Consumer<AgentRun> progress, LoopObserver observer) {
+        Round(AgentRun run, BooleanSupplier stop, Consumer<AgentRun> progress, LoopObserver observer,
+              Supplier<List<AgentRun.Turn>> inbox) {
             this.run = run;
             this.progress = progress == null ? ignored -> {
             } : progress;
             // 调模型回来时用户已经要求停止：丢掉这条回复直接停（和对话 Agent 不同，见 AgentLoop）
             this.loop = new AgentLoop<>(model, ApplyAgent.tools(), clock, limits.toolCallsPerRun(), true, stop,
-                    observer, run.conversation(), null);
+                    observer, run.conversation(), null, inbox);
             this.detector = new LoopDetector(limits);
             this.plan = run.plan();
             this.modelCalls = run.usage().modelCalls();
@@ -252,6 +260,12 @@ public final class HarnessLoop {
         /** 每轮之后交给调用方存盘。 */
         @Override
         public void roundDone() {
+            progress.accept(current());
+        }
+
+        /** 用户插话加进对话后也存一次盘，工作台马上看得到（C010）。 */
+        @Override
+        public void heard(List<AgentRun.Turn> said) {
             progress.accept(current());
         }
 
