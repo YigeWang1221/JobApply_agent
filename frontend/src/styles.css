@@ -2036,7 +2036,8 @@ pre.report {
   padding: 2px !important;
   justify-content: center;
   color: var(--muted);
-  opacity: 0;
+  /* 平时淡淡地显示，知道按钮在哪；悬停这一行时完全显示 */
+  opacity: 0.35;
 }
 
 .siderow:hover .renamebtn,
@@ -2474,34 +2475,39 @@ table.apps tr.grp td {
   border: 1px solid var(--line);
   border-radius: var(--r);
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.22);
-  padding: 22px 24px 20px;
-  width: min(520px, 100%);
+  /* 跟着窗口大小按比例：宽度、留白、字号都随视口变化，不是固定像素 */
+  width: clamp(320px, 38vw, 680px);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: clamp(18px, 1.8vw, 30px) clamp(20px, 2vw, 34px);
+  font-size: clamp(13px, 0.95vw, 16px);
+  line-height: 1.6;
 }
 
 .dialog h3 {
-  margin: 0 0 14px;
-  font-size: 16px;
+  margin: 0 0 0.9em;
+  font-size: 1.2em;
   line-height: 1.4;
 }
 
 .dialog ul {
-  margin: 0 0 14px;
-  padding-left: 20px;
-  font-size: 13.5px;
+  margin: 0 0 1em;
+  padding-left: 1.4em;
+  font-size: 1em;
   line-height: 1.65;
   color: var(--ink-2);
 }
 
 .dialog li + li {
-  margin-top: 8px;
+  margin-top: 0.5em;
 }
 
 .dialog-note {
   margin: 0 0 4px;
-  padding: 8px 10px;
+  padding: 0.6em 0.8em;
   border-radius: 7px;
   background: var(--surface-2);
-  font-size: 12.5px;
+  font-size: 0.92em;
   color: var(--ink-2);
 }
 
@@ -2512,13 +2518,14 @@ table.apps tr.grp td {
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 18px;
+  gap: 0.7em;
+  margin-top: 1.3em;
 }
 
 .dialog-actions button {
-  min-width: 76px;
-  padding: 7px 14px;
+  min-width: 5.5em;
+  padding: 0.5em 1.1em;
+  font-size: 1em;
 }
 
 button.danger-solid {

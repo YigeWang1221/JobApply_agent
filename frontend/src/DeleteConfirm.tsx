@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api, errorText, type ProjectSummary, type SessionSummary } from "./api";
 import { toast } from "./toast";
 
@@ -74,7 +75,8 @@ export function DeleteConfirm({ target, onClose, onDeleted }: {
   }
 
   const name = target.kind === "session" ? target.session.title : target.project.title;
-  return (
+  // 挂到 body 上：按整个页面渲染，不继承侧栏的字号和按钮样式
+  return createPortal(
     <div className="dialogback" onClick={close}>
       <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="delete-title"
         onClick={(e) => e.stopPropagation()}>
@@ -101,6 +103,7 @@ export function DeleteConfirm({ target, onClose, onDeleted }: {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

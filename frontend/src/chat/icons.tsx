@@ -20,6 +20,7 @@ const PATHS: Record<string, string> = {
   clip: "M20 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8",
   file: "M6 3h8l4 4v14H6zM14 3v4h4",
   pencil: "M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4",
+  trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
   side: "M4 5h16v14H4zM9 5v14",
   panel: "M4 5h16v14H4zM15 5v14",
   retry: "M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5",
