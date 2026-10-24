@@ -2,7 +2,7 @@
 
 - 依据：用户（2026-10-24）「Job Apply 项目：多 Agent 并发浏览器自动化架构」：一个 Main Agent / Scheduler 调度多个独立 Worker，每个 Worker 独占自己的 Chrome 标签页，通过共享的 MCP / CDP 基础设施并发完成多个申请，不发生浏览器操作冲突；尽量复用现有 Chrome、MCP、登录状态和工具；增量改造。
 - 用户补充（2026-10-24）：**施工前有一个架构决定检查点**；C011 写完、带证据给出推荐方案、用户批准之后才拉施工代理。优先级：浏览器隔离正确 + 真正并行，保留现有登录，改动最小。
-- 状态：**等用户批准架构**（调研完成 2026-10-24，证据见 [research-concurrent-browser.md](../reference/research-concurrent-browser.md)，实验脚本在会话 scratchpad `exp/`）。批准前不施工。
+- 状态：**用户批准方案 A（2026-10-24「在 subagent 上进行 A」），施工中**；master 已回写（workflow.md、agent-runtime.md、architecture.md、base.md）。（调研完成 2026-10-24，证据见 [research-concurrent-browser.md](../reference/research-concurrent-browser.md)，实验脚本在会话 scratchpad `exp/`）。批准前不施工。
 - 不做：真实提交申请（测试里也不做）；为每个任务启动一套独立 Chrome；把系统改成替用户点最终提交（`SUBMITTED` 只由用户确认后记，和现在一样）。
 
 ## 1. 现状和目标的差别
