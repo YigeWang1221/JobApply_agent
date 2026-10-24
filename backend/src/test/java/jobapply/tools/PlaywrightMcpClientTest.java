@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * 通过真实的 stdio 子进程连接 {@link FakePlaywrightMcpServer}。不访问网络，不启动 Chrome，不调用 npx。
+ * 通过真实的子进程（本机回环地址上的 Streamable HTTP）连接 {@link FakePlaywrightMcpServer}。不访问网络，不启动 Chrome，不调用 npx。
  */
 class PlaywrightMcpClientTest {
 
@@ -28,7 +28,7 @@ class PlaywrightMcpClientTest {
     Path dir;
 
     @Test
-    void navigatesAndSnapshotsOverStdio() {
+    void navigatesAndSnapshotsOverHttp() {
         FakeBrowser fake = FakeBrowser.create(dir).page(JOB_URL, "Backend Engineer", FakeBrowser.jobPageSnapshot("u-1"));
 
         try (BrowserSession session = new BrowserSession(fake.launch())) {
@@ -40,8 +40,9 @@ class PlaywrightMcpClientTest {
             assertThat(opened.snapshot()).contains("我的投递");
             assertThat(again).isEqualTo(opened);
         }
-        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_snapshot", "browser_tabs",
-                "browser_snapshot");
+        // 保活会话的一次列表；开页（新标签页、焦点模拟、快照）；取快照前在自己的会话里核对一次
+        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_tabs", "browser_run_code_unsafe",
+                "browser_snapshot", "browser_tabs", "browser_snapshot");
     }
 
     @Test
@@ -59,7 +60,8 @@ class PlaywrightMcpClientTest {
             assertThat(session.ownsTab(JOB)).isFalse();
             assertThatThrownBy(() -> session.snapshot(JOB)).isInstanceOf(IllegalStateException.class);
         }
-        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_snapshot");
+        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_tabs", "browser_run_code_unsafe",
+                "browser_snapshot");
     }
 
     @Test

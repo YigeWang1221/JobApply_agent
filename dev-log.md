@@ -750,3 +750,11 @@
 - 结果：`ApplicationRunner` 改成固定线程池 + `queued`（Job → 待跑的运行）/ `running`（Job → 网站 + 任务）+ `dispatch()`；排队凭证去掉（排队的不再提前交给执行器）；`stopRequested` 换成并发集合；`status()` 锁里只读运行记录和运行表；`awaitIdle` 改成 `wait/notifyAll`，新增按 Job 等。`HarnessProperties` / `application.yml` 加 `application-workers: 3`、`applications-per-site: 2`。`SessionRunner` 排队回执文案、`ResearchTools` 的 `start_application` 说明改掉「一次一个」。新增 `backend/src/test/java/jobapply/workflow/ApplicationRunnerPoolTest.java`。前端、提示词没改。细节见 C011「实际结果 · Worker 池」。
 - 验证：`backend/` 下 `mvn -B -q clean verify` 退出码 0；`ApplicationRunnerPoolTest` 单独连跑 3 次都通过（3 个同时在模型调用里、第 4 个排队并在一个结束后开始、排队时停止不跑、一个出错不影响别的、同站点上限）。真实 Chrome 冒烟：未运行（浏览器层还在另一个分支改）。前端没改，`npm run build` 未运行。
 - 偏差：C011 原文说「保留排队凭证」，实际去掉了，原因见 `dev-recoding.md`；行为（排队时停止、重新排队不跑旧的）不变。
+
+## 2026-10-24 · C011 方案 A 浏览器层：一条共享连接、每个使用者一个 MCP 会话
+
+- 日期：2026-10-24
+- 指令：用户批准 C011 方案 A，施工浏览器层：一个 `@playwright/mcp@0.0.83 --port --host 127.0.0.1 --shared-browser-context` 进程、Streamable HTTP、保活会话、每个使用者（Job / Session）一个会话和一把锁、焦点模拟模板、同站对话框卡住的兜底、测试和真实浏览器手动检查。不动 `ApplicationRunner` 的调度。
+- 结果：`PlaywrightMcpClient` 换成 HTTP 传输并新增 `Server`（随机端口、只听 127.0.0.1）和三个系统模板（焦点模拟、弹窗 opener 检查、切前台）；`BrowserSession` 只管共享连接（状态、服务进程、保活会话、重连），新 `OwnerBrowser` 管每个使用者的会话、标签页、弹窗、说明、转交，锁按使用者，动作前不再 select；给模型的标签页列表只列自己的页。`HarnessLoop` 两句话、`ApplyAgent` 提示词两条、skill apply-form 一句、`application.yml` 注释、`plan/master/workflow.md` 一句。假 MCP 服务端改成本机回环地址上的 HTTP（Tomcat），新增 `BrowserSessionConcurrencyTest`、手动检查 `ConcurrentBrowserManualCheck`。细节和矩阵见 [C011「实际结果 · 浏览器层」](plan/coding/C011-concurrent-workers.md)。
+- 验证：`JAVA_HOME=… mvn -B -q clean verify` 退出码 0（surefire 609、failsafe 1）；并发测试里两次填写的时间区间重叠约 308 ms、各落在自己的页。手动检查（自己启动的 Chrome for Testing，有头，非 9222，本机夹具页）跑了一次完整矩阵：同时开页 / 填写 / 快照 / 点击区间重叠，重定向、弹窗（含 noopener）、后台页点击、文件选择框和对话框隔离、抛异常、关页、新 Worker、CDP 连接 1 条且连接代数一直是 1，都通过；同站弹窗开着时的 alert 卡住复现，切前台兜底无效（不通过）。用户自己的 Chrome 上冒烟：未运行。
+- 偏差：弹窗只按 opener 认（第一次手动跑发现「多出一页就收」会收走别人的弹窗，已去掉）；每次动作前仍在自己会话里列一次标签页（不切换）用来发现自己的页被关；切前台兜底保留但对复现出来的卡住无效。

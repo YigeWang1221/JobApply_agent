@@ -2,16 +2,26 @@ package jobapply.tools;
 
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
-import io.modelcontextprotocol.client.transport.ServerParameters;
-import io.modelcontextprotocol.client.transport.StdioClientTransport;
+import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.spec.McpError;
 import io.modelcontextprotocol.spec.McpSchema;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import jobapply.harness.policies.BrowserToolPolicy;
 import org.slf4j.Logger;
@@ -19,9 +29,13 @@ import org.slf4j.LoggerFactory;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * 一条到 Playwright MCP 子进程的 stdio 连接。每次调用先过 {@link BrowserToolPolicy}，被拒绝的调用不会发出。
- * 子进程用 {@code env -i PATH=… HOME=…} 启动：MCP SDK 的 stdio 传输默认会传 HOME、LOGNAME、PATH、SHELL、TERM、USER，
- * 这里只留 PATH 和 HOME。日志只记工具名和耗时，不记返回内容（快照里可能有个人信息）。
+ * 一个到 Playwright MCP 服务进程的 MCP 会话（C011 方案 A）。服务进程（{@link Server}）全应用一个，用
+ * {@code --port <随机> --host 127.0.0.1 --shared-browser-context} 启动：所有会话共用它的一条 CDP 连接（Chrome 只弹一次
+ * 允许）和同一个默认浏览器上下文（登录状态共享），每个会话有自己的「当前标签页」。会话走 Streamable HTTP
+ * （{@link HttpClientStreamableHttpTransport}），一个使用者一个会话，不同使用者的调用可以同时进行。
+ * <p>
+ * 每次调用先过 {@link BrowserToolPolicy}，被拒绝的调用不会发出。服务进程用 {@code env -i PATH=… HOME=…} 启动，只留
+ * PATH 和 HOME。日志只记工具名和耗时，不记返回内容（快照里可能有个人信息）。
  */
 public final class PlaywrightMcpClient implements AutoCloseable {
 
@@ -137,51 +151,243 @@ public final class PlaywrightMcpClient implements AutoCloseable {
               return 'clicked the element directly';
             })""";
 
-    private final McpSyncClient client;
+    /**
+     * 焦点模拟（C011 第 5.3 节）：Chrome 冻结后台标签页（{@code requestAnimationFrame} 不跑），Playwright 点击前的
+     * 「元素稳定」检查靠它，所以后台页上的点击必然超时。对这个会话的当前页打开 CDP 的
+     * {@code Emulation.setFocusEmulationEnabled}，页面就一直算「可见、有焦点」，窗口最小化了也一样。按页生效：
+     * 新开的页、选过去的弹窗、转交的页都要各开一次。CDP 会话留在 Playwright 的连接上，设置一直有效。
+     */
+    private static final String FOCUS_EMULATION = """
+            async (page) => {
+              const session = await page.context().newCDPSession(page);
+              await session.send('Emulation.setFocusEmulationEnabled', {enabled: true});
+              return 'focus emulation on';
+            }""";
 
-    private PlaywrightMcpClient(McpSyncClient client) {
+    /** 当前页打开的弹窗（{@code page.opener()} 是当前页的那些页）的网址：新出现的标签页是不是这个会话点出来的。 */
+    private static final String POPUPS = """
+            async (page) => {
+              const opened = [];
+              for (const p of page.context().pages()) {
+                if (p !== page && await p.opener() === page) opened.push(p.url());
+              }
+              return opened;
+            }""";
+
+    /**
+     * 把当前页切到前台（C011 第 5.1 节的兜底）：同站点的几个页面时，后台页上弹出的对话框可能一直不出来、把点击卡住；
+     * 动作超时之后切一次前台，对话框才会出来。
+     */
+    private static final String BRING_TO_FRONT = """
+            async (page) => {
+              await page.bringToFront();
+              return 'brought to front';
+            }""";
+
+    private final McpSyncClient client;
+    /** 只有 {@link #start} 建的单独客户端才带着自己的服务进程，关客户端时一起关。 */
+    private final Server owned;
+
+    private PlaywrightMcpClient(McpSyncClient client, Server owned) {
         this.client = client;
+        this.owned = owned;
     }
 
     /**
-     * 启动子进程并完成 MCP 初始化（声明 {@link BrowserLaunch#roots()}），检查必需的工具都在。失败时子进程已关闭。
+     * 单独用的客户端：启动一个服务进程，开一个会话。关闭客户端时服务进程一起关。失败时进程已关闭。
      */
     public static PlaywrightMcpClient start(BrowserLaunch launch) {
-        List<String> args = new ArrayList<>();
-        args.add("-i");
-        args.add("PATH=" + launch.path());
-        args.add("HOME=" + launch.home());
-        args.add(launch.command());
-        args.addAll(launch.args());
-        log.info("启动浏览器 MCP：{} {}", launch.command(), String.join(" ", launch.args()));
-        StdioClientTransport transport = new StdioClientTransport(
-                ServerParameters.builder("/usr/bin/env").args(args).build(), McpJsonDefaults.getMapper());
-        transport.setStdErrorHandler(line -> log.debug("浏览器 MCP stderr：{}", line));
-        McpSyncClient client = McpClient.sync(transport)
-                .requestTimeout(launch.callTimeout())
-                .initializationTimeout(launch.callTimeout())
-                .clientInfo(new McpSchema.Implementation("jobapply", "0.0.1"))
-                .roots(launch.roots().stream()
-                        .map(root -> new McpSchema.Root(root.toUri().toString(), root.getFileName().toString()))
-                        .toList())
-                .build();
+        Server server = Server.start(launch);
         try {
-            client.initialize();
-            Set<String> tools = client.listTools().tools().stream()
-                    .map(McpSchema.Tool::name)
-                    .collect(Collectors.toSet());
-            List<String> missing = REQUIRED_TOOLS.stream().filter(name -> !tools.contains(name)).toList();
-            if (!missing.isEmpty()) {
-                throw new BrowserException.ToolFailed("浏览器 MCP 缺少工具：" + String.join(", ", missing));
-            }
-        } catch (BrowserException.ToolFailed e) {
-            closeQuietly(client);
-            throw e;
+            return new PlaywrightMcpClient(server.openClient(), server);
         } catch (RuntimeException e) {
-            closeQuietly(client);
-            throw new BrowserException.Disconnected("浏览器 MCP 启动失败：" + e.getMessage(), e);
+            server.close();
+            throw e;
         }
-        return new PlaywrightMcpClient(client);
+    }
+
+    /**
+     * 一个 Playwright MCP 服务进程（{@code --port --host 127.0.0.1 --shared-browser-context}）。进程第一次被调用工具时才
+     * 连 Chrome（这时弹允许提示），之后所有会话共用这一条连接；最后一个会话断开时连接也断开，所以调用方一直留一个空闲
+     * 会话（{@link BrowserSession}）。
+     */
+    public static final class Server implements AutoCloseable {
+
+        private final Process process;
+        private final String endpoint;
+        private final BrowserLaunch launch;
+
+        private Server(Process process, String endpoint, BrowserLaunch launch) {
+            this.process = process;
+            this.endpoint = endpoint;
+            this.launch = launch;
+        }
+
+        /**
+         * 选一个空闲端口启动服务进程，等它开始监听。HTTP 端口只听 127.0.0.1。失败时进程已关闭，抛出
+         * {@link BrowserException.Disconnected}。
+         */
+        public static Server start(BrowserLaunch launch) {
+            int port = freePort();
+            List<String> command = new ArrayList<>(List.of("/usr/bin/env", "-i", "PATH=" + launch.path(),
+                    "HOME=" + launch.home(), launch.command()));
+            command.addAll(launch.args());
+            command.addAll(List.of("--port", String.valueOf(port), "--host", "127.0.0.1"));
+            if (!launch.args().contains("--shared-browser-context")) {
+                command.add("--shared-browser-context");
+            }
+            log.info("启动浏览器 MCP：{} {} --port {} --host 127.0.0.1 --shared-browser-context", launch.command(),
+                    String.join(" ", launch.args()), port);
+            Process process;
+            try {
+                process = new ProcessBuilder(command).redirectErrorStream(true).start();
+            } catch (IOException e) {
+                throw new BrowserException.Disconnected("浏览器 MCP 启动失败：" + e.getMessage(), e);
+            }
+            Thread.ofVirtual().name("browser-mcp-output").start(() -> drain(process));
+            Server server = new Server(process, "http://localhost:" + port + "/mcp", launch);
+            long deadline = System.nanoTime() + launch.callTimeout().toNanos();
+            while (!listening(port)) {
+                if (!process.isAlive() || System.nanoTime() > deadline) {
+                    server.close();
+                    throw new BrowserException.Disconnected("浏览器 MCP 启动失败：" + (process.isAlive()
+                            ? launch.callTimeout().toSeconds() + " 秒内没有开始监听端口" : "进程退出了"));
+                }
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    server.close();
+                    throw new BrowserException.Disconnected("浏览器 MCP 启动被中断", e);
+                }
+            }
+            return server;
+        }
+
+        /** 进程还活着。 */
+        public boolean alive() {
+            return process.isAlive();
+        }
+
+        /** 开一个新的会话（自己的 MCP 客户端、自己的当前标签页）。失败时抛出 {@link BrowserException}。 */
+        public PlaywrightMcpClient open() {
+            return new PlaywrightMcpClient(openClient(), null);
+        }
+
+        /**
+         * 完成 MCP 初始化（声明 {@link BrowserLaunch#roots()}，Playwright MCP 把第一个当 workspace），检查必需的工具都在。
+         * 用 {@code localhost}：Playwright MCP 只认 {@code Host: localhost:<端口>}（0.0.83 {@code installHttpTransport}）。
+         */
+        private McpSyncClient openClient() {
+            HttpClientStreamableHttpTransport transport = HttpClientStreamableHttpTransport.builder(endpoint)
+                    .clientBuilder(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
+                            .connectTimeout(Duration.ofSeconds(5)))
+                    .jsonMapper(McpJsonDefaults.getMapper())
+                    .build();
+            McpSyncClient client = McpClient.sync(transport)
+                    .requestTimeout(launch.callTimeout())
+                    .initializationTimeout(launch.callTimeout())
+                    .clientInfo(new McpSchema.Implementation("jobapply", "0.0.1"))
+                    .roots(launch.roots().stream()
+                            .map(root -> new McpSchema.Root(root.toUri().toString(), root.getFileName().toString()))
+                            .toList())
+                    .build();
+            try {
+                client.initialize();
+                Set<String> tools = client.listTools().tools().stream()
+                        .map(McpSchema.Tool::name)
+                        .collect(Collectors.toSet());
+                List<String> missing = REQUIRED_TOOLS.stream().filter(name -> !tools.contains(name)).toList();
+                if (!missing.isEmpty()) {
+                    throw new BrowserException.ToolFailed("浏览器 MCP 缺少工具：" + String.join(", ", missing));
+                }
+            } catch (BrowserException.ToolFailed e) {
+                closeQuietly(client);
+                throw e;
+            } catch (RuntimeException e) {
+                closeQuietly(client);
+                throw new BrowserException.Disconnected("浏览器 MCP 会话建立失败：" + e.getMessage(), e);
+            }
+            return client;
+        }
+
+        /** 关掉进程和它的子进程（{@code npx} 会再起一个 node）。 */
+        @Override
+        public void close() {
+            List<ProcessHandle> children = process.descendants().toList();
+            process.destroy();
+            children.forEach(ProcessHandle::destroy);
+            try {
+                if (!process.waitFor(3, TimeUnit.SECONDS)) {
+                    process.destroyForcibly();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                process.destroyForcibly();
+            }
+            children.stream().filter(ProcessHandle::isAlive).forEach(ProcessHandle::destroyForcibly);
+        }
+
+        private static void drain(Process process) {
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                for (String line = reader.readLine(); line != null; line = reader.readLine()) {
+                    log.debug("浏览器 MCP 输出：{}", line);
+                }
+            } catch (IOException e) {
+                // 进程关了
+            }
+        }
+
+        private static int freePort() {
+            try (ServerSocket socket = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+                return socket.getLocalPort();
+            } catch (IOException e) {
+                throw new BrowserException.Disconnected("找不到空闲端口：" + e.getMessage(), e);
+            }
+        }
+
+        private static boolean listening(int port) {
+            try (Socket socket = new Socket()) {
+                socket.connect(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 200);
+                return true;
+            } catch (IOException e) {
+                return false;
+            }
+        }
+    }
+
+    /** 对这个会话的当前页打开焦点模拟（{@link #FOCUS_EMULATION}），系统代发，模型不能调用。 */
+    void focusEmulation() {
+        send(RUN_CODE, Map.of("code", FOCUS_EMULATION), "焦点模拟");
+    }
+
+    /** 当前页打开的弹窗的网址（{@link #POPUPS}），系统代发。 */
+    List<String> popups() {
+        String text = send(RUN_CODE, Map.of("code", POPUPS), "弹窗检查");
+        Object parsed;
+        try {
+            parsed = JSON.readValue(result(text), Object.class);
+        } catch (RuntimeException e) {
+            throw new BrowserException.ToolFailed("弹窗检查的结果读不出来：" + e.getMessage());
+        }
+        return parsed instanceof List<?> list ? list.stream().map(String::valueOf).toList() : List.of();
+    }
+
+    /** 把当前页切到前台（{@link #BRING_TO_FRONT}），系统代发。 */
+    void bringToFront() {
+        send(RUN_CODE, Map.of("code", BRING_TO_FRONT), "切到前台");
+    }
+
+    /** MCP 返回的 {@code ### Result} 小节（模板的返回值）。 */
+    static String result(String text) {
+        int at = text.indexOf("### Result");
+        if (at < 0) {
+            throw new BrowserException.ToolFailed("系统检查没有返回结果");
+        }
+        String body = text.substring(at + "### Result".length()).strip();
+        int next = body.indexOf("\n###");
+        return next < 0 ? body : body.substring(0, next);
     }
 
     /**
@@ -238,15 +444,9 @@ public final class PlaywrightMcpClient implements AutoCloseable {
         /** MCP 返回的 {@code ### Result} 小节里是模板返回值的 JSON。 */
         @SuppressWarnings("unchecked")
         static Diagnosis parse(String text) {
-            int at = text.indexOf("### Result");
-            if (at < 0) {
-                throw new BrowserException.ToolFailed("系统检查没有返回结果");
-            }
-            String body = text.substring(at + "### Result".length()).strip();
-            int next = body.indexOf("\n###");
             Map<String, Object> m;
             try {
-                m = JSON.readValue(next < 0 ? body : body.substring(0, next), Map.class);
+                m = JSON.readValue(result(text), Map.class);
             } catch (RuntimeException e) {
                 throw new BrowserException.ToolFailed("系统检查的结果读不出来：" + e.getMessage());
             }
@@ -332,6 +532,9 @@ public final class PlaywrightMcpClient implements AutoCloseable {
     @Override
     public void close() {
         closeQuietly(client);
+        if (owned != null) {
+            owned.close();
+        }
     }
 
     /**
@@ -376,11 +579,13 @@ public final class PlaywrightMcpClient implements AutoCloseable {
                 .orElse("（无说明）");
     }
 
+    /**
+     * 不等服务端确认（{@code closeGracefully} 在服务进程已经退出时要等满 10 秒）。服务端那边的会话靠 Playwright MCP 的
+     * 心跳（每 3 秒 ping 一次，5 秒不答就关）自己清掉；服务进程一关，所有会话都没了。
+     */
     private static void closeQuietly(McpSyncClient client) {
         try {
-            if (!client.closeGracefully()) {
-                client.close();
-            }
+            client.close();
         } catch (RuntimeException e) {
             log.warn("关闭浏览器 MCP 时出错：{}", e.getMessage());
         }

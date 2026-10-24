@@ -9,9 +9,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * 浏览器连接属于应用（用户确认，2026-10-23）：一条连接给所有 Job 用，不会自己关掉再重新申请。用过的连接断开后下一次
+ * 浏览器连接属于应用（用户确认，2026-10-23）：一条共享连接给所有 Job 用（C011：每个 Job 自己一个 MCP 会话），不会自己关掉再重新申请。用过的连接断开后下一次
  * 使用自动重连一次；建立失败（包括那一次重连）以后不再自己重试，等用户点「重新连接」或发下一条消息（C006-fix-browser）。
- * 对真实的 stdio 子进程 {@link FakePlaywrightMcpServer}；不访问网络，不启动 Chrome，不调用 npx。
+ * 对真实的子进程 {@link FakePlaywrightMcpServer}（本机回环地址上的 Streamable HTTP）；不访问网络，不启动 Chrome，不调用 npx。
  */
 class BrowserSessionConnectionTest {
 
@@ -22,7 +22,7 @@ class BrowserSessionConnectionTest {
     Path dir;
 
     @Test
-    void oneConnectionServesEveryJobInTurn() {
+    void oneSharedConnectionAndOneSessionPerOwner() {
         FakeBrowser fake = FakeBrowser.create(dir).form("multi-page");
 
         try (BrowserSession session = new BrowserSession(fake.launch(Duration.ofSeconds(3)))) {
@@ -32,8 +32,10 @@ class BrowserSessionConnectionTest {
             session.snapshot(SECOND);
             session.reconnect();
             session.snapshot(SECOND);
+            session.snapshot(FIRST);
 
-            assertThat(fake.starts()).as("两个 Job、一次 reconnected 都只用了一条连接").isEqualTo(1);
+            assertThat(fake.starts()).as("两个 Job、一次 reconnect 都只用了一个服务进程").isEqualTo(1);
+            assertThat(fake.sessions()).as("保活会话 + 每个 Job 一个会话，用过的会话一直沿用").hasSize(3);
         }
     }
 

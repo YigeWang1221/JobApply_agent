@@ -304,8 +304,8 @@ public final class HarnessLoop {
             } else {
                 loop.add(AgentRun.Turn.page("系统打开了岗位链接 " + run.url() + "。上次做到的页面是 " + lastUrl
                         + "（应用重启、浏览器重连或者那一页被关掉后，系统不再记得它在哪个标签页）。那一页要是还开着、"
-                        + "上面有填了一半的内容，可以用 browser_tabs list 找到再 select 回去接着做；分不清是不是你开的那页时，"
-                        + "问用户。"));
+                        + "上面有填了一半的内容，用 ask_user 请用户在申请工作台上把那个标签页交给你（browser_tabs list "
+                        + "只列你自己的页，看不到它），交过来以后 select 过去接着做。"));
             }
             return opened;
         }
@@ -493,7 +493,7 @@ public final class HarnessLoop {
                     log(RunLog.Entry.toolCall(run.session(), step(), BrowserTools.TABS, null, null, null, null,
                             page(latest), "ok"));
                     return result(call, withHandover(listed.isEmpty() ? "现在没有标签页。"
-                            : "Chrome 里的标签页（只碰标了「你的」和用户明确交给你的；用户之前开的不要碰）：\n"
+                            : "你的标签页（你开的、点击弹出的、用户交给你的；序号是你自己的编号，select 用它）：\n"
                             + tabLines(listed)));
                 }
                 if ("select".equals(action)) {

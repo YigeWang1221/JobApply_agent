@@ -8,8 +8,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * {@link BrowserSession} 的标签页记账（C006-fix-browser 第 3 节）：每个使用者正在用哪一页、记在它名下的页、转交。
- * 能碰哪些页由提示词约束，这里不测归属拒绝。假浏览器的多标签页模式，测试在两次调用之间改标签页列表 = 用户在 Chrome 里
+ * {@link BrowserSession} 的标签页记账（C006-fix-browser 第 3 节，C011）：每个使用者自己的会话、正在用哪一页、记在它名下的页、
+ * 转交。给模型的列表只列自己的页。假浏览器的多标签页模式，测试在两次调用之间改标签页列表 = 用户在 Chrome 里
  * 操作。网址全部虚构，不访问网络。
  */
 class BrowserSessionTabsTest {
@@ -63,7 +63,7 @@ class BrowserSessionTabsTest {
     }
 
     @Test
-    void listShowsEveryTabAndMarksTheOnesThatAreThisJobs(@TempDir Path dir) {
+    void listShowsOnlyThisJobsTabsAndTheUiSeesTheRest(@TempDir Path dir) {
         String apply = "https://jobs.acme-demo.com/apply/42";
         String usersOwn = "https://jobs.acme-demo.com/apply/99";
         FakeBrowser fake = FakeBrowser.create(dir).tabs(0, USER_TAB, usersOwn);
@@ -74,12 +74,11 @@ class BrowserSessionTabsTest {
             assertThat(fake.toolCalls()).isEmpty();
 
             session.open(apply, JOB);
-            assertThat(session.tabs(JOB)).extracting(BrowserSession.TabInfo::url)
-                    .containsExactly(USER_TAB, usersOwn, apply);
-            assertThat(session.tabs(JOB)).filteredOn(BrowserSession.TabInfo::yours)
-                    .extracting(BrowserSession.TabInfo::url).containsExactly(apply);
+            // 给模型的列表只有它自己的页，序号是它自己的编号（C011：别人的页不给模型看）
+            assertThat(session.tabs(JOB)).extracting(BrowserSession.TabInfo::url).containsExactly(apply);
+            assertThat(session.tabs(JOB)).allMatch(BrowserSession.TabInfo::yours);
             assertThat(session.tabs(JOB)).filteredOn(BrowserSession.TabInfo::inUse)
-                    .extracting(BrowserSession.TabInfo::index).containsExactly(2);
+                    .extracting(BrowserSession.TabInfo::index).containsExactly(0);
             assertThat(session.unowned()).extracting(BrowserSession.TabInfo::url).containsExactly(USER_TAB, usersOwn);
         }
     }
@@ -100,10 +99,10 @@ class BrowserSessionTabsTest {
 
             assertThat(session.snapshot(JOB).url()).isEqualTo(usersOwn);
 
-            // Job 已经有正在用的页时再交一页：不偷换它脚下的页，由模型 select 过去
-            assertThat(session.handOver(JOB, 0, USER_TAB).index()).isZero();
+            // Job 已经有正在用的页时再交一页：不偷换它脚下的页，由模型按它自己的编号 select 过去
+            assertThat(session.handOver(JOB, 0, USER_TAB).index()).isEqualTo(1);
             assertThat(session.snapshot(JOB).url()).isEqualTo(usersOwn);
-            assertThat(session.select(JOB, 0).url()).isEqualTo(USER_TAB);
+            assertThat(session.select(JOB, 1).url()).isEqualTo(USER_TAB);
             assertThat(session.snapshot(JOB).url()).isEqualTo(USER_TAB);
             assertThat(session.tabs(JOB)).filteredOn(BrowserSession.TabInfo::yours).hasSize(2);
             assertThat(session.tabs(OTHER)).noneMatch(BrowserSession.TabInfo::yours);

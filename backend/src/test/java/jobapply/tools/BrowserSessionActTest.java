@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * {@link BrowserSession#act} 对表单模式的 {@link FakePlaywrightMcpServer}（真实的 stdio 子进程）。
+ * {@link BrowserSession#act} 对表单模式的 {@link FakePlaywrightMcpServer}（真实的子进程，本机回环地址上的 Streamable HTTP）。
  * 不访问网络，不启动 Chrome，不调用 npx。
  */
 class BrowserSessionActTest {
@@ -66,9 +66,9 @@ class BrowserSessionActTest {
             PageSnapshot read = session.act(JOB, BrowserToolPolicy.SNAPSHOT, Map.of(), model(back, url, null));
             assertThat(read).isEqualTo(back);
         }
-        // 每次操作前先列一次标签页，核对还是自己的那一页
-        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_snapshot",
-                "browser_tabs", "browser_fill_form", "browser_snapshot", "browser_tabs", "browser_type",
+        // 保活会话先列一次（建立共享连接）；开页后开焦点模拟；每次操作前在自己的会话里列一次标签页（不切换），核对还是自己的那一页
+        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_tabs", "browser_run_code_unsafe",
+                "browser_snapshot", "browser_tabs", "browser_fill_form", "browser_snapshot", "browser_tabs", "browser_type",
                 "browser_snapshot", "browser_tabs", "browser_select_option", "browser_snapshot", "browser_tabs",
                 "browser_click", "browser_snapshot", "browser_tabs", "browser_click", "browser_snapshot",
                 "browser_tabs", "browser_snapshot");
@@ -99,8 +99,8 @@ class BrowserSessionActTest {
                     .isInstanceOf(ToolNotAllowedException.class);
             assertThat(session.ownsTab("2026-10-23-002")).isTrue();
         }
-        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_snapshot", "browser_tabs",
-                "browser_tabs");
+        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_tabs", "browser_run_code_unsafe",
+                "browser_snapshot", "browser_tabs", "browser_tabs");
     }
 
     @Test
@@ -114,8 +114,8 @@ class BrowserSessionActTest {
 
             assertThat(found).contains("button \"下一步\" [ref=e9]").doesNotContain("姓名");
         }
-        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_snapshot", "browser_tabs",
-                "browser_find");
+        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_tabs", "browser_run_code_unsafe",
+                "browser_snapshot", "browser_tabs", "browser_find");
     }
 
     @Test
