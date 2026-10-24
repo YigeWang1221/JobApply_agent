@@ -48,6 +48,7 @@ import jobapply.persistence.RunLog;
 import jobapply.persistence.SessionRepository;
 import jobapply.persistence.StorageLayout;
 import jobapply.persistence.UploadArea;
+import jobapply.persistence.WorkerSettingsFile;
 import jobapply.tools.BrowserSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,8 +59,9 @@ import org.springframework.ai.chat.model.ChatModel;
  * 这里负责调度（一个 Worker 池）、存取 {@link AgentRun}、把用户的回复变成下一条消息、准备上传的文件、更新台账的
  * {@code prep_state}，以及模型结束时把报告定稿。
  * <p>
- * 同时最多 {@link HarnessProperties#applicationWorkers()} 个申请线程在跑（C011，默认 3），同一个网站上最多
- * {@link HarnessProperties#applicationsPerSite()} 个（礼貌限速，默认 2）；多出来的开始和回复排队（{@code queued}），
+ * 同时最多 {@code workerLimit} 个申请线程在跑（C011，默认 3），同一个网站上最多 {@code perSiteLimit} 个（礼貌限速，
+ * 默认 2）；两个上限启动时取 {@code settings/workers.yaml}，没有时取 {@link HarnessProperties}，运行中可以在设置页改
+ * （C012，{@link #setConcurrency}）；多出来的开始和回复排队（{@code queued}），
  * 按顺序轮到，只有网站已满时排在后面的别的网站可以先走（C006-fix-2 第 1 条，langgraph 的 {@code enqueue}）。同一个 Job
  * 同时只有一个申请线程。每个 Job 用自己的标签页，在等用户回复的不挡别人；浏览器动作之间的互斥由 {@link BrowserSession}
  * 自己负责。「在跑 / 排队」只看内存，文件写着在跑、内存里没有的读出来是中断（{@link LiveRuns}）。所有校验都在第一次写文件
@@ -118,8 +120,12 @@ public final class ApplicationRunner implements AutoCloseable {
     private final UploadArea uploads;
     private final FillReportWriter reports;
     private final RunLog runLog;
-    /** N 个 Worker（{@link HarnessProperties#applicationWorkers()}）：只收 {@link #dispatch()} 放行的运行。 */
+    /** Worker 线程：按需建、空闲回收；同时跑几个只由 {@link #dispatch()} 按 {@code workerLimit} 管（C012 可以运行中改）。 */
     private final ExecutorService workers;
+    private final WorkerSettingsFile workerSettings;
+    /** 同时最多几个申请在跑、同一个网站最多几个。只在锁里读写。 */
+    private int workerLimit;
+    private int perSiteLimit;
     /** 用户要求停下的 Job：每一步都查，用并发集合，不拿实例锁（C011 第 3 节）。 */
     private final Set<String> stopRequested = ConcurrentHashMap.newKeySet();
     private final RuntimeEvents events;
@@ -180,7 +186,11 @@ public final class ApplicationRunner implements AutoCloseable {
         this.reports = new FillReportWriter(layout, clock);
         this.runLog = new RunLog(layout, clock);
         AtomicInteger number = new AtomicInteger();
-        this.workers = Executors.newFixedThreadPool(this.limits.applicationWorkers(), runnable -> {
+        this.workerSettings = new WorkerSettingsFile(layout);
+        WorkerSettingsFile.Limits initial = initialLimits(workerSettings, this.limits);
+        this.workerLimit = initial.workers();
+        this.perSiteLimit = initial.perSite();
+        this.workers = Executors.newCachedThreadPool(runnable -> {
             Thread thread = new Thread(runnable, "application-worker-" + number.incrementAndGet());
             thread.setDaemon(true);
             return thread;
@@ -544,6 +554,54 @@ public final class ApplicationRunner implements AutoCloseable {
         workers.shutdownNow();
     }
 
+    // ---- 并发数（C012） ----
+
+    /** Worker 数的上限（设置页可选 1 到这个数）。 */
+    public static final int MAX_WORKERS = 6;
+
+    /** 当前的两个上限，和此刻在跑、排队的个数。 */
+    public record Concurrency(int workers, int perSite, int maxWorkers, int running, int queued) {
+    }
+
+    public synchronized Concurrency concurrency() {
+        return new Concurrency(workerLimit, perSiteLimit, MAX_WORKERS, running.size(), queued.size());
+    }
+
+    /**
+     * 改两个上限并存进 {@code settings/workers.yaml}，马上生效：调大时排队的按新上限开始；调小时在跑的不停，只是不再放新的，
+     * 等在跑的少于新上限再放。超出范围抛 {@link IllegalArgumentException}（接口返回 400），不写文件。
+     */
+    public synchronized Concurrency setConcurrency(int workers, int perSite) {
+        if (workers < 1 || workers > MAX_WORKERS) {
+            throw new IllegalArgumentException("同时申请数要在 1 到 " + MAX_WORKERS + " 之间");
+        }
+        if (perSite < 1 || perSite > workers) {
+            throw new IllegalArgumentException("同一个网站的上限要在 1 到同时申请数（" + workers + "）之间");
+        }
+        workerSettings.write(new WorkerSettingsFile.Limits(workers, perSite));
+        workerLimit = workers;
+        perSiteLimit = perSite;
+        dispatch();
+        return concurrency();
+    }
+
+    /** 有 {@code settings/workers.yaml} 用它，没有或读不了时用配置（读不了时日志警告，界面上看到的是生效的值）。 */
+    private static WorkerSettingsFile.Limits initialLimits(WorkerSettingsFile file, HarnessProperties limits) {
+        WorkerSettingsFile.Limits fallback =
+                new WorkerSettingsFile.Limits(limits.applicationWorkers(), limits.applicationsPerSite());
+        try {
+            WorkerSettingsFile.Limits saved = file.read().orElse(fallback);
+            if (saved.workers() < 1 || saved.perSite() < 1) {
+                log.warn("{} 里的并发数必须是正数，改用配置的值", file.path());
+                return fallback;
+            }
+            return saved;
+        } catch (RuntimeException e) {
+            log.warn("{} 读不了（{}），改用配置的值", file.path(), e.getMessage());
+            return fallback;
+        }
+    }
+
     // ---- 运行 ----
 
     /**
@@ -567,11 +625,11 @@ public final class ApplicationRunner implements AutoCloseable {
      */
     private void dispatch() {
         Iterator<AgentRun> waiting = queued.values().iterator();
-        while (running.size() < limits.applicationWorkers() && waiting.hasNext()) {
+        while (running.size() < workerLimit && waiting.hasNext()) {
             AgentRun run = waiting.next();
             String site = BrowserToolPolicy.siteOf(run.url());
             if (site != null && running.values().stream().filter(worker -> site.equals(worker.site())).count()
-                    >= limits.applicationsPerSite()) {
+                    >= perSiteLimit) {
                 continue;
             }
             waiting.remove();

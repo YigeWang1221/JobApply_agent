@@ -1,8 +1,9 @@
 import { go } from "../route";
 import Assets from "./Assets";
 import ModelSettings from "./ModelSettings";
+import WorkerSettings from "./WorkerSettings";
 
-// 设置：模型（C004-A）和资料（原件、来源、整理与确认、事实与画像）两个子标签
+// 设置：模型（C004-A，下面是「同时申请」C012）和资料（原件、来源、整理与确认、事实与画像）两个子标签
 export default function Settings({ tab }: { tab: "models" | "profile" }) {
   return (
     <>
@@ -22,7 +23,7 @@ export default function Settings({ tab }: { tab: "models" | "profile" }) {
         </button>
       </nav>
       <div className="content">
-        {tab === "models" ? <ModelSettings /> : <Assets />}
+        {tab === "models" ? <><ModelSettings /><WorkerSettings /></> : <Assets />}
       </div>
     </>
   );

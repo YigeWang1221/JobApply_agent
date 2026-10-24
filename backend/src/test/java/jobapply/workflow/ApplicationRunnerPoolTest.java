@@ -1,6 +1,7 @@
 package jobapply.workflow;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -112,6 +113,47 @@ class ApplicationRunnerPoolTest {
             assertThat(runner.status(c).status()).isEqualTo(AgentRun.RUNNING);
 
             f.model.release("Beta示例", "Gamma示例", "Delta示例");
+            assertThat(runner.awaitIdle(WAIT)).isTrue();
+        }
+    }
+
+    @Test
+    void loweringTheLimitKeepsRunningOnesAndHoldsTheQueueRaisingItStartsQueuedOnes(@TempDir Path dir)
+            throws Exception {
+        Fixture f = new Fixture(dir, 2, 2);
+        try (BrowserSession browser = new BrowserSession(f.fake.launch());
+             ApplicationRunner runner = f.runner(browser)) {
+            String a = f.job("Alpha示例", "https://jobs.alpha-demo.com/1");
+            String b = f.job("Beta示例", "https://jobs.beta-demo.com/2");
+            String c = f.job("Gamma示例", "https://jobs.gamma-demo.com/3");
+            runner.start(a, PROJECT, f.session);
+            runner.start(b, PROJECT, f.session);
+            assertThat(runner.start(c, PROJECT, f.session).status()).isEqualTo(AgentRun.QUEUED);
+            f.model.awaitEntered("Alpha示例", "Beta示例");
+
+            // 超出范围：拒绝，不写文件
+            assertThatThrownBy(() -> runner.setConcurrency(7, 1)).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> runner.setConcurrency(2, 3)).isInstanceOf(IllegalArgumentException.class);
+            assertThat(f.storage.layout.workersYaml()).doesNotExist();
+
+            // 调小到 1：在跑的两个不停；Alpha 结束后 Beta 还在跑，Gamma 不放
+            ApplicationRunner.Concurrency lowered = runner.setConcurrency(1, 1);
+            assertThat(lowered.running()).isEqualTo(2);
+            assertThat(lowered.queued()).isEqualTo(1);
+            assertThat(runner.status(a).status()).isEqualTo(AgentRun.RUNNING);
+            assertThat(runner.status(b).status()).isEqualTo(AgentRun.RUNNING);
+            f.model.release("Alpha示例");
+            assertThat(runner.awaitIdle(a, WAIT)).isTrue();
+            assertThat(runner.status(c).status()).isEqualTo(AgentRun.QUEUED);
+            assertThat(f.model.entered).doesNotContainKey("Gamma示例");
+
+            // 调大到 2：Gamma 马上开始；设置存进了文件
+            assertThat(runner.setConcurrency(2, 1).running()).isEqualTo(2);
+            f.model.awaitEntered("Gamma示例");
+            assertThat(runner.status(c).status()).isEqualTo(AgentRun.RUNNING);
+            assertThat(f.storage.layout.workersYaml()).exists();
+
+            f.model.release("Beta示例", "Gamma示例");
             assertThat(runner.awaitIdle(WAIT)).isTrue();
         }
     }

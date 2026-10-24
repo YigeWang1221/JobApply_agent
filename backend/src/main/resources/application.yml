@@ -51,7 +51,7 @@ jobapply:
     same-element-failures: 3
     same-result-repeats: 3
     unchanged-actions: 6
-    # 同时跑的申请线程数（C011 Worker 池），多出来的排队按顺序轮到
+    # 同时跑的申请线程数（C011 Worker 池），多出来的排队按顺序轮到。下面两项是默认值：设置页「同时申请」改过后存在 storage/settings/workers.yaml，以它为准（C012）
     application-workers: 3
     # 同一个网站上同时最多这么多个申请（礼貌限速，免得同站点请求过多被限流）；多出来的排队
     applications-per-site: 2

@@ -8,7 +8,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * 连续 3 次、页面连续 6 次写操作没有变化时，在工具结果里提醒模型（不强制停）。
  * <p>
  * 并发（C011）：同时最多 3 个申请线程在跑（{@code application-workers}），同一个网站上同时最多 2 个
- * （{@code applications-per-site}，按 {@code BrowserToolPolicy.siteOf}），多出来的排队。
+ * （{@code applications-per-site}，按 {@code BrowserToolPolicy.siteOf}），多出来的排队。这两项只是默认值：设置页改过后
+ * 存在 {@code storage/settings/workers.yaml}，启动时以它为准（C012）。
  */
 @ConfigurationProperties("jobapply.harness")
 public record HarnessProperties(Integer toolCallsPerRun, Integer sameElementFailures, Integer sameResultRepeats,

@@ -568,6 +568,15 @@ export interface JobDetail {
   activity?: Activity | null;
 }
 
+// 同时申请（C012）：两个上限和此刻在跑、排队的个数
+export interface WorkerSettings {
+  workers: number;
+  perSite: number;
+  maxWorkers: number;
+  running: number;
+  queued: number;
+}
+
 const MODELS = "/api/settings/models";
 const enc = encodeURIComponent;
 const jobPath = (jobId: string) => `/api/jobs/${encodeURIComponent(jobId)}/application`;
@@ -584,6 +593,10 @@ export const api = {
     request<TestResult>("POST", `${MODELS}/providers/${encodeURIComponent(id)}/test`, { model }),
   assign: (main: Assignment | null, auxiliary: Assignment | null, crossCheck: Assignment | null) =>
     request<Partial<Record<Usage, Assignment>>>("PUT", `${MODELS}/assignments`, { main, auxiliary, crossCheck }),
+
+  workerSettings: () => request<WorkerSettings>("GET", "/api/settings/workers"),
+  saveWorkerSettings: (workers: number, perSite: number) =>
+    request<WorkerSettings>("PUT", "/api/settings/workers", { workers, perSite }),
 
   assets: () => request<{ assets: Asset[] }>("GET", "/api/assets"),
   upload: (file: File) => uploadFile<UploadResult>("/api/assets", file),

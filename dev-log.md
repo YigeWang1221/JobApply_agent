@@ -776,3 +776,11 @@
 - 指令：写用户自己 Chrome 上的 C011 冒烟清单（严格不提交；证明两个 Worker 重叠动作、各在自己的标签页；只弹一次允许、MCP 会话隔离；排队中和运行中插话；K1 同站点卡住单独列为已知问题，出现即记失败）和一个只读观察脚本。
 - 结果：新增 `plan/coding/C011-smoke-test.md`（推荐 `--jobapply.harness.application-workers=2` + 3 个不同网站的岗位让第三个排队）和 `plan/coding/c011_smoke_observe.py`（`watch` 记事件流和状态轮询的结构字段，`report` 打印重叠、页面地址、连接代数、插话、状态五张表；不打印填写的值）；C011 加一行指向清单。
 - 验证：脚本 `report` 对现有 3 个 Job 的文件跑通（应用没开，接口部分按读不到处理；输出只核对了结构，没看内容）；`watch` 和应用日志解析用 scratchpad 里的合成数据跑通。对真实运行中的应用订阅事件流：未运行。冒烟本身：未运行。
+
+## 2026-10-24 · C012 设置页改 Worker 数量
+
+- 日期：2026-10-24
+- 指令：用户「修改为支持前端改 worker 数量」：先写计划再施工；运行中调大马上放排队的、调小不停在跑的；存在 `storage/settings/` 的非密钥文件，`application.yml` / 命令行仍是默认值；范围 Worker 1–6、每站 1 到 Worker 数，超出 400；设置页加「同时申请」。
+- 结果：`ApplicationRunner` 两个上限改为锁里可变、执行器换成按需建线程的池、新增 `concurrency()` / `setConcurrency()`；新增 `WorkerSettingsFile`（`settings/workers.yaml`）、`WorkerSettingsController`（`GET` / `PUT /api/settings/workers`）；前端设置 →「模型」最下面加「同时申请」卡片。细节见 [C012](plan/coding/C012-worker-settings.md)。
+- 验证：`JAVA_HOME=… mvn -B -q clean verify` 退出码 0（surefire 612、failsafe 1）；`ApplicationRunnerPoolTest` 新增一条（调小不停在跑的且不放新的、调大马上放、超出范围不写文件），池测试单独连跑 5 次都通过；`frontend/` 下 `npm run build` 通过。真实应用、真实模型、真实 Chrome：未运行。
+- 偏差：无。
