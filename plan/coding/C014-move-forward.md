@@ -34,6 +34,7 @@
   - `kind: site`：站点观察，写 `playbook/sites/<host>.md`，复用 `SiteNotes`。
   - `kind: company`：公司记忆，写 `companies/<company>.md`（流程、在线简历状态、额度提示）。
   - `kind: lesson`：可复用的经验，追加到 `storage/review/lessons.md`。
+- **有的更新、没有的新增，不乱追加**（用户补充，2026-10-24，参考 Hermes `tools/memory_tool.py`、`tools/skill_manager_tool.py`，提交 e5dad4ac5）：`remember` 带 `action: add | replace | remove`。个人事实按资料键（例如 `education.masters.program_name`）写：键已经有就更新，没有才新增，写之前要先看已有的键。站点、公司、经验这几个 md 文件：`add` 拒绝完全重复的条目，`replace` / `remove` 用一段唯一的原文 `old_text` 找到要改的条目，找不到或者找到多条时报错；每个文件有大小上限，超了就要求先合并或删掉旧条目。结果里带上文件现在的条目。playbook skill 用 old_string / new_string 打补丁，先 `read_skill` 再改。新增 skill `memory-update`，写清楚什么时候记、先查后写、同一件事用 replace，两个 Agent 的提示词都指向它。
 - 提示词：申请 Agent 用户在工作台里回答了问题、填表时发现站点规律、申请停在提交前时，把值得留下的写进 memory。对话 Agent 用户在对话里说了新事实或纠正、投递之后有反馈时，写进 memory。写了什么在回复里提一句。
 - Cover Letter（申请 Agent）：表单里有 Cover Letter / 求职信 / 自我推荐 / 附言这类文本框时，Agent 先读 JD 快照（job.md 已存）、`read_resume` 读选定简历、看资料，再按资料里 `writing.md` 的要求写（没有要求时英文 200–300 词，中文 300–500 字，按表单语言），然后填进去。只写简历和资料里有的事，不编。填写报告写明「Cover Letter：Agent 起草」。有现成可用的工具时不加新工具，只改提示词，再加一个 skill `components/cover-letter`（放进 `PlaybookSeeder.BUNDLED`）。JD 快照读不到时给申请 Agent 补一个读快照的入口。
 
