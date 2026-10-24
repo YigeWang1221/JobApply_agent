@@ -105,7 +105,7 @@ public final class TrackerWriter {
             Map<String, String> lastActivity) {
         StringBuilder out = new StringBuilder(GENERATED).append("\n# 申请总表 · ").append(projectId).append("\n\n");
         table(out, List.of("#", "公司", "岗位", "类型", "城市", "投递日", "阶段", "进度", "下一件事", "最近动态", "最近核验",
-                "同步", "下一步"));
+                "下次查看", "同步", "下一步"));
         for (Job job : applications) {
             row(out, List.of(
                     String.valueOf(numbers.get(job.id())),
@@ -119,6 +119,7 @@ public final class TrackerWriter {
                     cell(nextEvent(job)),
                     cell(shortDate(lastActivity.get(job.id()))),
                     cell(shortDate(job.extraString("last_checked_at"))),
+                    cell(shortDate(job.extraString("next_check_at"))),
                     PENDING,
                     cell(job.extraString("next_action"))));
         }
@@ -192,7 +193,9 @@ public final class TrackerWriter {
             new Column("next_event.what", row -> nested(row.job(), "next_event", "what")),
             new Column("next_event.at", row -> nested(row.job(), "next_event", "at")),
             new Column("last_activity", Row::lastActivity),
+            new Column("applied_at", row -> row.job().extraString("applied_at")),
             new Column("last_checked_at", row -> row.job().extraString("last_checked_at")),
+            new Column("next_check_at", row -> row.job().extraString("next_check_at")),
             new Column("sync", row -> PENDING),
             new Column("next_action", row -> row.job().extraString("next_action")),
             new Column("blocker", row -> row.job().extraString("blocker")),
@@ -230,7 +233,11 @@ public final class TrackerWriter {
         if (evidence == null) {
             return null;
         }
-        return evidence.officialTime() != null ? evidence.officialTime() : evidence.localTime();
+        if (evidence.officialTime() != null) {
+            return evidence.officialTime();
+        }
+        String appliedAt = job.extraString("applied_at");
+        return appliedAt != null ? appliedAt : evidence.localTime();
     }
 
     private static String nextEvent(Job job) {

@@ -1,5 +1,7 @@
 # C003 · Playwright MCP 接通：连接本机 Chrome、交给用户登录、快照、身份核对、断开重连
 
+> 更正（2026-10-23）：本文按当时的决定以扩展模式（`--extension`）为默认。现在默认是远程调试模式（`--cdp-endpoint chrome`），不用 Playwright 扩展，见 workflow.md「Chrome MCP」。下面保留当时的施工记录。
+
 - 对应 Master：[workflow.md](../master/workflow.md)「里程碑」第 2 段；「Chrome MCP」「登录状态」「提交保护」（本段只开放打开页面和只读工具）「遗漏检查」第 6 项（故障恢复）；[memory.md](../master/memory.md)（`checkpoints.sqlite`、申请线程 thread id = job id、`browser/sites.md`）
 - 状态：**完成**（用户已验收，2026-10-22）。登录与身份的判断从 C004 起交给模型，`LoginPageDetector` 改为只作提示，见 [C004 要点](C004-harness-guard.md)。日期：2026-10-22。
 

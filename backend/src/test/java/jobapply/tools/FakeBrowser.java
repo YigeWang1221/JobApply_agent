@@ -124,6 +124,16 @@ public final class FakeBrowser {
         return save();
     }
 
+    /**
+     * 多标签页模式：浏览器里现在开着 {@code urls} 这些标签页，当前是第 {@code current} 个。整组替换（服务端新开、切换时
+     * 也会写回场景文件，测试在两次调用之间用它模拟用户关标签页、在标签页里换了网址）。要在设置页面之后调用。
+     */
+    public synchronized FakeBrowser tabs(int current, String... urls) {
+        scenario.put("tabs", List.of(urls));
+        scenario.put("currentTab", current);
+        return save();
+    }
+
     /** 下一次调用时服务端直接退出，不回应（一次性）。 */
     public synchronized FakeBrowser exitOnNextCall() {
         scenario.put("exitOnNextCall", true);
@@ -134,6 +144,12 @@ public final class FakeBrowser {
     /** 之后每次调用都返回这条错误，直到传入 null。 */
     public synchronized FakeBrowser toolError(String error) {
         scenario.put("toolError", error == null ? "" : error);
+        return save();
+    }
+
+    /** 之后 {@code browser_find} 原样返回这段文字（模仿真实 MCP 在结果后面带上 Open tabs、Page 等小节）。 */
+    public synchronized FakeBrowser findText(String raw) {
+        scenario.put("findText", raw);
         return save();
     }
 

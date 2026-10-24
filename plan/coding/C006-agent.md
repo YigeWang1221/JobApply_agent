@@ -50,4 +50,15 @@
 
 ## 实际结果
 
-（施工后填写）
+施工日期 2026-10-23（用户同意施工）。
+
+- 思考：`ModelCaller.message` 取最后一个 generation（Spring AI 的 Anthropic 回复里每个 thinking 块单独一个 generation，排在前面），`ModelCaller.thinking` 读供应商真的给出的思考：Anthropic 是前面那些带 `signature` 属性的 generation；OpenAI 兼容格式是 AssistantMessage metadata 里的 `reasoningContent`（Spring AI 从 `reasoning_content` / `reasoning` 取，没有时是空字符串）。存进 assistant Turn 的 `thinking`，`Conversation` 不发回给模型。
+- 「显示思考」开关：用途分配加了 `showThinking`（默认 false，`models.yaml` 里是 `show_thinking`），**现在不改变请求**。核实 Spring AI 2.0.1：只有把它返回的那个 AssistantMessage 原样传回时才会发回 thinking 块（`AnthropicAssistantMessage`、`AnthropicThinkingContent` 都不公开）；本项目每轮从存下的对话重新拼消息，拼不回去；而且它发回时把文字排在 thinking 块前面，模型同时写了文字和工具调用时不符合 Anthropic 的要求。所以 Anthropic 暂时不开 extended thinking。
+- 步骤：`AgentRun.ToolResult` 加 `status`（done / failed / rejected，按结果开头的「失败」「被拒绝」「没有点」「没有执行」「没有开始」判断）、`startedAt`、`ms`，两个循环在执行工具处填；Session 的 `transcript.jsonl` 也存这几项和 `thinking`。旧记录读回为 null。视图的 assistant 消息加 `steps`（思考 + 工具：参数是 JSON 对象，结果截到 4,000 字，`endedAt` = `startedAt` + `ms`），`tools` 照旧。
+- 正在做什么：`workflow/LiveFeed`（每个 Runner 一个，内存）记当前活动和这一轮已经执行完、还没写进对话的结果；循环通过 `harness/runtime/LoopObserver` 报告。Session 视图和 Job 详情加 `activity`，`sessions[].status` 加上（running / idle / interrupted）。
+- 推送：`GET /api/sessions/{id}/events`、`GET /api/jobs/{id}/events`（`api/EventStream`，SseEmitter，30 分钟超时），事件 `activity`、`step`、`message`、`status`；连上时先发一次当前活动。
+- 重新生成：`POST /api/sessions/{id}/regenerate`（202，返回 SessionView）。在跑、或最后一条用户消息之后没有回复时 409。改写 `transcript.jsonl`：去掉上一次回答的文字和 `ask_user`，留下有结果的工具调用和结果；追加 note 列出已经生效的 `add_lead`、`update_lead`、`start_application`。对话 Agent 的 `start_application` 遇到已经有申请线程的 Job 时拒绝（结果「被拒绝：」），不再重新开始。
+- 标题：没写标题的 Session（「新对话 · 」开头）收到第一条用户消息时，标题换成消息的前 30 个字。
+- 运行状态落盘：`session.md` 的 `last_status`、`last_error`；应用重启后记着 running 的显示为 `interrupted`，错误是「应用重启了，上一次运行被中断。回复后接着做。」。
+- 没做：被中断的那一轮如果留下没有结果的工具调用，下一条消息发给模型时可能出错（原来就有，本步没改）。
+- 验证：`mvn -B clean verify` 通过（611 个单元测试 + 1 个 IT）。没有改测试、没有新增测试（第一次跑时设置接口的测试失败，原因是 `Assignment` 用了基本类型 boolean、Jackson 3 默认不接受缺少的基本类型字段，改成 `Boolean` 后通过）。真实模型、`npm run build`、浏览器里的确认：未运行。

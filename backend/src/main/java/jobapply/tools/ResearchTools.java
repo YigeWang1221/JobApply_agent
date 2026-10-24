@@ -20,6 +20,8 @@ public final class ResearchTools {
     public static final String ADD_LEAD = "add_lead";
     public static final String UPDATE_LEAD = "update_lead";
     public static final String START_APPLICATION = "start_application";
+    public static final String MARK_SUBMITTED = "mark_submitted";
+    public static final String RECORD_STATUS = "record_status";
     public static final String ASK_USER = ControlTools.ASK_USER;
     public static final String READ_SKILL = ControlTools.READ_SKILL;
 
@@ -54,36 +56,70 @@ public final class ResearchTools {
                     {"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}"""),
             definition(LIST_JOBS,
                     "List the jobs of this project: leads in the pool and applications, with id, company, title, city, "
-                            + "status, verification and links. Call it before adding leads to avoid duplicates, and when "
-                            + "the user refers to jobs.",
+                            + "status, verification and links; applied jobs also show when they were submitted, last "
+                            + "checked and next check (marked 该查看了 when due). Call it before adding leads to avoid "
+                            + "duplicates, and when the user refers to jobs.",
                     """
                     {"type":"object","properties":{"status":{"type":"string",\
-                    "enum":["lead","new","shortlisted","skipped","applying","all"],\
+                    "enum":["lead","new","shortlisted","skipped","closed","applying","applied","check_due","all"],\
                     "description":"Filter; default all"}}}"""),
             definition(ADD_LEAD,
-                    "Put a job you have actually read (search result or page) into the lead pool as new and not "
-                            + "verified. url must be a link you saw. note: why it fits or what to check (1-2 sentences). "
-                            + "Duplicates (same company + link) are rejected with the existing id.",
+                    "Put a job into the lead pool as new and not verified, after reading its own detail page (not "
+                            + "only a search snippet or list page). url must be a link you saw. note: why it fits, the "
+                            + "key requirements (degree, graduation year, direction, city, deadline) and whether it is "
+                            + "still hiring. Don't add postings the page says are closed. "
+                            + "Calling it again for the same company + link adds nothing and returns the existing id. "
+                            + "The page you read (web_fetch or browser, in any earlier message too) is kept as the JD "
+                            + "snapshot; if you read the details at a different address than url, give it as source.",
                     """
                     {"type":"object","properties":{\
                     "company":{"type":"string"},"title":{"type":"string"},"url":{"type":"string"},\
+                    "source":{"type":"string","description":"optional: the address of the page you read the details \
+                    from, when it is not url"},\
                     "city":{"type":"array","items":{"type":"string"}},\
                     "type":{"type":"string","description":"e.g. 校招·全职, 实习, 社招"},\
                     "note":{"type":"string"}},"required":["company","title","url"]}"""),
             definition(UPDATE_LEAD,
-                    "Update a lead: status shortlisted (user wants it) / skipped (needs note as reason) / new; record an "
+                    "Update a lead: status shortlisted (user wants it) / skipped (needs note as reason) / closed (the "
+                            + "posting is taken down or no longer hiring, per its page or the user) / new; record an "
                             + "official-site check with verified = verified | not_found and official_url; replace note.",
                     """
                     {"type":"object","properties":{"job":{"type":"string","description":"Job id"},\
-                    "status":{"type":"string","enum":["new","shortlisted","skipped"]},\
+                    "status":{"type":"string","enum":["new","shortlisted","skipped","closed"]},\
                     "verified":{"type":"string","enum":["verified","not_found"]},\
                     "official_url":{"type":"string"},"note":{"type":"string"}},"required":["job"]}"""),
             definition(START_APPLICATION,
                     "Turn a lead into an application and hand it to the application agent, which opens the job page in "
                             + "Chrome and fills the form up to (not including) the final submit. Only for jobs the user "
-                            + "asked to apply to. One application runs at a time.",
+                            + "asked to apply to. One application runs at a time. If the job already has an application thread it "
+                            + "is not restarted; the result says so (with its status).",
                     """
                     {"type":"object","properties":{"job":{"type":"string","description":"Job id"}},\
+                    "required":["job"]}"""),
+            definition(MARK_SUBMITTED,
+                    "Record that the user has submitted this application themselves in Chrome (they said so in the "
+                            + "chat). The user's word is the evidence; the job moves to applied and the next status check "
+                            + "is scheduled. note: the user's words. Only when the user clearly said it was submitted and "
+                            + "it is clear which job; otherwise ask first. Works whatever the application was doing (a "
+                            + "running application agent is stopped first); a job already applied returns the recorded "
+                            + "time and records nothing new.",
+                    """
+                    {"type":"object","properties":{"job":{"type":"string","description":"Job id"},\
+                    "note":{"type":"string","description":"What the user said"}},"required":["job"]}"""),
+            definition(RECORD_STATUS,
+                    "Record what the user found when checking an applied job (email / careers site). No phase and no "
+                            + "outcome: checked, nothing new. phase: screening / assessment / interview / offer when it "
+                            + "moved on. outcome: rejected / withdrawn / ghosted / accepted / declined / posting_closed (the posting "
+                            + "was taken down) when it ended. A job still being prepared (not submitted yet) can only end: "
+                            + "outcome posting_closed, or not_submitted when the user no longer wants to apply. "
+                            + "Repeating the same call records nothing new. "
+                            + "note: the user's words. next_check_in_days: when to remind again (default from "
+                            + "preferences, usually 4); with a deadline or interview date, set it to the day before.",
+                    """
+                    {"type":"object","properties":{"job":{"type":"string","description":"Job id"},\
+                    "phase":{"type":"string","enum":["screening","assessment","interview","offer"]},\
+                    "outcome":{"type":"string","enum":["rejected","withdrawn","ghosted","accepted","declined","posting_closed","not_submitted"]},\
+                    "note":{"type":"string"},"next_check_in_days":{"type":"integer","minimum":1,"maximum":90}},\
                     "required":["job"]}"""),
             definition(ASK_USER,
                     "Hand control to the user and end this turn: e.g. ask them to log in to a careers site in Chrome, "
@@ -98,7 +134,7 @@ public final class ResearchTools {
                     {"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}"""));
 
     private static final Set<String> NAMES = Set.of(WEB_SEARCH, WEB_FETCH, LIST_JOBS, ADD_LEAD, UPDATE_LEAD,
-            START_APPLICATION, ASK_USER, READ_SKILL);
+            START_APPLICATION, MARK_SUBMITTED, RECORD_STATUS, ASK_USER, READ_SKILL);
 
     private ResearchTools() {
     }

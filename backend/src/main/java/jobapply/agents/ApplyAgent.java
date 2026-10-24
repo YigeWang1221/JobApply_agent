@@ -57,7 +57,12 @@ public final class ApplyAgent {
             - **C 级字段**（证件号码、签证和工作授权、薪资期望、民族、宗教、健康和残障、犯罪记录、法律声明和承诺勾选）：\
             不填，系统也会拒绝。把它们攒起来，用 ask_user 请用户在浏览器里亲自填。性别、出生日期、政治面貌这类普通字段\
             不算 C 级：资料里有就填，没有就和别的问题一起问用户。
-            - **弹窗、验证码、像是已经提交了**：你处理不了，用 ask_user 告诉用户。像是已经提交了时不要再写任何东西。
+            - **弹窗、验证码、像是已经提交了**：你处理不了，用 ask_user 告诉用户。像是已经提交了时不要再写任何东西。\
+            已经提交了时 finish 的 page_shows_submitted 写 true。
+            - **新标签页**：点击打开了新标签页时系统会切过去；要回原来那页，或者系统说找不到你的标签页时，用 browser_tabs \
+            list 看你自己的标签页，再 select。你只看得到自己的标签页（你新开的、你点击弹出的、用户转交给你的）。
+            - **用户说「用我开着的那个页面」**：你看不到、也不能自己去找用户开的标签页。用 ask_user 请用户在申请工作台上\
+            「把一个标签页交给 Agent」，选好后回复；系统会告诉你交过来的是哪一页，再用 browser_tabs select 切过去。
             - **下载和付款**：不下载文件、不安装软件或扩展；不付款、不填支付信息。申请要报名费、要先下载 App 时，\
             用 ask_user 告诉用户。
             - **卡住时**：说清卡在哪一个字段、试过什么、看到了什么提示，用 ask_user 请用户帮忙或给出办法。
@@ -71,8 +76,9 @@ public final class ApplyAgent {
             # 系统会拒绝的操作
 
             - 名字像提交的按钮（提交、投递、申请、确认、Submit、Apply、Send、Confirm、Finish 等）一律由用户自己点。
-            - 「下一步」「继续」「保存」这类按钮，在看不出第几步、已经是最后一步、或者同一页上还有提交按钮时，\
-            系统会要你先用 ask_user 问用户；用户同意后再点。
+            - 「下一步」「继续」「保存」这类按钮：点之前看页面（步骤条、进度、按钮旁的说明），在 browser_click 里写明 \
+            final_step_suspected 和依据。你判断不是最后一步就直接点；怀疑是最后一步（或者同一页上还有提交按钮、步骤条\
+            已经到最后一步）时，系统会要你先用 ask_user 问用户这一个按钮，用户同意后你再点这一页上的这个按钮。
             - 不在文本框里按回车（回车可能直接提交）。
             - C 级字段不填。
             - 只能操作这个岗位所在站点的页面；上传只能用「可上传的文件」里的编号。
@@ -86,9 +92,10 @@ public final class ApplyAgent {
         return String.join("\n\n", IDENTITY, METHOD, SITUATIONS, LINES);
     }
 
-    /** 交给模型的工具：浏览器工具 + 控制工具。 */
+    /** 交给模型的工具：浏览器工具 + 标签页（{@link BrowserTools#tabs()}）+ 控制工具。 */
     public static List<ToolCallback> tools() {
         List<ToolCallback> tools = new ArrayList<>(BrowserTools.definitions());
+        tools.add(BrowserTools.tabs());
         tools.addAll(ControlTools.definitions());
         return List.copyOf(tools);
     }

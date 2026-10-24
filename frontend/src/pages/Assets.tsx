@@ -12,7 +12,7 @@ interface Notice {
 type Tab = "originals" | "sources" | "review" | "profile";
 
 const TABS: [Tab, string][] = [
-  ["originals", "原件"], ["sources", "来源"], ["review", "整理与确认"], ["profile", "事实与画像"],
+  ["originals", "简历与原件"], ["sources", "来源"], ["review", "整理与确认"], ["profile", "事实与画像"],
 ];
 
 // 「资料」页的页签：原件（C004-A）、来源（C004-A-1）、整理与确认和事实与画像（C004-A-2）

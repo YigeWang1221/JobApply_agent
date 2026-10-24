@@ -7,6 +7,7 @@ import jobapply.tools.BrowserSession;
 import jobapply.tools.WebFetch;
 import jobapply.tools.WebSearch;
 import jobapply.workflow.ApplicationRunner;
+import jobapply.workflow.RuntimeEvents;
 import jobapply.workflow.SessionRunner;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -37,10 +38,19 @@ public class ApplicationConfiguration {
         return new BrowserSession(properties.toLaunch(layout));
     }
 
+    /** 应用级事件日志（C006-fix）：两个 Runner、台账和 {@code GET /api/events} 共用一个。 */
+    @Bean
+    RuntimeEvents runtimeEvents(Clock clock, BrowserSession browser) {
+        RuntimeEvents events = new RuntimeEvents(clock);
+        // 浏览器连接状态变了发全局事件 browser（C006-fix-browser 第 1 节），界面顶部的状态条跟着它
+        browser.onChange(events::browser);
+        return events;
+    }
+
     @Bean(destroyMethod = "close")
     ApplicationRunner applicationRunner(StorageLayout layout, Clock clock, BrowserSession browser,
-                                        ModelRegistry models, HarnessProperties limits) {
-        return new ApplicationRunner(layout, clock, browser, models::main, limits);
+                                        ModelRegistry models, HarnessProperties limits, RuntimeEvents events) {
+        return new ApplicationRunner(layout, clock, browser, models::main, limits, events);
     }
 
     @Bean

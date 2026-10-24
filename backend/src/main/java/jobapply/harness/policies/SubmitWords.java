@@ -19,9 +19,11 @@ public final class SubmitWords {
     static final List<String> HARD_EN = List.of(
             "submit", "apply", "send", "finish", "confirm", "complete", "finalize", "done");
 
-    /** 软边界：「下一步 / 保存」一类，要看模型给的用途。 */
-    static final List<String> SOFT_ZH = List.of("下一步", "下一页", "继续", "保存", "暂存", "存草稿", "草稿");
-    static final List<String> SOFT_EN = List.of("next", "continue", "save", "proceed", "draft");
+    /** 软边界：「下一步 / 保存」一类，要看模型给的判断。往前走的（下一步）和保存的分开：页面上的硬信号只对往前走的算。 */
+    static final List<String> NEXT_ZH = List.of("下一步", "下一页", "继续");
+    static final List<String> NEXT_EN = List.of("next", "continue", "proceed");
+    static final List<String> SAVE_ZH = List.of("保存", "暂存", "存草稿", "草稿");
+    static final List<String> SAVE_EN = List.of("save", "draft");
 
     /** 疑似已提交的页面。 */
     static final List<String> SUBMITTED_ZH = List.of(
@@ -39,6 +41,9 @@ public final class SubmitWords {
     static final List<String> VERIFICATION_EN = List.of(
             "captcha", "recaptcha", "hcaptcha", "verify you are human", "verify you're human", "i'm not a robot",
             "i am not a robot", "security check", "are you a robot");
+
+    /** 申请 Agent 结束时页面已经像投递成功了，给用户的话以这句开头（界面据此提示「确认一下」，C007）。 */
+    public static final String SUBMITTED_NOTICE = "页面显示已经投递了。";
 
     private SubmitWords() {
     }
@@ -58,7 +63,12 @@ public final class SubmitWords {
     }
 
     public static boolean isSoft(String name) {
-        return matches(normalize(name), SOFT_ZH, SOFT_EN);
+        return isNext(name) || matches(normalize(name), SAVE_ZH, SAVE_EN);
+    }
+
+    /** 软边界里往前走的那种（下一步、继续、Next）：可能直接把申请交出去。 */
+    public static boolean isNext(String name) {
+        return matches(normalize(name), NEXT_ZH, NEXT_EN);
     }
 
     public static boolean looksSubmitted(String pageText) {

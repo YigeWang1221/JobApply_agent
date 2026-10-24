@@ -1,5 +1,8 @@
 package jobapply.harness.runtime;
 
+import static jobapply.harness.runtime.ToolArgs.parse;
+import static jobapply.harness.runtime.ToolArgs.text;
+
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -15,7 +18,6 @@ import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 import jobapply.agents.ApplyAgent;
 import jobapply.config.HarnessProperties;
-import jobapply.config.ModelFactory;
 import jobapply.domain.AgentRun;
 import jobapply.domain.Fact;
 import jobapply.domain.FactClass;
@@ -31,8 +33,10 @@ import jobapply.harness.policies.SnapshotRedactor;
 import jobapply.harness.policies.SubmitGuard;
 import jobapply.harness.policies.SubmitWords;
 import jobapply.harness.policies.ToolNotAllowedException;
+import jobapply.harness.runtime.AgentLoop.Step;
 import jobapply.memory.ProfileResolver;
 import jobapply.memory.ResolvedFact;
+import jobapply.persistence.AttachmentStore;
 import jobapply.persistence.FillReportWriter;
 import jobapply.persistence.JobAnswers;
 import jobapply.persistence.LedgerFile;
@@ -46,29 +50,27 @@ import jobapply.tools.BrowserTools;
 import jobapply.tools.ControlTools;
 import jobapply.tools.PageSnapshot;
 import jobapply.tools.SnapshotIndex;
-import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.prompt.ChatOptions;
-import org.springframework.ai.chat.prompt.Prompt;
-import tools.jackson.core.JacksonException;
-import tools.jackson.core.type.TypeReference;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Agent 循环（agent-runtime.md 7.1）：拼消息 → 调主模型 → 依次执行工具调用 → 结果放回对话 → 下一轮。
  * 流程上的事（登录、下一步做什么、卡住了怎么办、要不要问用户）都由模型决定。
+ * 循环本身（停止、上限、计时、观察者事件）在 {@link AgentLoop}，和对话 Agent（{@link SessionLoop}）共用；
+ * 这里只有申请 Agent 的工具、上下文和结束条件。
  * <p>
  * 一次运行在这些时候结束，结束时返回更新过的 {@link AgentRun}：
  * <ul>
  *   <li>模型调 {@code ask_user}，或者只回了文字：等用户回复；</li>
  *   <li>模型调 {@code finish}：停在最终提交前（{@link AgentRun#READY}）；</li>
- *   <li>浏览器断开：等用户回复后重连；</li>
+ *   <li>浏览器断开：停下等你（断开记在 {@link BrowserSession} 的连接状态里；回复或点「重新连接」后再连）；</li>
  *   <li>用户要求停止；</li>
  *   <li>这一次运行的工具调用到了上限：让模型总结做到哪了，交给用户决定要不要继续。</li>
  * </ul>
- * 代码只拒绝提交类按钮（{@link SubmitGuard}；拿不准会不会提交的「下一步」类按钮要模型先问用户）、C 级字段（{@link FieldClassGuard}）和白名单以外的操作
+ * 代码只拒绝提交类按钮（{@link SubmitGuard}；「下一步」类按钮由模型判断是不是最后一步，怀疑是时先问用户，批准只对那一页的
+ * 那个按钮有效一次）、C 级字段（{@link FieldClassGuard}）和白名单以外的操作
  * （{@link BrowserToolPolicy}），拒绝的原因作为工具结果交回模型。重复操作、页面出现验证或弹窗都只在结果里提醒。
  * <p>
  * 填过什么记在报告草稿里（{@link FillReportWriter#writeDraft}）；过程日志只记工具、元素的角色和名字、页面标题和地址、
@@ -79,13 +81,11 @@ public final class HarnessLoop {
     static final String STOPPED = "已按你的要求停下。回复后接着做。";
 
     private static final Set<String> TEXT_INPUTS = Set.of("textbox", "searchbox", "spinbutton");
-    private static final JsonMapper JSON = JsonMapper.builder().build();
-    private static final TypeReference<Map<String, Object>> MAP = new TypeReference<>() {
-    };
 
     private final ChatModel model;
     private final BrowserSession browser;
     private final StorageLayout layout;
+    private final Clock clock;
     private final HarnessProperties limits;
     private final ProfileResolver resolver;
     private final JobAnswers answers;
@@ -101,6 +101,7 @@ public final class HarnessLoop {
         this.model = model;
         this.browser = browser;
         this.layout = layout;
+        this.clock = clock;
         this.limits = limits == null ? HarnessProperties.defaults() : limits;
         this.resolver = new ProfileResolver(layout, clock);
         this.answers = new JobAnswers(layout, clock);
@@ -119,11 +120,16 @@ public final class HarnessLoop {
      * @throws RuntimeException 主模型出错、重试也不行时（调用方记为失败）
      */
     public AgentRun run(AgentRun run, BooleanSupplier stop, Consumer<AgentRun> progress) {
+        return run(run, stop, progress, LoopObserver.NONE);
+    }
+
+    /** 同上；{@code observer} 收到「正在做什么」（调模型、执行工具）和每一步的结果。 */
+    public AgentRun run(AgentRun run, BooleanSupplier stop, Consumer<AgentRun> progress, LoopObserver observer) {
         if (!seeded) {
             seeder.seed();
             seeded = true;
         }
-        return new Round(run, stop, progress).go();
+        return new Round(run, stop, progress, observer == null ? LoopObserver.NONE : observer).go();
     }
 
     /** 一个 Job 的报告草稿：按「页面 + 字段」去重，后填的覆盖先填的。 */
@@ -162,53 +168,48 @@ public final class HarnessLoop {
     }
 
     /**
-     * 一次工具调用的结果。
-     *
-     * @param page 调用之后的页面（只有最新的一份会原样发给模型）；没有时为 null
-     * @param end  结束这一次运行：拿到当前状态，返回结束时的状态；不结束时为 null
+     * 一次运行的内存状态：这个 Agent 在共用循环（{@link AgentLoop}）里的那一份——工具、上下文和结束条件。
+     * 一次工具调用的结果是 {@link Step}，结束时交回结束时的 {@link AgentRun}。
      */
-    private record Step(AgentRun.ToolResult result, PageSnapshot page, UnaryOperator<AgentRun> end) {
-    }
-
-    /** 一次运行的内存状态。 */
-    private final class Round {
+    private final class Round implements AgentLoop.Agent<AgentRun> {
 
         private final AgentRun run;
-        private final BooleanSupplier stop;
         private final Consumer<AgentRun> progress;
+        private final AgentLoop<AgentRun> loop;
         private final LoopDetector detector;
-        private final List<AgentRun.Turn> turns;
         private final Draft draft = new Draft();
         private List<AgentRun.PlanItem> plan;
         private long modelCalls;
-        private long toolCalls;
         private long tokens;
-        private int callsThisRun;
         private List<JobAnswers.Answer> sessionAnswers;
         private Map<String, ResolvedFact> profileZh;
         private Map<String, ResolvedFact> profileEn;
         private SkillCatalog catalog;
         private PageSnapshot latest;
-        private Conversation.LatestPage latestPage;
-        /** 这次运行里守卫要求先问用户的软边界按钮；随 {@code ask_user} 交给用户。 */
-        private String pendingButton;
+        /** 这次运行里守卫要求先问用户的那一次点击（页面 + ref + 名字）；模型接着 {@code ask_user} 时记成批准。 */
+        private SubmitGuard.Approval pendingApproval;
+        /** 用户批准过的一次点击（存在 {@link AgentRun#lastPage()} 里）；用过或者翻到别的网址就清掉。 */
+        private SubmitGuard.Approval approval;
 
-        Round(AgentRun run, BooleanSupplier stop, Consumer<AgentRun> progress) {
+        Round(AgentRun run, BooleanSupplier stop, Consumer<AgentRun> progress, LoopObserver observer) {
             this.run = run;
-            this.stop = stop == null ? () -> false : stop;
             this.progress = progress == null ? ignored -> {
             } : progress;
+            // 调模型回来时用户已经要求停止：丢掉这条回复直接停（和对话 Agent 不同，见 AgentLoop）
+            this.loop = new AgentLoop<>(model, ApplyAgent.tools(), clock, limits.toolCallsPerRun(), true, stop,
+                    observer, run.conversation(), null);
             this.detector = new LoopDetector(limits);
-            this.turns = new ArrayList<>(run.conversation());
             this.plan = run.plan();
             this.modelCalls = run.usage().modelCalls();
-            this.toolCalls = run.usage().toolCalls();
             this.tokens = run.usage().tokens();
             // 每次运行都从文件读回草稿：应用重启后前面的行还在
             reports.load(run.project(), run.job()).ifPresent(draft::restore);
             draft.company = run.company();
             draft.title = run.title();
             draft.round = run.round();
+            AgentRun.ApprovedClick approved = run.lastPage() == null ? null : run.lastPage().approved();
+            this.approval = approved == null ? null
+                    : new SubmitGuard.Approval(approved.url(), approved.ref(), approved.button());
         }
 
         AgentRun go() {
@@ -219,81 +220,106 @@ public final class HarnessLoop {
             profileEn = FillContext.sendable(resolver.resolve(run.project(), answerFacts, Language.EN), ledger::find);
 
             try {
-                if (!browser.ownsTab(run.job())) {
-                    latest = browser.open(run.url(), run.job());
-                    turns.add(AgentRun.Turn.page("系统打开了岗位链接 " + run.url() + "。"));
-                } else {
-                    latest = browser.snapshot(run.job());
-                    turns.add(AgentRun.Turn.page("系统取了一次当前页面。"));
-                }
+                latest = startPage();
             } catch (BrowserException.Disconnected e) {
                 return disconnected(e.getMessage());
             } catch (BrowserException.ToolFailed e) {
                 return waiting("读不到当前页面（" + e.getMessage() + "）。确认 Chrome 里这个页面开着，然后回复，我再试一次。");
             }
-            latestPage = new Conversation.LatestPage(latest, turns.size() - 1, null);
+            seen(latest);
+            loop.showPage(latest);
             detector.startAt(pageText(latest));
-            SubmitGuard.pageWarning(latest).ifPresent(warning -> turns.add(AgentRun.Turn.user("系统提醒：" + warning)));
+            SubmitGuard.pageWarning(latest).ifPresent(warning -> loop.add(AgentRun.Turn.user("系统提醒：" + warning)));
+            return loop.run(this);
+        }
 
-            while (true) {
-                if (stop.getAsBoolean()) {
-                    return waiting(STOPPED);
+        // ---- 在共用循环里的结束条件 ----
+
+        /** 只回了文字：当成对用户说的话，等用户回复（OpenMAIC 的自动 cue）。 */
+        @Override
+        public AgentRun answered(String text, String thinking) {
+            loop.reply(AgentRun.Turn.assistant(text, List.of(), thinking));
+            return waiting(text == null || text.isBlank() ? "我没有想好下一步。请看一下页面，告诉我接下来做什么。"
+                    : text.strip());
+        }
+
+        @Override
+        public AgentRun stopped() {
+            return waiting(STOPPED);
+        }
+
+        /** 每轮之后交给调用方存盘。 */
+        @Override
+        public void roundDone() {
+            progress.accept(current());
+        }
+
+        /**
+         * 开始时的页面（C006-fix-browser 第 2 节）：用户刚转交了一个标签页就切过去；否则自己的标签页还认得出就用它；
+         * 否则新开岗位链接。不按上次的网址去认别的标签页（那一页也可能是用户自己开的）：接着做时告诉模型，原来那页要是还开着、
+         * 用户想接着用，请用户在工作台上转交。
+         */
+        private PageSnapshot startPage() {
+            BrowserSession.TabInfo handed = browser.takeHandover(run.job());
+            if (handed != null) {
+                try {
+                    PageSnapshot page = browser.select(run.job(), handed.index());
+                    loop.add(AgentRun.Turn.page(handedText(handed) + "系统切过去了，下面是它的快照。"));
+                    return page;
+                } catch (IllegalArgumentException e) {
+                    loop.add(AgentRun.Turn.page(handedText(handed) + "但它现在认不出了（可能被关掉，或者换了网址），"
+                            + "系统没有读它。"));
+                } catch (BrowserException.ToolFailed | BrowserSession.TabLost e) {
+                    // 转交已经取走了：仍告诉模型，它可以自己切过去
+                    loop.add(AgentRun.Turn.page(handedText(handed) + "系统切过去时出错（" + e.getMessage() + "），"
+                            + "要在它上面做，用 browser_tabs select " + handed.index() + " 切过去。"));
                 }
-                if (callsThisRun >= limits.toolCallsPerRun()) {
-                    return limitReached();
+            }
+            if (browser.ownsTab(run.job())) {
+                try {
+                    PageSnapshot page = browser.snapshot(run.job());
+                    loop.add(AgentRun.Turn.page("系统取了一次当前页面。"));
+                    return page;
+                } catch (BrowserSession.TabLost e) {
+                    // 认不出了：新开岗位链接
                 }
-                AssistantMessage message = call();
-                if (stop.getAsBoolean()) {
-                    return waiting(STOPPED);
-                }
-                String text = message == null ? null : message.getText();
-                if (message == null || !message.hasToolCalls()) {
-                    // 只回了文字：当成对用户说的话，等用户回复（OpenMAIC 的自动 cue）
-                    turns.add(AgentRun.Turn.assistant(text, List.of()));
-                    return waiting(text == null || text.isBlank() ? "我没有想好下一步。请看一下页面，告诉我接下来做什么。"
-                            : text.strip());
-                }
-                List<AgentRun.ToolCall> calls = message.getToolCalls().stream()
-                        .map(call -> new AgentRun.ToolCall(call.id(), call.name(), call.arguments())).toList();
-                turns.add(AgentRun.Turn.assistant(text, calls));
-                int toolTurn = turns.size();
-                List<AgentRun.ToolResult> results = new ArrayList<>();
-                UnaryOperator<AgentRun> end = null;
-                for (AgentRun.ToolCall call : calls) {
-                    if (end != null || stop.getAsBoolean()) {
-                        results.add(new AgentRun.ToolResult(call.id(), call.name(), "没有执行：这一次运行已经结束。"));
-                        continue;
-                    }
-                    callsThisRun++;
-                    toolCalls++;
-                    Step step = handle(call);
-                    results.add(step.result());
-                    if (step.page() != null) {
-                        latestPage = new Conversation.LatestPage(step.page(), toolTurn, call.id());
-                    }
-                    end = step.end();
-                }
-                turns.add(AgentRun.Turn.tool(results));
-                progress.accept(current());
-                if (end != null) {
-                    return end.apply(current());
-                }
+            }
+            String lastUrl = run.lastPage() == null ? null : run.lastPage().url();
+            PageSnapshot opened = browser.open(run.url(), run.job());
+            if (lastUrl == null) {
+                loop.add(AgentRun.Turn.page("系统打开了岗位链接 " + run.url() + "。"));
+            } else {
+                loop.add(AgentRun.Turn.page("系统打开了岗位链接 " + run.url() + "。上次做到的页面（" + lastUrl
+                        + "）已经不算你的标签页了（应用重启、浏览器重连或者那一页被关掉后，系统不按网址认回，"
+                        + "因为同一个网址的那一页也可能是用户自己开的）。在新打开的页面上接着做；上次填了一半的内容要是"
+                        + "不在了，下一次对用户说话时顺带告诉用户：原来那页要是还开着、想接着用，请他在申请工作台上"
+                        + "「把一个标签页交给 Agent」。"));
+            }
+            return opened;
+        }
+
+        /** 「用户把标签页 N（标题、网址）交给你了。」 */
+        private static String handedText(BrowserSession.TabInfo tab) {
+            return "用户把标签页 " + tab.index() + "（" + (tab.title() == null || tab.title().isBlank() ? "无标题"
+                    : tab.title()) + "，" + tab.url() + "）交给你了。";
+        }
+
+        /** 页面变了：记下最新的页面；批准过的那次点击不是这一页的就作废。 */
+        private void seen(PageSnapshot page) {
+            if (approval != null && (page == null || !approval.url().equals(page.url()))) {
+                approval = null;
             }
         }
 
-        /** 调主模型（{@link ModelCaller}：暂时出错时等一会儿再试）。 */
-        private AssistantMessage call() {
-            ChatResponse response = ModelCaller.call(model,
-                    new Prompt(FillContext.messages(inputs(), turns, latestPage), options()), stop);
-            recordUsage(response);
-            return response == null || response.getResult() == null ? null : response.getResult().getOutput();
+        @Override
+        public List<Message> messages(List<AgentRun.Turn> turns, Conversation.LatestPage latestPage) {
+            return FillContext.messages(inputs(), turns, latestPage,
+                    new AttachmentStore(layout.jobAttachmentsDir(run.job())));
         }
 
-        private ChatOptions options() {
-            return ModelFactory.withTools(model, ApplyAgent.tools());
-        }
-
-        private void recordUsage(ChatResponse response) {
+        /** 每次调模型之后记用量。 */
+        @Override
+        public void responded(ChatResponse response) {
             modelCalls++;
             long in = 0;
             long out = 0;
@@ -316,25 +342,32 @@ public final class HarnessLoop {
         }
 
         /** 到了这一次运行的上限：让模型总结做到哪了（不再执行工具），交给用户决定要不要继续。 */
-        private AgentRun limitReached() {
-            log(RunLog.Entry.budget(run.session(), step(), "run_limit", toolCalls, tokens));
-            turns.add(AgentRun.Turn.user("系统：这一次运行已经用了 " + callsThisRun + " 次工具调用，到了上限。"
-                    + "不要再调用工具，用几句话告诉用户：做到哪了、还剩什么、卡在哪里。"));
-            AssistantMessage message = call();
-            String text = message == null || message.getText() == null ? "" : message.getText().strip();
-            turns.add(AgentRun.Turn.assistant(text, List.of()));
+        @Override
+        public AgentRun.Turn limitTurn(int calls) {
+            log(RunLog.Entry.budget(run.session(), step(), "run_limit", toolCalls(), tokens));
+            return AgentRun.Turn.user("系统：这一次运行已经用了 " + calls + " 次工具调用，到了上限。"
+                    + "不要再调用工具，用几句话告诉用户：做到哪了、还剩什么、卡在哪里。");
+        }
+
+        @Override
+        public AgentRun summarized(String text, String thinking) {
+            loop.reply(AgentRun.Turn.assistant(text, List.of(), thinking));
             return waiting((text.isEmpty() ? "这一次运行做了很多步，到了上限。" : text) + "\n\n回复「继续」我接着做。");
         }
 
         // ---- 工具调用 ----
 
-        private Step handle(AgentRun.ToolCall call) {
+        @Override
+        public Step<AgentRun> handle(AgentRun.ToolCall call) {
             String name = call.name();
             if (ControlTools.isControlTool(name)) {
                 return control(call);
             }
+            if (BrowserTools.TABS.equals(name)) {
+                return tabs(call);
+            }
             if (!BrowserTools.isBrowserTool(name)) {
-                return result(call, "失败：没有这个工具：" + name + "。");
+                return failedResult(call, "失败：没有这个工具：" + name + "。");
             }
             BrowserTools.Call translated;
             try {
@@ -345,24 +378,30 @@ public final class HarnessLoop {
             return browser(call, translated);
         }
 
-        private Step browser(AgentRun.ToolCall call, BrowserTools.Call translated) {
+        private Step<AgentRun> browser(AgentRun.ToolCall call, BrowserTools.Call translated) {
             String tool = translated.tool();
             String ref = translated.args().get("target") instanceof String target ? target : null;
             PageSnapshot before = latest;
 
             if (BrowserToolPolicy.CLICK.equals(tool)) {
-                switch (SubmitGuard.click(latest, ref, run.askedButton())) {
+                switch (SubmitGuard.click(latest, ref, translated.click(), approval)) {
                     case GuardDecision.Reject reject -> {
                         return rejected(call, translated, ref, reject.reason(), buttonName(latest, ref));
                     }
                     case GuardDecision.AskUser ask -> {
-                        pendingButton = ask.button();
+                        pendingApproval = new SubmitGuard.Approval(latest.url(), ref, ask.button());
                         log(RunLog.Entry.guard(run.session(), step(), tool, ref, element(latest, ref), "ask_user",
                                 page(latest), ask.reason()));
-                        return result(call, "没有点：" + ask.reason() + "。先用 ask_user 问用户「" + ask.button()
-                                + "」能不能点（说明你的依据）；用户同意后再点它，系统就会放行。");
+                        return rejectedResult(call, "没有点：" + ask.reason() + "。先用 ask_user 问用户「" + ask.button()
+                                + "」能不能点（说明你的依据）。");
+                    }
+                    case GuardDecision.Explain explain -> {
+                        return rejectedResult(call, "没有点：" + explain.reason() + "。");
                     }
                     default -> {
+                        if (approval != null && approval.matches(latest, ref, buttonName(latest, ref))) {
+                            approval = null; // 批准只用一次
+                        }
                     }
                 }
             }
@@ -387,11 +426,14 @@ public final class HarnessLoop {
                 return ended(call, current -> disconnectedRun(current, e.getMessage()));
             } catch (BrowserException.ToolFailed e) {
                 return failed(call, tool, ref, translated.args().toString(), translated.write(), e.getMessage());
+            } catch (BrowserSession.TabLost e) {
+                return tabLost(call, e.getMessage());
             } catch (IllegalStateException e) {
                 return ended(call, current -> disconnectedRun(current, e.getMessage()));
             }
 
             latest = after;
+            seen(after);
             boolean changedPage = !(after.url() + after.title()).equals(before.url() + before.title());
             if (translated.write()) {
                 recordFields(translated, before);
@@ -403,6 +445,14 @@ public final class HarnessLoop {
                     changedPage ? "page_changed" : "ok"));
 
             StringBuilder text = new StringBuilder(resultText(translated));
+            String notice = browser.takeNotice(run.job());
+            if (notice != null) {
+                text.append("\n系统：").append(notice);
+            }
+            String handed = withHandover("");
+            if (!handed.isEmpty()) {
+                text.append(handed);
+            }
             SubmitGuard.pageWarning(after).ifPresent(warning -> text.append("\n系统提醒：").append(warning));
             detector.record(new LoopDetector.Action(tool, ref, translated.args().toString(), translated.write(), false,
                     pageText(after))).ifPresent(reminder -> {
@@ -410,11 +460,89 @@ public final class HarnessLoop {
                                 page(after)));
                         text.append('\n').append(reminder);
                     });
-            return new Step(new AgentRun.ToolResult(call.id(), call.name(), text.toString()), after, null);
+            return Step.<AgentRun>done(call, text.toString()).withPage(after);
+        }
+
+        /**
+         * 模型的 {@code browser_tabs}：{@code list} 只列这个 Job 自己的标签页（它新开的、它点击弹出的、用户转交的），
+         * {@code select} 切过去并取快照。参数不发给 MCP，由 {@link BrowserSession} 以系统身份去列、去切。
+         */
+        private Step<AgentRun> tabs(AgentRun.ToolCall call) {
+            Map<String, Object> args;
+            try {
+                args = parse(call.arguments());
+            } catch (IllegalArgumentException e) {
+                return failedResult(call, "失败：" + e.getMessage());
+            }
+            Object action = args.get("action");
+            try {
+                if ("list".equals(action)) {
+                    List<BrowserSession.TabInfo> listed = browser.tabs(run.job());
+                    log(RunLog.Entry.toolCall(run.session(), step(), BrowserTools.TABS, null, null, null, null,
+                            page(latest), "ok"));
+                    return result(call, withHandover(listed.isEmpty() ? "你现在没有自己的标签页。"
+                            : "你的标签页（用户自己的和别的任务的标签页你看不到）：\n" + tabLines(listed)));
+                }
+                if ("select".equals(action)) {
+                    if (!(args.get("index") instanceof Number number) || number.intValue() < 0) {
+                        return failedResult(call, "失败：select 要给 browser_tabs list 列出的序号 index");
+                    }
+                    PageSnapshot before = latest;
+                    PageSnapshot after = browser.select(run.job(), number.intValue());
+                    latest = after;
+                    seen(after);
+                    log(RunLog.Entry.toolCall(run.session(), step(), BrowserTools.TABS, null, null, null, null,
+                            page(after), before == null || !after.url().equals(before.url()) ? "page_changed" : "ok"));
+                    StringBuilder text = new StringBuilder("已切到标签页 ").append(number.intValue())
+                            .append("。系统取了新的快照：");
+                    SubmitGuard.pageWarning(after).ifPresent(warning -> text.append("\n系统提醒：").append(warning));
+                    return Step.<AgentRun>done(call, text.toString()).withPage(after);
+                }
+                return failedResult(call, "失败：browser_tabs 的 action 只能是 list 或 select");
+            } catch (IllegalArgumentException e) {
+                return rejectedResult(call, "被拒绝：" + e.getMessage() + "。");
+            } catch (BrowserException.Disconnected e) {
+                return ended(call, current -> disconnectedRun(current, e.getMessage()));
+            } catch (BrowserException.ToolFailed e) {
+                return failedResult(call, "失败：" + e.getMessage());
+            }
+        }
+
+        /**
+         * 这个 Job 的标签页认不出了（被关掉，或者页面自己换了网址）：不在别的标签页上操作。它还有别的自己的标签页
+         * （点击弹出的、用户转交的）时列给模型；一个都没有时重新打开岗位链接。
+         */
+        private Step<AgentRun> tabLost(AgentRun.ToolCall call, String reason) {
+            List<BrowserSession.TabInfo> mine;
+            try {
+                mine = browser.tabs(run.job());
+                if (mine.isEmpty()) {
+                    PageSnapshot opened = browser.open(run.url(), run.job());
+                    latest = opened;
+                    seen(opened);
+                    return Step.<AgentRun>rejected(call, "没有执行：" + reason
+                            + "。你也没有别的标签页，系统新开了岗位链接 " + run.url() + "，下面是它的快照。原来那页要是还开着、"
+                            + "用户想接着用，请他在申请工作台上「把一个标签页交给 Agent」：")
+                            .withPage(opened);
+                }
+            } catch (BrowserException.Disconnected e) {
+                return ended(call, current -> disconnectedRun(current, e.getMessage()));
+            } catch (BrowserException.ToolFailed e) {
+                return failedResult(call, "失败：" + reason + "；列标签页也失败了：" + e.getMessage());
+            }
+            return rejectedResult(call, withHandover("没有执行：" + reason + "。你还有这些标签页，用 browser_tabs select "
+                    + "切过去再接着做：\n" + tabLines(mine)));
+        }
+
+        /** 运行中用户转交了一个标签页：结果后面附一句，由模型决定要不要 {@code browser_tabs select} 过去。 */
+        private String withHandover(String text) {
+            BrowserSession.TabInfo handed = browser.takeHandover(run.job());
+            return handed == null ? text : text + "\n系统：" + handedText(handed) + "要在它上面做，用 browser_tabs select "
+                    + handed.index() + " 切过去。";
         }
 
         /** 有 C 级字段时拒绝整次调用（不发给浏览器），报告里记为「用户亲填」；没有时为 null。 */
-        private Step classC(AgentRun.ToolCall call, BrowserTools.Call translated) {
+        private Step<AgentRun> classC(AgentRun.ToolCall call, BrowserTools.Call translated) {
             String tool = translated.tool();
             SnapshotIndex index = SnapshotIndex.of(latest);
             List<String> labels = new ArrayList<>();
@@ -436,16 +564,18 @@ public final class HarnessLoop {
                 return null;
             }
             writeDraft();
-            return result(call, "被拒绝，这次调用没有执行：「" + String.join("」「", labels) + "」是 C 级字段，由用户亲自填写。"
+            return rejectedResult(call, "被拒绝，这次调用没有执行：「" + String.join("」「", labels) + "」是 C 级字段，由用户亲自填写。"
                     + "把其它字段去掉再填；最后用 ask_user 请用户在浏览器里填这些字段。");
         }
 
-        private Step find(AgentRun.ToolCall call, BrowserTools.Call translated, BrowserToolPolicy.Context policy) {
+        private Step<AgentRun> find(AgentRun.ToolCall call, BrowserTools.Call translated, BrowserToolPolicy.Context policy) {
             String found;
             try {
                 found = browser.find(run.job(), translated.args(), policy);
             } catch (ToolNotAllowedException e) {
                 return rejected(call, translated, null, e.getMessage(), null);
+            } catch (BrowserSession.TabLost e) {
+                return tabLost(call, e.getMessage());
             } catch (BrowserException.Disconnected | IllegalStateException e) {
                 return ended(call, current -> disconnectedRun(current, e.getMessage()));
             } catch (BrowserException.ToolFailed e) {
@@ -460,7 +590,7 @@ public final class HarnessLoop {
             return result(call, text.toString());
         }
 
-        private Step rejected(AgentRun.ToolCall call, BrowserTools.Call translated, String ref, String reason,
+        private Step<AgentRun> rejected(AgentRun.ToolCall call, BrowserTools.Call translated, String ref, String reason,
                               String button) {
             String tool = translated.tool();
             log(RunLog.Entry.guard(run.session(), step(), tool, ref, element(latest, ref), "reject", page(latest),
@@ -473,41 +603,41 @@ public final class HarnessLoop {
             StringBuilder text = new StringBuilder("被拒绝：").append(reason);
             detector.record(new LoopDetector.Action(tool, ref, translated.args().toString(), translated.write(), true,
                     reason)).ifPresent(reminder -> text.append('\n').append(reminder));
-            return result(call, text.toString());
+            return rejectedResult(call, text.toString());
         }
 
-        private Step failed(AgentRun.ToolCall call, String tool, String ref, String action, boolean write,
+        private Step<AgentRun> failed(AgentRun.ToolCall call, String tool, String ref, String action, boolean write,
                             String message) {
             log(RunLog.Entry.toolCall(run.session(), step(), tool, ref, element(latest, ref), null, null,
                     page(latest), "error"));
             StringBuilder text = new StringBuilder("失败：").append(message);
             detector.record(new LoopDetector.Action(tool, ref, action, write, true, message))
                     .ifPresent(reminder -> text.append('\n').append(reminder));
-            return result(call, text.toString());
+            return failedResult(call, text.toString());
         }
 
         // ---- 控制工具 ----
 
-        private Step control(AgentRun.ToolCall call) {
+        private Step<AgentRun> control(AgentRun.ToolCall call) {
             Map<String, Object> args;
             try {
                 args = parse(call.arguments());
             } catch (IllegalArgumentException e) {
-                return result(call, "失败：" + e.getMessage());
+                return failedResult(call, "失败：" + e.getMessage());
             }
             return switch (call.name()) {
                 case ControlTools.ASK_USER -> askUser(call, args);
                 case ControlTools.UPDATE_PLAN -> updatePlan(call, args);
                 case ControlTools.READ_SKILL -> readSkill(call, text(args.get("name")));
                 case ControlTools.FINISH -> finish(call, args);
-                default -> result(call, "失败：没有这个工具：" + call.name());
+                default -> failedResult(call, "失败：没有这个工具：" + call.name());
             };
         }
 
-        private Step askUser(AgentRun.ToolCall call, Map<String, Object> args) {
+        private Step<AgentRun> askUser(AgentRun.ToolCall call, Map<String, Object> args) {
             String message = text(args.get("message"));
             if (message == null) {
-                return result(call, "失败：ask_user 要写 message（直接写给用户：要用户做什么、做完怎么回复）");
+                return failedResult(call, "失败：ask_user 要写 message（直接写给用户：要用户做什么、做完怎么回复）");
             }
             List<AgentRun.Question> questions = new ArrayList<>();
             for (Map<?, ?> item : maps(args.get("questions"))) {
@@ -527,12 +657,16 @@ public final class HarnessLoop {
                 }
             }
             log(RunLog.Entry.waiting(run.session(), step(), "ask_user", page(latest), null));
+            if (pendingApproval != null) {
+                // 守卫刚要求问的那一次点击：用户回复后，同一页上的这个按钮放行一次
+                approval = pendingApproval;
+                pendingApproval = null;
+            }
             return ended(call, "已经交给用户，等用户回复。",
-                    current -> current.waiting(message, questions, slots, false)
-                            .withAskedButton(pendingButton != null ? pendingButton : run.askedButton()));
+                    current -> current.waiting(message, questions, slots));
         }
 
-        private Step updatePlan(AgentRun.ToolCall call, Map<String, Object> args) {
+        private Step<AgentRun> updatePlan(AgentRun.ToolCall call, Map<String, Object> args) {
             List<AgentRun.PlanItem> items = new ArrayList<>();
             for (Map<?, ?> item : maps(args.get("items"))) {
                 String text = text(item.get("text"));
@@ -542,34 +676,37 @@ public final class HarnessLoop {
                 }
             }
             if (items.isEmpty()) {
-                return result(call, "失败：update_plan 至少要有一项");
+                return failedResult(call, "失败：update_plan 至少要有一项");
             }
             plan = List.copyOf(items);
             return result(call, "计划已更新。");
         }
 
-        private Step readSkill(AgentRun.ToolCall call, String name) {
+        private Step<AgentRun> readSkill(AgentRun.ToolCall call, String name) {
             SkillCatalog.LoadedSkill skill;
             try {
                 skill = catalog.load(name == null ? "" : name);
             } catch (RuntimeException e) {
-                return result(call, "失败：" + e.getMessage());
+                return failedResult(call, "失败：" + e.getMessage());
             }
             log(RunLog.Entry.skillLoaded(run.session(), step(), skill.name()));
             return result(call, "skill「" + skill.name() + "」：\n\n" + skill.body());
         }
 
-        private Step finish(AgentRun.ToolCall call, Map<String, Object> args) {
+        private Step<AgentRun> finish(AgentRun.ToolCall call, Map<String, Object> args) {
             draft.unresolved.addAll(strings(args.get("unresolved")));
             writeDraft();
             String summary = text(args.get("summary"));
             log(RunLog.Entry.waiting(run.session(), step(), "finish", page(latest), null));
-            // 页面已经像是投递成功了（例如「下一步」直接完成了投递）：不再说「最终提交由你自己点」
-            String tail = latest != null && SubmitWords.looksSubmitted(latest.visibleText())
-                    ? "页面显示已经投递了。请在 Chrome 里核对投递状态和填写报告。"
+            // 页面已经像是投递成功了（例如「下一步」直接完成了投递）：模型看最新快照判断（page_shows_submitted）；
+            // 模型没给时退回关键词判断。不再说「最终提交由你自己点」
+            boolean submitted = args.get("page_shows_submitted") instanceof Boolean shows ? shows
+                    : latest != null && SubmitWords.looksSubmitted(latest.visibleText());
+            String tail = submitted
+                    ? SubmitWords.SUBMITTED_NOTICE + "请在 Chrome 里核对投递状态和填写报告。"
                     : "请在 Chrome 里核对页面和填写报告，最终提交由你自己点。要修改时直接回复要改什么。";
             String message = (summary == null ? "能填的都填好了。" : summary) + "\n\n" + tail;
-            return ended(call, "已结束，交给用户审阅。", current -> current.ready(message));
+            return ended(call, "已结束，交给用户审阅。", current -> current.ready(message, submitted));
         }
 
         // ---- 报告 ----
@@ -639,43 +776,76 @@ public final class HarnessLoop {
 
         // ---- 结束一次运行 ----
 
-        private Step result(AgentRun.ToolCall call, String text) {
-            return new Step(new AgentRun.ToolResult(call.id(), call.name(), text), null, null);
+        /** 做成了。状态在产生结果的地方定下，不靠结果的开头去猜（C006-fix）。 */
+        private Step<AgentRun> result(AgentRun.ToolCall call, String text) {
+            return Step.done(call, text);
         }
 
-        private Step ended(AgentRun.ToolCall call, UnaryOperator<AgentRun> end) {
-            return ended(call, "失败：浏览器连接断开了。", end);
+        /** 没做成：参数不对、出错。 */
+        private Step<AgentRun> failedResult(AgentRun.ToolCall call, String text) {
+            return Step.failed(call, text);
         }
 
-        private Step ended(AgentRun.ToolCall call, String text, UnaryOperator<AgentRun> end) {
-            return new Step(new AgentRun.ToolResult(call.id(), call.name(), text), null, end);
+        /** 被守卫拒绝、没有执行。 */
+        private Step<AgentRun> rejectedResult(AgentRun.ToolCall call, String text) {
+            return Step.rejected(call, text);
+        }
+
+        /**
+         * 浏览器断开了：这次调用失败，运行结束（{@code end} 拿到这一轮结束时的状态）。申请 Agent 断开 = 结束这次运行、
+         * 等用户说重连（agent-runtime.md 7.1）；对话 Agent 不结束，见 {@link SessionLoop}。
+         */
+        private Step<AgentRun> ended(AgentRun.ToolCall call, UnaryOperator<AgentRun> end) {
+            return Step.<AgentRun>failed(call, "失败：浏览器连接断开了。").ending(() -> end.apply(current()));
+        }
+
+        /** 做成了，并且结束这次运行（交给用户、停在提交前）。 */
+        private Step<AgentRun> ended(AgentRun.ToolCall call, String text, UnaryOperator<AgentRun> end) {
+            return Step.<AgentRun>done(call, text).ending(() -> end.apply(current()));
         }
 
         private AgentRun waiting(String message) {
             log(RunLog.Entry.waiting(run.session(), step(), "user", latest == null ? null : page(latest), null));
-            return current().waiting(message, List.of(), List.of(), false);
+            return current().waiting(message, List.of(), List.of());
         }
 
         private AgentRun disconnected(String reason) {
             return disconnectedRun(current(), reason);
         }
 
+        /**
+         * 申请 Agent 遇到浏览器断开：停下等你（对话 Agent 是这一步失败、接着做，两边的应对有意不同）。断开本身记在
+         * 全局的连接状态里（{@link BrowserSession#state()}），这里不另存；自动重连已经在下一次使用时试过一次了。
+         */
         private AgentRun disconnectedRun(AgentRun current, String reason) {
             log(RunLog.Entry.waiting(run.session(), step(), "reconnect", null, null));
-            return current.waiting("浏览器连接断开了（" + reason + "）。请确认 Chrome 开着、连接已经允许，然后回复，"
-                    + "我会重新连接并接着做。", List.of(), List.of(), true);
+            return current.waiting("浏览器断开：" + reason + "。请确认 Chrome 开着、chrome://inspect/#remote-debugging 里的远程调试开关已经打开，"
+                    + "然后回复（或者先点页面顶部的「重新连接」），我会接着做。", List.of(), List.of());
         }
 
         private AgentRun current() {
-            return run.withProgress(plan, new AgentRun.Usage(modelCalls, toolCalls, tokens), turns);
+            AgentRun progressed = run.withProgress(plan, new AgentRun.Usage(modelCalls, toolCalls(), tokens),
+                    loop.turns());
+            // 最后的页面地址（接着做时按它认回原页）和用户批准过的那一次点击
+            String url = latest != null ? latest.url() : run.lastPage() == null ? null : run.lastPage().url();
+            AgentRun.ApprovedClick approved = approval == null ? null
+                    : new AgentRun.ApprovedClick(approval.url(), approval.ref(), approval.button());
+            return progressed.withLastPage(new AgentRun.LastPage(url, approved, false));
         }
 
         private int step() {
             return (int) modelCalls;
         }
 
+        /** 用过的工具调用次数：之前几次运行的，加上这一次的。 */
+        private long toolCalls() {
+            return run.usage().toolCalls() + loop.calls();
+        }
+
         private List<Path> stagedPaths() {
-            return run.files().stream().map(file -> layout.uploadsDir(run.job()).resolve(file.uploadName())).toList();
+            return run.files().stream().map(file -> file.attachment() == null
+                    ? layout.uploadsDir(run.job()).resolve(file.uploadName())
+                    : layout.jobAttachmentsDir(run.job()).resolve(file.attachment()).resolve(file.uploadName())).toList();
         }
 
         private List<String> siteUrls() {
@@ -710,6 +880,17 @@ public final class HarnessLoop {
             return "已上传文件 " + call.fileNumbers() + "。系统取了新的快照：";
         }
         return "完成。系统取了新的快照：";
+    }
+
+    /** 给模型看的标签页列表（只有它自己的）：一行一个，{@code - 序号: [标题](网址)}，标明正在用的。 */
+    private static String tabLines(List<BrowserSession.TabInfo> tabs) {
+        StringBuilder out = new StringBuilder();
+        for (BrowserSession.TabInfo tab : tabs) {
+            out.append("- ").append(tab.index()).append(": ")
+                    .append(tab.inUse() ? "（正在用）" : "")
+                    .append('[').append(tab.title()).append("](").append(tab.url()).append(")\n");
+        }
+        return out.toString().strip();
     }
 
     private static FillReportWriter.Confidence confidence(String code) {
@@ -794,22 +975,6 @@ public final class HarnessLoop {
         } catch (IllegalArgumentException e) {
             return null;
         }
-    }
-
-    private static Map<String, Object> parse(String json) {
-        if (json == null || json.isBlank()) {
-            return Map.of();
-        }
-        try {
-            Map<String, Object> parsed = JSON.readValue(json, MAP);
-            return parsed == null ? Map.of() : parsed;
-        } catch (JacksonException e) {
-            throw new IllegalArgumentException("参数不是 JSON 对象");
-        }
-    }
-
-    private static String text(Object value) {
-        return value instanceof String text && !text.isBlank() ? text.strip() : null;
     }
 
     private static List<String> strings(Object value) {

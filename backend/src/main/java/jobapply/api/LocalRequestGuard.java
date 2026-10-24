@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 import jobapply.config.ApiProperties;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -17,12 +18,15 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * 浏览器里的网页也能向 127.0.0.1 发请求。为了不让别的网页冒充用户（例如发「好了」、改模型设置）：
  * 带 {@code Origin} 请求头的请求只放行 {@code jobapply.api.allowed-origins} 里的本机前端地址，其它一律 403；
  * 不带的（curl）照常放行。写请求必须是 {@code application/json}，网页就不能用简单表单绕过预检；
- * 唯一的例外是上传原件（{@code POST /api/assets}），允许 {@code multipart/form-data}。
+ * 例外是上传原件（{@code POST /api/assets}）和上传附件（{@code POST .../application/attachments}、
+ * {@code POST /api/sessions/{id}/attachments}，C006 附件），允许 {@code multipart/form-data}。
  */
 @Component
 class LocalRequestGuard extends OncePerRequestFilter {
 
     static final String UPLOAD_PATH = "/api/assets";
+    private static final Pattern ATTACHMENT_PATHS = Pattern.compile(
+            "/api/jobs/[^/]+/application/attachments|/api/sessions/[^/]+/attachments");
 
     private final Set<String> allowedOrigins;
 
@@ -56,7 +60,9 @@ class LocalRequestGuard extends OncePerRequestFilter {
 
     private static boolean isUpload(HttpServletRequest request) {
         String contentType = request.getContentType();
-        return "POST".equals(request.getMethod()) && UPLOAD_PATH.equals(request.getRequestURI())
+        return "POST".equals(request.getMethod())
+                && (UPLOAD_PATH.equals(request.getRequestURI())
+                || ATTACHMENT_PATHS.matcher(request.getRequestURI()).matches())
                 && contentType != null
                 && contentType.toLowerCase(Locale.ROOT).startsWith(MediaType.MULTIPART_FORM_DATA_VALUE);
     }

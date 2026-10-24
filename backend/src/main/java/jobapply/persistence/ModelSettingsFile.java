@@ -62,7 +62,22 @@ public final class ModelSettingsFile {
         }
     }
 
-    public record Assignment(String provider, String model) {
+    /**
+     * 一个用途分配给哪个提供方的哪个模型。
+     *
+     * @param showThinking 「显示思考」（C006-agent）。现在不改变请求：Anthropic 的 extended thinking 带工具调用时要把上一轮的
+     *                     thinking 块（含签名）原样发回，本项目每一轮从存下的对话重新拼消息，Spring AI 2.0.1 的
+     *                     thinking 内容类型不公开，拼不回去；OpenAI 兼容格式的推理字段不用开关，有就显示。
+     */
+    public record Assignment(String provider, String model, Boolean showThinking) {
+
+        public Assignment {
+            showThinking = Boolean.TRUE.equals(showThinking);
+        }
+
+        public Assignment(String provider, String model) {
+            this(provider, model, false);
+        }
     }
 
     /**
@@ -197,7 +212,7 @@ public final class ModelSettingsFile {
                 } else if (entry.getValue() != null) {
                     Map<String, Object> value = map(file, entry.getValue(), "assignments." + entry.getKey());
                     assignments.put(entry.getKey(), new Assignment(string(value.get("provider")),
-                            string(value.get("model"))));
+                            string(value.get("model")), Boolean.TRUE.equals(value.get("show_thinking"))));
                 }
             }
         }
@@ -248,6 +263,9 @@ public final class ModelSettingsFile {
                 Map<String, Object> value = new LinkedHashMap<>();
                 value.put("provider", a.provider());
                 value.put("model", a.model());
+                if (Boolean.TRUE.equals(a.showThinking())) {
+                    value.put("show_thinking", true);
+                }
                 return (Object) value;
             }).orElse(null));
         }

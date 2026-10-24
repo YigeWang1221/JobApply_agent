@@ -34,6 +34,20 @@ public record JobStatus(
     }
 
     /**
+     * 可以开始申请线程：还是候选（new / shortlisted，开始时转为申请），或者在 prep 里、用户还没有接手提交
+     * （你在提交、等验证、没确认的不行）。{@code ApplicationRunner.start} 和界面的「开始申请」都用它。
+     */
+    public boolean canStartApplication() {
+        if (leadStatus == LeadStatus.NEW || leadStatus == LeadStatus.SHORTLISTED) {
+            return true;
+        }
+        return phase == Phase.PREP && switch (prepState) {
+            case SELECTED, PREPARING, NEEDS_LOGIN, NEEDS_INPUT, HANDOFF_USER, FAILED, AWAITING_REVIEW, PAUSED -> true;
+            case USER_SUBMITTING, VERIFICATION_PENDING, UNCONFIRMED -> false;
+        };
+    }
+
+    /**
      * 用于事件和台账的状态标签，例如 {@code lead:new}、{@code prep:awaiting_review}、{@code closed:rejected}。
      */
     public String label() {

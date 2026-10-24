@@ -9,8 +9,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * 浏览器连接属于应用（用户确认，2026-10-23）：一条连接给所有 Job 用，不会自己关掉再重新申请；连接失败或断开以后
- * 不自动重试（每次重试 Chrome 都会再弹一次确认），等用户发 {@code reconnected}。
+ * 浏览器连接属于应用（用户确认，2026-10-23）：一条连接给所有 Job 用，不会自己关掉再重新申请。用过的连接断开后下一次
+ * 使用自动重连一次；建立失败（包括那一次重连）以后不再自己重试，等用户点「重新连接」或发下一条消息（C006-fix-browser）。
  * 对真实的 stdio 子进程 {@link FakePlaywrightMcpServer}；不访问网络，不启动 Chrome，不调用 npx。
  */
 class BrowserSessionConnectionTest {
@@ -49,10 +49,10 @@ class BrowserSessionConnectionTest {
 
             assertThatThrownBy(() -> session.open(fake.formUrl(), SECOND))
                     .isInstanceOf(BrowserException.Disconnected.class)
-                    .hasMessageContaining("reconnected");
+                    .hasMessageContaining("还没有重新连上");
             assertThat(fake.toolCalls()).as("等用户重连期间不再碰 MCP").hasSize(callsAfterFailure);
             assertThat(fake.starts()).isEqualTo(1);
-            assertThat(session.needsUser()).isTrue();
+            assertThat(session.state().disconnected()).isTrue();
             assertThat(session.isConnected()).isFalse();
 
             fake.toolError(null);
@@ -60,8 +60,67 @@ class BrowserSessionConnectionTest {
             session.open(fake.formUrl(), SECOND);
 
             assertThat(fake.starts()).as("用户重连时才建立第二条连接").isEqualTo(2);
-            assertThat(session.needsUser()).isFalse();
+            assertThat(session.state().connected()).isTrue();
         }
+    }
+
+    /**
+     * C006-fix-browser 第 1 节：用过的连接断开后，下一次使用自动重连一次；那一次也连不上就停下，不再碰 MCP，
+     * 直到用户发消息（{@link BrowserSession#retryOnNextUse()}）或点「重新连接」。状态和连接代数跟着变，每次变化都通知。
+     */
+    @Test
+    void aUsedConnectionReconnectsOnceOnTheNextUseAndThenWaitsForTheUser() {
+        FakeBrowser fake = FakeBrowser.create(dir).form("multi-page");
+        java.util.List<BrowserState> seen = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+        try (BrowserSession session = new BrowserSession(fake.launch(Duration.ofSeconds(3)))) {
+            session.onChange(seen::add);
+            session.open(fake.formUrl(), FIRST);
+            assertThat(session.state().connected()).isTrue();
+            assertThat(session.state().generation()).isEqualTo(1);
+
+            fake.exitOnNextCall();
+            assertThatThrownBy(() -> session.snapshot(FIRST)).isInstanceOf(BrowserException.Disconnected.class);
+            assertThat(session.state().disconnected()).isTrue();
+            assertThat(session.state().reason()).isNotBlank();
+
+            // 下一次使用：自动重连成功，第二次连接，标签页要重新开（ref 不跨连接）
+            assertThat(session.ownsTab(FIRST)).isFalse();
+            session.open(fake.formUrl(), FIRST);
+            assertThat(fake.starts()).isEqualTo(2);
+            assertThat(session.state().generation()).isEqualTo(2);
+
+            // 又断了，这次自动重连也连不上
+            fake.exitOnNextCall();
+            assertThatThrownBy(() -> session.snapshot(FIRST)).isInstanceOf(BrowserException.Disconnected.class);
+            fake.toolError("Error: async initializeServer: Could not connect to chrome.");
+            assertThatThrownBy(() -> session.open(fake.formUrl(), FIRST)).isInstanceOf(BrowserException.Disconnected.class);
+            assertThat(fake.starts()).isEqualTo(3);
+            int calls = fake.toolCalls().size();
+
+            // 之后不在后台、也不在每次使用时反复重试
+            assertThatThrownBy(() -> session.open(fake.formUrl(), SECOND))
+                    .isInstanceOf(BrowserException.Disconnected.class);
+            assertThat(fake.starts()).isEqualTo(3);
+            assertThat(fake.toolCalls()).hasSize(calls);
+            assertThat(session.state().disconnected()).isTrue();
+
+            // 用户打开开关、发了下一条消息：再试一次
+            fake.toolError(null);
+            session.retryOnNextUse();
+            session.open(fake.formUrl(), FIRST);
+            assertThat(fake.starts()).isEqualTo(4);
+            assertThat(session.state().generation()).isEqualTo(3);
+
+            // 连着的时候「重新连接」不动连接
+            assertThat(session.reconnect().generation()).isEqualTo(3);
+            assertThat(fake.starts()).isEqualTo(4);
+        }
+        assertThat(seen).extracting(BrowserState::state).containsSubsequence(
+                BrowserState.CONNECTING, BrowserState.CONNECTED, BrowserState.DISCONNECTED,
+                BrowserState.CONNECTING, BrowserState.CONNECTED, BrowserState.DISCONNECTED,
+                BrowserState.CONNECTING, BrowserState.DISCONNECTED,
+                BrowserState.CONNECTING, BrowserState.CONNECTED);
     }
 
     @Test
@@ -72,7 +131,7 @@ class BrowserSessionConnectionTest {
         try (BrowserSession session = new BrowserSession(fake.launch(Duration.ofSeconds(3)))) {
             assertThatThrownBy(() -> session.open(fake.formUrl(), FIRST))
                     .isInstanceOf(BrowserException.Disconnected.class);
-            assertThat(session.needsUser()).isTrue();
+            assertThat(session.state().disconnected()).isTrue();
         }
     }
 }

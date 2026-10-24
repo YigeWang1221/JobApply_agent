@@ -1,0 +1,1032 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>JobApply 投递看板</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: app shell — project/session sidebar left, dashboard canvas right; summary row, then funnel + side lists, then board, timeline, rhythm. */
+:root{
+  --bg:#f4f4f1; --surface:#fcfcfb; --surface-2:#f0efec; --ink:#151513; --ink-2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --line:rgba(11,11,11,.10); --accent:#2a6fc4; --accent-wash:rgba(42,120,214,.10);
+  --s1:#2a78d6; --s2:#eb6834;
+  --f1:#184f95; --f2:#256abf; --f3:#2a78d6; --f4:#3987e5; --f5:#6da7ec; --f6:#86b6ef;
+  --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --crit:#d03b3b; --good-ink:#006300; --warn-ink:#8a5a00; --crit-ink:#a52a2a;
+  --sans:"IBM Plex Sans","PingFang SC","Hiragino Sans GB","Noto Sans SC",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --r:8px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f0f0e; --surface:#1a1a19; --surface-2:#232321; --ink:#f0efec; --ink-2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --line:rgba(255,255,255,.10); --accent:#5b9be6; --accent-wash:rgba(57,135,229,.16);
+  --s1:#3987e5; --s2:#d95926;
+  --f1:#86b6ef; --f2:#6da7ec; --f3:#5598e7; --f4:#3987e5; --f5:#2a78d6; --f6:#256abf;
+  --good-ink:#0ca30c; --warn-ink:#fab219; --crit-ink:#e66767; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f0f0e; --surface:#1a1a19; --surface-2:#232321; --ink:#f0efec; --ink-2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --line:rgba(255,255,255,.10); --accent:#5b9be6; --accent-wash:rgba(57,135,229,.16);
+  --s1:#3987e5; --s2:#d95926;
+  --f1:#86b6ef; --f2:#6da7ec; --f3:#5598e7; --f4:#3987e5; --f5:#2a78d6; --f6:#256abf;
+  --good-ink:#0ca30c; --warn-ink:#fab219; --crit-ink:#e66767; color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.app{display:grid;grid-template-columns:248px minmax(0,1fr);min-height:100vh}
+.side{background:var(--surface);border-right:1px solid var(--line);padding-block:18px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:14px;display:flex;flex-direction:column;gap:18px}
+.brand{font-weight:600;letter-spacing:.01em;display:flex;align-items:center;gap:8px}
+.brand i{width:18px;height:18px;border-radius:5px;background:var(--ink);display:inline-block;position:relative}
+.brand i::after{content:"";position:absolute;inset:5px;border:2px solid var(--surface);border-radius:2px;border-top-color:transparent}
+.side h6{margin:0 0 6px;font-size:11px;font-weight:500;letter-spacing:.08em;color:var(--muted);text-transform:uppercase}
+.proj{display:flex;flex-direction:column;gap:2px}
+.pbtn{display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;background:none;border:0;padding:7px 8px;border-radius:6px;cursor:pointer}
+.pbtn:hover{background:var(--surface-2)}
+.pbtn[aria-pressed="true"]{background:var(--accent-wash);font-weight:600}
+.pbtn small{color:var(--muted);font-family:var(--mono);font-size:11px}
+.sess{list-style:none;margin:2px 0 8px 10px;padding:0 0 0 10px;border-left:1px solid var(--line);display:flex;flex-direction:column;gap:1px}
+.sess button{width:100%;text-align:left;background:none;border:0;padding:4px 6px;border-radius:5px;cursor:pointer;font-size:12.5px;color:var(--ink-2);display:flex;gap:6px;align-items:center;min-width:0}
+.sess button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sess button:hover{background:var(--surface-2);color:var(--ink)}
+.sess button[aria-current="true"]{background:var(--accent-wash);color:var(--ink);font-weight:500}
+.pip{flex:none;width:7px;height:7px;border-radius:50%;background:var(--axis)}
+.pip.interview,.pip.assessment,.pip.screening,.pip.applied{background:var(--s1)}
+.pip.offer{background:var(--good)} .pip.closed{background:transparent;border:1.5px solid var(--axis)} .pip.prep{background:var(--muted)}
+.pip.unknown{background:var(--warn)}
+.side .note{margin-top:auto;font-size:12px;color:var(--muted);line-height:1.5}
+
+.main{min-width:0;padding-block:20px 48px;padding-left:24px;padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:16px}
+.top{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between}
+.top h1{margin:0;font-size:20px;font-weight:600;text-wrap:balance}
+.top p{margin:2px 0 0;color:var(--ink-2);font-size:13px}
+.tabs{display:flex;gap:2px;background:var(--surface-2);padding:3px;border-radius:8px;flex-wrap:wrap}
+.tabs button{border:0;background:none;padding:5px 12px;border-radius:6px;cursor:pointer;color:var(--ink-2);font-size:13px}
+.tabs button[aria-selected="true"]{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:0 0 0 1px var(--line)}
+.sample{font-size:11px;font-family:var(--mono);color:var(--warn-ink);border:1px solid currentColor;border-radius:4px;padding:1px 6px;vertical-align:2px;margin-left:6px}
+
+.kpis{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.kpi{background:var(--surface);padding:12px 14px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.kpi b{font-size:22px;font-weight:600;line-height:1.2}
+.kpi span{font-size:12px;color:var(--ink-2);white-space:nowrap}
+.kpi.warn b{color:var(--warn-ink)} .kpi.warn span::before{content:"⚠ "}
+.grid2{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;min-width:0;display:flex;flex-direction:column;gap:12px}
+.panel h2{margin:0;font-size:14px;font-weight:600}
+.panel .sub{margin:-8px 0 0;font-size:12px;color:var(--muted)}
+.ph{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.seg{display:flex;gap:2px;background:var(--surface-2);padding:2px;border-radius:6px}
+.seg button{border:0;background:none;padding:3px 9px;border-radius:5px;font-size:12px;cursor:pointer;color:var(--ink-2)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 0 0 1px var(--line)}
+
+/* funnel */
+.funnel{display:flex;flex-direction:column;gap:8px}
+.frow{display:grid;grid-template-columns:96px minmax(0,1fr) 92px;gap:10px;align-items:center}
+.frow .lab{font-size:13px;color:var(--ink-2)}
+.ftrack{height:22px;position:relative}
+.fbar{height:100%;border-radius:0 4px 4px 0;min-width:3px;cursor:default}
+.frow .val{font-variant-numeric:tabular-nums;font-size:13px;text-align:right;white-space:nowrap}
+.frow .val em{font-style:normal;color:var(--muted);font-size:12px}
+.flegend{font-size:12px;color:var(--muted)}
+
+/* lists */
+.list{display:flex;flex-direction:column}
+.li{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:10px;padding:8px 0;border-top:1px solid var(--grid);align-items:center}
+.li:first-child{border-top:0}
+.li time{font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+.li .t{min-width:0;font-size:13px}
+.li .t div{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.li .t small{color:var(--muted);font-size:12px}
+.chip{font-size:11.5px;border-radius:999px;padding:1px 8px;border:1px solid var(--line);white-space:nowrap;color:var(--ink-2);background:var(--surface)}
+.chip.unk{color:var(--warn-ink);border-color:color-mix(in srgb,var(--warn) 60%,transparent);background:color-mix(in srgb,var(--warn) 12%,transparent)}
+.chip.unk::before{content:"⚠ "}
+.chip.rev{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.chip.inp{color:var(--ink);border-style:dashed}
+.chip.good{color:var(--good-ink);border-color:color-mix(in srgb,var(--good) 45%,transparent)} .chip.good::before{content:"✓ "}
+.chip.bad{color:var(--crit-ink);border-color:color-mix(in srgb,var(--crit) 45%,transparent)} .chip.bad::before{content:"✕ "}
+.linkbtn{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:2px 8px;font-size:12px;cursor:pointer}
+.linkbtn:hover{background:var(--surface-2)}
+.empty{color:var(--muted);font-size:13px;padding:8px 0}
+
+/* board */
+.boardwrap{overflow-x:auto}
+.board{display:grid;grid-template-columns:repeat(7,minmax(168px,1fr));gap:10px;min-width:1200px}
+.col{display:flex;flex-direction:column;gap:8px;min-width:0}
+.colh{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2);padding:0 2px 4px;border-bottom:1px solid var(--grid)}
+.colh b{font-weight:600;color:var(--ink)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:9px 10px;display:flex;flex-direction:column;gap:6px;text-align:left;cursor:pointer;width:100%}
+.card:hover{border-color:var(--axis)}
+.card .co{font-weight:600;font-size:13px}
+.card .ro{font-size:12px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .meta{display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap}
+.ptag{font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+.dots{display:inline-flex;gap:3px;align-items:center}
+.d{width:9px;height:9px;border-radius:50%;display:inline-block;position:relative}
+.d.passed{background:var(--ink)}
+.d.pending{background:linear-gradient(90deg,var(--ink) 50%,transparent 50%);border:1.5px solid var(--ink)}
+.d.failed{background:var(--crit)}
+.d.unknown{background:var(--warn)}
+.d.expect{border:1.5px solid var(--axis)}
+.d.cancelled{border:1.5px dashed var(--axis)}
+.dtext{font-size:11.5px;color:var(--ink-2);margin-left:4px}
+.boardnote{font-size:12px;color:var(--muted)}
+
+/* svg charts */
+.chartwrap{overflow-x:auto}
+svg text{font-family:var(--sans);fill:var(--muted);font-size:11px}
+svg .ink{fill:var(--ink-2)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--ink-2);align-items:center}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.legend i.circ{border-radius:50%}
+
+/* bars small */
+.hbars{display:flex;flex-direction:column;gap:7px}
+.hb{display:grid;grid-template-columns:120px minmax(0,1fr) 28px;gap:8px;align-items:center;font-size:12.5px}
+.hb .lab{color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hb .tr{height:12px}
+.hb .bar{height:100%;background:var(--s1);border-radius:0 4px 4px 0;min-width:3px}
+.hb .bar.crit{background:var(--crit)}
+.hb .n{font-variant-numeric:tabular-nums;text-align:right;color:var(--ink)}
+
+/* tables */
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:12.5px;min-width:1100px}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--grid);white-space:nowrap;vertical-align:middle}
+th{font-weight:500;color:var(--muted);font-size:11.5px;letter-spacing:.03em;background:var(--surface-2);position:sticky;top:0}
+td.num{font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:12px}
+tr.grp td{background:var(--bg);font-weight:600;font-size:12px;color:var(--ink-2)}
+.gen{font-size:12px;color:var(--muted)}
+.gen code{font-family:var(--mono);font-size:11.5px}
+
+/* question bank */
+.qb{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px}
+.q{border-top:1px solid var(--grid);padding:10px 0;display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:10px;align-items:start}
+.q:first-child{border-top:0}
+.q .cnt{font-family:var(--mono);font-size:13px;font-weight:500;text-align:center;border:1px solid var(--line);border-radius:6px;padding:2px 0}
+.q .qt{font-size:13.5px;font-weight:500}
+.q .src{font-size:12px;color:var(--muted);margin-top:2px}
+.topic{font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+
+/* drawer */
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--surface);border-left:1px solid var(--line);box-shadow:-12px 0 32px rgba(0,0,0,.12);padding-block:calc(18px + env(safe-area-inset-top,0px)) calc(18px + env(safe-area-inset-bottom,0px));padding-left:20px;padding-right:max(20px,env(safe-area-inset-right,0px));overflow-y:auto;z-index:20;display:flex;flex-direction:column;gap:14px}
+.drawer h3{margin:0;font-size:16px}
+.drawer .x{position:absolute;top:calc(12px + env(safe-area-inset-top,0px));right:max(12px,env(safe-area-inset-right,0px));border:0;background:none;font-size:20px;cursor:pointer;color:var(--muted)}
+.rlist{display:flex;flex-direction:column;gap:0;border-left:1px solid var(--grid);margin-left:5px}
+.ritem{position:relative;padding:4px 0 12px 16px;font-size:13px}
+.ritem .d{position:absolute;left:-5px;top:9px}
+.ritem small{color:var(--muted);display:block}
+.chat{background:var(--surface-2);border-radius:8px;padding:10px 12px;font-size:12.5px;display:flex;flex-direction:column;gap:8px}
+.chat .u{align-self:flex-end;background:var(--accent-wash);border-radius:8px 8px 2px 8px;padding:6px 9px;max-width:90%}
+.chat .a{background:var(--surface);border:1px solid var(--line);border-radius:8px 8px 8px 2px;padding:6px 9px;max-width:95%}
+.chat .a ul{margin:4px 0 0;padding-left:18px}
+
+.primary{border:0;background:var(--ink);color:var(--surface);border-radius:7px;padding:6px 12px;font-size:13px;font-weight:500;cursor:pointer}
+.primary:hover{opacity:.88}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.tagc{font-family:var(--mono);font-size:10.5px;border-radius:4px;padding:0 5px;border:1px solid var(--line);color:var(--ink-2)}
+.tagc.research{color:var(--s1);border-color:color-mix(in srgb,var(--s1) 40%,transparent)}
+.tagc.apply{color:var(--ink)}
+.tagc.review{color:var(--s2);border-color:color-mix(in srgb,var(--s2) 40%,transparent)}
+.sessgrid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px}
+.chatpanel{min-height:520px}
+.chatlog{display:flex;flex-direction:column;gap:10px;flex:1}
+.msg{max-width:min(620px,92%);padding:9px 12px;border-radius:10px;font-size:13.5px;line-height:1.55}
+.msg.u{align-self:flex-end;background:var(--accent-wash);border-bottom-right-radius:3px}
+.msg.a{align-self:flex-start;background:var(--surface-2);border-bottom-left-radius:3px}
+.msg ul{margin:6px 0 0;padding-left:18px}
+.msg .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.composer{display:flex;gap:8px;border-top:1px solid var(--grid);padding-top:12px}
+.composer input{flex:1;min-width:0;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 10px;font:inherit;color:var(--ink)}
+.cogrp{border-top:1px solid var(--grid);padding:12px 0}
+.cogrp:first-child{border-top:0;padding-top:0}
+.cohead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.cohead b{font-size:14px}
+.cohead span{font-size:12px;color:var(--muted)}
+.lead{display:grid;grid-template-columns:minmax(0,1fr) 54px 130px 96px;gap:10px;align-items:center;padding:6px 0 6px 12px;border-left:2px solid var(--grid);font-size:13px}
+.lead .nm{min-width:0}
+.lead .nm div{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lead .nm small{color:var(--muted);font-size:12px}
+.lead .sc{font-family:var(--mono);font-size:12.5px;text-align:right}
+.el{font-size:11.5px;color:var(--ink-2)}
+.el.hard{color:var(--crit-ink)}
+.pform{border-top:1px solid var(--grid);padding-top:12px;display:flex;flex-direction:column;gap:10px}
+.pform h3{margin:0;font-size:13px}
+.frm{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px 12px;align-items:center;font-size:13px}
+.frm label,.frm .lbl{color:var(--ink-2)}
+.frm input:not([type=radio]),.frm select{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:7px;padding:6px 8px;font:inherit;min-width:0;width:100%}
+.radios{display:flex;flex-direction:column;gap:4px}
+.radios label{color:var(--ink)}
+.prov{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:10px 0;border-top:1px solid var(--grid);font-size:13px}
+.prov:first-child{border-top:0}
+.prov small{display:block;color:var(--muted);font-family:var(--mono);font-size:11.5px}
+@media (max-width:1100px){.sessgrid{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:760px){.lead{grid-template-columns:minmax(0,1fr) 44px;}.lead .el,.lead .chip{grid-column:1/-1;justify-self:start}.frm{grid-template-columns:minmax(0,1fr)}}
+#tip{position:fixed;pointer-events:none;background:var(--ink);color:var(--surface);font-size:12px;padding:6px 9px;border-radius:6px;z-index:30;max-width:260px;line-height:1.45;box-shadow:0 4px 14px rgba(0,0,0,.18)}
+
+@media (max-width:1100px){.kpis{grid-template-columns:repeat(4,minmax(0,1fr))}.grid2,.qb{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:760px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .side{border-right:0;border-bottom:1px solid var(--line);padding-right:max(16px,env(safe-area-inset-right,0px))}
+  .side .sess,.side .note{display:none}
+  .proj{flex-direction:row;flex-wrap:wrap}
+  .proj > div{flex:1 1 140px}
+  .main{padding-left:max(16px,env(safe-area-inset-left,0px))}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .frow{grid-template-columns:72px minmax(0,1fr) 80px}
+  .hb{grid-template-columns:90px minmax(0,1fr) 24px}
+}
+@media (prefers-reduced-motion:no-preference){.fbar,.hb .bar{transition:width .35s ease}}
+</style>
+
+<div class="app">
+  <aside class="side" aria-label="Project 与 Session">
+    <div class="brand"><i aria-hidden="true"></i>JobApply</div>
+    <button class="pbtn" id="nav-home" data-proj="all"><span>⌂ 全局 Dashboard</span><small id="homeCount"></small></button>
+    <div>
+      <h6>Projects</h6>
+      <div class="proj" id="projList"></div>
+    </div>
+    <p class="note">Project = 一份资料版本 + 偏好，不代表岗位类别。Session 是一次对话，可以只调研、调研加投递，或者回来更新面试情况；岗位（Job）跨多个 Session。</p>
+    <button class="pbtn" id="nav-settings" data-nav="settings"><span>⚙ 设置 · 模型</span></button>
+  </aside>
+
+  <main class="main">
+    <div class="top">
+      <div>
+        <h1 id="title">全局视图</h1>
+        <p id="subtitle">2026-10-22 · 所有 Project 汇总 <span class="sample">示例数据</span></p>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap" id="topRight">
+      <button class="primary" id="newSession" hidden>＋ 新建 Session</button>
+      <div class="tabs" role="tablist" aria-label="视图">
+        <button role="tab" id="tab-dash" aria-selected="true" data-view="dash">Dashboard</button>
+        <button role="tab" id="tab-leads" aria-selected="false" data-view="leads">候选池</button>
+        <button role="tab" id="tab-apps" aria-selected="false" data-view="apps">申请总表</button>
+        <button role="tab" id="tab-rounds" aria-selected="false" data-view="rounds">轮次表</button>
+        <button role="tab" id="tab-qb" aria-selected="false" data-view="qb">题库</button>
+      </div>
+      </div>
+    </div>
+
+    <section id="view-dash" style="display:flex;flex-direction:column;gap:16px">
+      <div class="kpis" id="kpis"></div>
+
+      <div class="panel" id="recentPanel" hidden>
+        <div class="ph"><h2>最近的 Session</h2><span class="boardnote">标签根据 Session 里实际发生的事自动生成</span></div>
+        <div class="list" id="recentSessions"></div>
+      </div>
+
+      <div class="grid2">
+        <div class="panel">
+          <div class="ph">
+            <h2>漏斗：多少家公司走到了哪一步</h2>
+            <div class="seg" role="group" aria-label="统计口径">
+              <button id="fm-co" aria-pressed="true" data-fm="co">按公司</button>
+              <button id="fm-app" aria-pressed="false" data-fm="app">按申请</button>
+            </div>
+          </div>
+          <p class="sub" id="funnelSub">每家公司按它各个申请里走得最远的一步计 1 次；右侧灰字是同层的申请数</p>
+          <div class="funnel" id="funnel"></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+          <div class="panel">
+            <h2>接下来 7 天</h2>
+            <div class="list" id="upcoming"></div>
+          </div>
+          <div class="panel">
+            <div class="ph"><h2>待追踪</h2><span class="chip unk">unknown = 7 天未同步</span></div>
+            <div class="list" id="unknownList"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="ph"><h2>看板</h2><span class="boardnote">只读 · 状态通过在 Session 里回复更新</span></div>
+        <div class="legend" aria-label="进度点图例">
+          <span><span class="d passed" style="margin-right:5px"></span>通过</span>
+          <span><span class="d pending" style="margin-right:5px"></span>进行中 / 待结果</span>
+          <span><span class="d failed" style="margin-right:5px"></span>未通过</span>
+          <span><span class="d unknown" style="margin-right:5px"></span>未同步</span>
+          <span><span class="d expect" style="margin-right:5px"></span>模板预计的轮次</span>
+        </div>
+        <div class="boardwrap"><div class="board" id="board"></div></div>
+      </div>
+
+      <div class="panel">
+        <div class="ph"><h2>时间线</h2><span class="boardnote">每个已投递的申请一行；竖线是今天</span></div>
+        <div class="legend">
+          <span><i class="circ" style="border:2px solid var(--ink-2);background:var(--surface)"></i>投递</span>
+          <span><i class="circ" style="background:var(--good)"></i>✓ 通过</span>
+          <span><i class="circ" style="background:var(--crit)"></i>✕ 未通过</span>
+          <span><i class="circ" style="background:var(--warn)"></i>? 未同步</span>
+          <span><i class="circ" style="background:var(--ink-2)"></i>待结果 / 已约</span>
+        </div>
+        <div class="chartwrap"><svg id="timeline" role="img" aria-label="各申请的投递与面试时间线"></svg></div>
+      </div>
+
+      <div class="grid2">
+        <div class="panel">
+          <h2>每周节奏</h2>
+          <p class="sub">按周统计的投递数和面试数（周一起算）</p>
+          <div class="legend"><span><i style="background:var(--s1)"></i>投递</span><span><i style="background:var(--s2)"></i>面试</span></div>
+          <div class="chartwrap"><svg id="weekly" role="img" aria-label="每周投递数与面试数"></svg></div>
+        </div>
+        <div class="panel">
+          <h2>复盘概览</h2>
+          <p class="sub">常考主题（按出现次数）与挂在哪一轮</p>
+          <div class="hbars" id="topics"></div>
+          <div style="height:4px"></div>
+          <div class="hbars" id="fails"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-leads" hidden>
+      <div class="panel">
+        <div class="ph"><h2>候选池</h2><span class="boardnote">调研产出的公司与岗位，按公司分组；岗位不必和 Project 名字的方向一致</span></div>
+        <div id="leads"></div>
+      </div>
+      <p class="gen">生成文件 <code>tracker/leads.md</code>，可导出 xlsx。来源是各岗位的 <code>jobs/&lt;id&gt;/job.md</code>（<code>lead_status</code>：新发现 / 想投 / 不投 / 已转申请）。</p>
+    </section>
+
+    <section id="view-session" hidden>
+      <div class="sessgrid">
+        <div class="panel chatpanel">
+          <div class="ph"><div><div class="ptag" id="sessMeta"></div><h2 id="sessTitle" style="font-size:16px"></h2></div><div id="sessTags"></div></div>
+          <div class="chatlog" id="chatlog"></div>
+          <form class="composer" id="composer">
+            <label for="composerInput" class="vh">给 Agent 发消息</label>
+            <input id="composerInput" placeholder="例如：帮我再找 5 个上海的平台后端岗位 / 投澜川的那两个 / 北辰云二面过了" autocomplete="off">
+            <button class="primary" type="submit">发送</button>
+          </form>
+        </div>
+        <div class="panel">
+          <h2>这个 Session 涉及的岗位</h2>
+          <div class="list" id="sessJobs"></div>
+          <p class="gen">一个岗位可以跨多个 Session 推进；申请流程的 Checkpoint 按岗位保存，换一个 Session 也能接着填。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-settings" hidden>
+      <div class="grid2">
+        <div class="panel">
+          <div class="ph"><h2>模型供应商</h2><span class="boardnote">支持 OpenAI 兼容格式与 Anthropic 格式</span></div>
+          <div class="list" id="providers"></div>
+          <form class="pform" id="providerForm">
+            <h3>添加供应商</h3>
+            <div class="frm">
+              <label for="pfPreset">预设</label>
+              <select id="pfPreset"></select>
+              <span class="lbl">接口格式</span>
+              <div class="radios" role="radiogroup" aria-label="接口格式">
+                <label><input type="radio" name="pfFormat" id="pfFmtOpenai" value="openai" checked> OpenAI 兼容（Chat Completions）</label>
+                <label><input type="radio" name="pfFormat" id="pfFmtAnthropic" value="anthropic"> Anthropic（Messages）</label>
+              </div>
+              <label for="pfUrl">Base URL</label>
+              <input id="pfUrl" placeholder="https://…">
+              <label for="pfKey">API key</label>
+              <input id="pfKey" type="password" placeholder="保存到 macOS 钥匙串，不写进任何文件">
+              <label for="pfModel">模型名</label>
+              <input id="pfModel" placeholder="例如：所选厂商的模型 ID">
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <button type="button" class="linkbtn" id="pfTest">测试连接</button>
+              <button type="submit" class="primary">保存</button>
+              <span class="gen" id="pfResult" role="status"></span>
+            </div>
+          </form>
+        </div>
+        <div class="panel">
+          <h2>用途分配</h2>
+          <p class="sub">不同任务用不同模型；主模型必须支持工具调用</p>
+          <div class="frm" id="assign"></div>
+          <p class="gen">配置保存在 <code>storage/settings/models.yaml</code>，里面只记钥匙串条目的名字，没有 key 本身。修改后立即生效，不用重启。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-apps" hidden>
+      <div class="tbl"><table id="appsTable"></table></div>
+      <p class="gen">生成文件 <code>tracker/applications.md</code>，请勿手改。数据来自各 Session 的 <code>session.md</code>。CSV / xlsx 导出时展开全部字段。</p>
+    </section>
+
+    <section id="view-rounds" hidden>
+      <div class="tbl"><table id="roundsTable"></table></div>
+      <p class="gen">生成文件 <code>tracker/rounds.md</code>。每一轮的原始复盘在 <code>sessions/&lt;id&gt;/rounds/</code> 下。</p>
+    </section>
+
+    <section id="view-qb" hidden>
+      <div class="qb">
+        <div class="panel">
+          <h2>常考题</h2>
+          <p class="sub">跨 Project 汇总；同一道题按 canonical 归并，左侧数字是被问过的次数</p>
+          <div id="qlist"></div>
+        </div>
+        <div class="panel">
+          <h2>按主题</h2>
+          <div class="hbars" id="qtopics"></div>
+          <p class="gen">生成文件 <code>review/questions.md</code>。在 Obsidian 里打开 <code>storage/</code> 也能直接浏览。</p>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<aside class="drawer" id="drawer" hidden aria-label="岗位详情">
+  <button class="x" id="drawerClose" aria-label="关闭">×</button>
+  <div id="drawerBody"></div>
+</aside>
+<div id="tip" hidden></div>
+
+<script>
+const TODAY = d('2026-10-22');
+const DAY = 864e5;
+function d(s){ const [y,m,dd]=s.split('-').map(Number); return new Date(Date.UTC(y,m-1,dd)); }
+function md(s){ return s ? s.slice(5) : '—'; }
+function days(a,b){ return Math.round((b-a)/DAY); }
+
+const PROJECTS = [
+  {id:'p1', name:'2025 秋招 · 资料 v2', short:'P1', desc:'简历 v2（AI 平台向）· base 跟随最新 · 上海优先'},
+  {id:'p2', name:'2024 版 · 后端简历', short:'P2', desc:'简历 v1（后端向）· base 固定在 2024-12 · 杭州优先'}
+];
+// Sessions = 对话；jobs 字段是这个 Session 涉及的岗位
+const SESSIONS = [
+  {id:'c01',p:'p1',title:'第一轮调研：上海 AI 平台方向',at:'2026-09-27',tags:['research'],jobs:['L01','L02','L03'],sum:'调研出 14 个候选，标记想投 6 个；澜川智能有 4 个岗位都匹配'},
+  {id:'c02',p:'p1',title:'投澜川、Northwind',at:'2026-09-28',tags:['apply'],jobs:['s01','s02','s08'],sum:'投递 3 个；澜川的实习岗随后被筛'},
+  {id:'c03',p:'p1',title:'澜川一面复盘',at:'2026-10-10',tags:['review'],jobs:['s01'],sum:'记录一面 4 道题，题库 +2'},
+  {id:'c04',p:'p1',title:'第二轮调研 + 投远岫',at:'2026-10-16',tags:['research','apply'],jobs:['s05','s06','L04','L05','L06'],sum:'新增 8 个候选，但只投了远岫的 2 个；剩下的留在候选池'},
+  {id:'c05',p:'p1',title:'千帆 HR 面与 Offer 沟通准备',at:'2026-10-21',tags:['review'],jobs:['s09'],sum:'HR 面通过；10-23 Offer 沟通'},
+  {id:'c06',p:'p2',title:'后端方向调研',at:'2026-09-23',tags:['research'],jobs:['L07','L08','L09'],sum:'调研出 9 个候选'},
+  {id:'c07',p:'p2',title:'投青梧、Globex、北辰云',at:'2026-09-26',tags:['research','apply'],jobs:['s12','s13','s14'],sum:'投递 3 个'},
+  {id:'c08',p:'p2',title:'投曜石云平台',at:'2026-10-12',tags:['apply'],jobs:['s15'],sum:'投递 1 个；10-25 前完成笔试'}
+];
+// 候选池里尚未转为申请的岗位（lead_status: new / shortlisted / skipped）
+const LEADS = [
+  {id:'L01',p:'p1',co:'澜川智能',title:'多智能体平台工程师',city:'上海',type:'校招·全职',score:8.4,el:'meets',st:'shortlisted',from:'c01'},
+  {id:'L02',p:'p1',co:'澜川智能',title:'后端开发工程师（搜索）',city:'上海',type:'校招·全职',score:7.9,el:'meets',st:'shortlisted',from:'c01'},
+  {id:'L03',p:'p1',co:'澜川智能',title:'模型服务工程师',city:'杭州',type:'校招·全职',score:7.6,el:'equivalent_pending',st:'new',from:'c01'},
+  {id:'L04',p:'p1',co:'远岫 AI',title:'数据平台工程师',city:'上海',type:'校招·全职',score:7.1,el:'meets',st:'new',from:'c04'},
+  {id:'L05',p:'p1',co:'弦外科技',title:'推理系统工程师',city:'深圳',type:'社招',score:5.2,el:'hard_gap',st:'skipped',why:'要求 3 年以上经验',from:'c04'},
+  {id:'L06',p:'p1',co:'青岚资本',title:'量化平台开发',city:'上海',type:'校招·全职',score:6.8,el:'equivalent_pending',st:'new',from:'c04'},
+  {id:'L07',p:'p2',co:'北辰云',title:'中间件研发工程师',city:'杭州',type:'校招·全职',score:7.7,el:'meets',st:'shortlisted',from:'c06'},
+  {id:'L08',p:'p2',co:'Globex 中国',title:'Platform Engineer',city:'上海',type:'社招',score:7.2,el:'equivalent_pending',st:'new',from:'c06'},
+  {id:'L09',p:'p2',co:'青梧数据',title:'数据开发工程师',city:'杭州',type:'校招·全职',score:6.9,el:'meets',st:'skipped',why:'同公司刚结束一个申请，暂缓',from:'c06'}
+];
+const QUOTA = {'澜川智能':'每批次最多 3 个志愿（官网）','远岫 AI':'3 个月内 4 个职位（官网）','北辰云':'额度未核实','千帆计算':'额度未核实','青梧数据':'每人限投 2 个（官网）'};
+const LEAD_ST = {new:'新发现',shortlisted:'想投',skipped:'不投',converted:'已转申请'};
+const EL_NAME = {meets:'符合',equivalent_pending:'等效经验待判断',hard_gap:'硬门槛不符'};
+const PHASES = [
+  ['prep','准备中'],['applied','已投递'],['screening','简历筛选'],['assessment','笔试 / OA'],
+  ['interview','面试中'],['offer','Offer'],['closed','已结束']
+];
+const PHASE_NAME = Object.fromEntries(PHASES);
+const OUTCOME = {rejected:'被拒',withdrawn:'主动撤回',accepted:'接受 Offer',declined:'拒绝 Offer',ghosted:'长期无回应',not_submitted:'最终未投'};
+const INTERVIEW_TYPES = ['screen-call','technical','coding','system-design','behavioral','manager','hr','final'];
+
+// 虚构示例数据：公司与岗位均为编造
+const APPS = [
+  {id:'s01',p:'p1',co:'澜川智能',title:'Agent 研发工程师',type:'校招·全职',city:'上海',applied:'2026-09-28',updated:'2026-10-17',tpl:5,
+   rounds:[{n:'笔试',t:'oa',at:'2026-10-03',r:'passed'},{n:'一面',t:'technical',at:'2026-10-10',r:'passed',q:4},{n:'二面',t:'system-design',at:'2026-10-17',r:'passed',q:3},{n:'三面',t:'manager',at:'2026-10-24',r:'pending'}],
+   next:'准备三面：项目深挖'},
+  {id:'s02',p:'p1',co:'澜川智能',title:'推理优化实习生',type:'实习',city:'上海',applied:'2026-09-28',updated:'2026-10-09',
+   rounds:[],closed:{o:'rejected',at:'简历筛选',raw:'官网显示「暂不匹配」'},next:'—'},
+  {id:'s03',p:'p1',co:'北辰云',title:'AI 平台研发工程师',type:'校招·全职',city:'杭州',applied:'2026-09-30',updated:'2026-10-19',tpl:4,
+   rounds:[{n:'一面',t:'technical',at:'2026-10-12',r:'passed',q:3},{n:'二面',t:'system-design',at:'2026-10-19',r:'pending',q:2}],
+   next:'等二面结果（HR 说一周内）'},
+  {id:'s04',p:'p1',co:'星图科技',title:'训练框架工程师',type:'校招·全职',city:'北京',applied:'2026-10-02',updated:'2026-10-16',
+   rounds:[{n:'笔试',t:'written-test',at:'2026-10-08',r:'passed'},{n:'一面',t:'coding',at:'2026-10-14',r:'failed',q:3}],
+   closed:{o:'rejected',at:'一面'},next:'—'},
+  {id:'s05',p:'p1',co:'远岫 AI',title:'后台研发工程师',type:'校招·全职',city:'上海',applied:'2026-10-16',updated:'2026-10-16',rounds:[],ph:'screening',next:'等筛选'},
+  {id:'s06',p:'p1',co:'远岫 AI',title:'Agent 研发工程师',type:'校招·全职',city:'上海',applied:'2026-10-16',updated:'2026-10-16',rounds:[],ph:'screening',next:'等筛选'},
+  {id:'s07',p:'p1',co:'弦外科技',title:'LLM 应用工程师',type:'校招·全职',city:'深圳',applied:'2026-10-05',updated:'2026-10-05',rounds:[],ph:'applied',next:'回复最新状态'},
+  {id:'s08',p:'p1',co:'Northwind Labs',title:'Software Engineer II',type:'社招',city:'苏州',applied:'2026-09-28',updated:'2026-10-13',tpl:3,
+   rounds:[{n:'Phone Screen',t:'screen-call',at:'2026-10-06',r:'passed',q:2},{n:'Onsite Loop',t:'technical',at:'2026-10-13',r:'pending',q:4}],
+   next:'回复 Onsite 结果'},
+  {id:'s09',p:'p1',co:'千帆计算',title:'GPU 平台工程师',type:'校招·全职',city:'上海',applied:'2026-10-01',updated:'2026-10-21',
+   rounds:[{n:'笔试',t:'oa',at:'2026-10-06',r:'passed'},{n:'一面',t:'technical',at:'2026-10-11',r:'passed',q:3},{n:'二面',t:'system-design',at:'2026-10-15',r:'passed',q:2},{n:'HR 面',t:'hr',at:'2026-10-20',r:'passed',q:1},{n:'Offer 沟通',t:'offer-call',at:'2026-10-23',r:'pending'}],
+   next:'10-23 Offer 沟通'},
+  {id:'s10',p:'p1',co:'曜石网络',title:'AI 应用工程师',type:'校招·全职',city:'上海',rounds:[],ph:'prep',prep:'awaiting_review',next:'关卡 B：审核填写报告'},
+  {id:'s11',p:'p1',co:'观潮量化',title:'量化平台开发',type:'校招·全职',city:'上海',rounds:[],ph:'prep',prep:'needs_input',next:'回答 3 个筛选问题'},
+  {id:'s12',p:'p2',co:'青梧数据',title:'后端开发工程师',type:'校招·全职',city:'杭州',applied:'2026-09-24',updated:'2026-10-17',
+   rounds:[{n:'笔试',t:'written-test',at:'2026-09-29',r:'passed'},{n:'一面',t:'technical',at:'2026-10-09',r:'passed',q:3},{n:'二面',t:'system-design',at:'2026-10-16',r:'failed',q:2}],
+   closed:{o:'rejected',at:'二面'},next:'—'},
+  {id:'s13',p:'p2',co:'Globex 中国',title:'Backend Engineer',type:'社招',city:'上海',applied:'2026-09-26',updated:'2026-10-02',
+   rounds:[{n:'OA',t:'oa',at:'2026-10-01',r:'passed'}],next:'回复 OA 之后的进展'},
+  {id:'s14',p:'p2',co:'北辰云',title:'Java 研发工程师',type:'校招·全职',city:'杭州',applied:'2026-09-30',updated:'2026-10-18',rounds:[],ph:'screening',next:'等筛选'},
+  {id:'s15',p:'p2',co:'曜石网络',title:'云平台开发工程师',type:'校招·全职',city:'上海',applied:'2026-10-12',updated:'2026-10-13',
+   rounds:[{n:'在线笔试',t:'oa',at:'2026-10-25',r:'pending'}],next:'10-25 前完成笔试'},
+  {id:'s16',p:'p2',co:'弦外科技',title:'平台后端工程师',type:'校招·全职',city:'深圳',applied:'2026-09-25',updated:'2026-10-08',rounds:[],closed:{o:'withdrawn',at:'已投递'},next:'—'}
+];
+
+const QUESTIONS = [
+  {q:'设计一个分布式限流器',topic:'system-design',src:['澜川智能 · 二面','北辰云 · 一面','青梧数据 · 二面'],st:'todo'},
+  {q:'手写 LRU Cache',topic:'coding',src:['星图科技 · 一面','Northwind Labs · Onsite','青梧数据 · 一面'],st:'reviewed'},
+  {q:'DDP 与 FSDP 的显存占用差异',topic:'ml-infra',src:['澜川智能 · 一面','千帆计算 · 二面'],st:'mastered'},
+  {q:'Agent 工具调用失败时如何恢复',topic:'agent',src:['澜川智能 · 二面','北辰云 · 二面'],st:'todo'},
+  {q:'MySQL 索引失效的常见场景',topic:'database',src:['青梧数据 · 一面','千帆计算 · 一面'],st:'reviewed'},
+  {q:'讲一个你推翻自己原方案的经历',topic:'behavioral',src:['Northwind Labs · Phone Screen','千帆计算 · HR 面'],st:'todo'},
+  {q:'KV Cache 与分页注意力的原理',topic:'ml-infra',src:['千帆计算 · 一面'],st:'todo'},
+  {q:'如何保证消息队列不丢消息',topic:'middleware',src:['北辰云 · 一面'],st:'reviewed'}
+];
+const ST_NAME = {todo:'待复习',reviewed:'已复习',mastered:'已掌握'};
+
+// ---- derivations (same rules as plan/jobapply-tracking.md) ----
+function roundStatus(r){
+  if (r.r==='pending' && d(r.at) <= new Date(TODAY - 7*DAY)) return 'unknown';
+  return r.r;
+}
+function phaseOf(a){
+  if (a.closed) return 'closed';
+  if (a.ph) return a.ph;
+  const last = a.rounds[a.rounds.length-1];
+  if (!last) return 'applied';
+  if (last.t==='offer-call') return 'offer';
+  if (last.t==='oa' || last.t==='written-test' || last.t==='assessment') return 'assessment';
+  return 'interview';
+}
+function hasFuture(a){ return a.rounds.some(r => r.r==='pending' && d(r.at) > TODAY); }
+function isUnknown(a){
+  const ph = phaseOf(a);
+  if (ph==='closed' || ph==='prep') return false;
+  if (hasFuture(a)) return false;
+  return days(d(a.updated), TODAY) >= 7;
+}
+function interviewCount(a){ return a.rounds.filter(r => INTERVIEW_TYPES.includes(r.t)).length; }
+function level(a){ // 漏斗层级：1 已投递 … 6 Offer
+  if (phaseOf(a)==='prep') return 0;
+  let L = 1;
+  if (a.rounds.length) L = 2;
+  const k = interviewCount(a);
+  if (k>=1) L = 3; if (k>=2) L = 4; if (k>=3) L = 5;
+  if (phaseOf(a)==='offer' || (a.closed && (a.closed.o==='accepted'||a.closed.o==='declined'))) L = 6;
+  return L;
+}
+const FUNNEL = ['已投递','通过筛选','一面','二面','三面及以上','Offer'];
+
+// ---- state ----
+let proj = 'all', view = 'dash', fmode = 'co', mode = 'dash', sessId = null;
+const liveChats = {}; // 新建 Session 与本页里发送的消息（只在本页内存中）
+try { const s = JSON.parse(localStorage.getItem('jobapply-mock')||'{}'); if (s.proj) proj = s.proj; if (s.fmode) fmode = s.fmode; } catch(e){}
+function save(){ try { localStorage.setItem('jobapply-mock', JSON.stringify({proj,fmode})); } catch(e){} }
+function scoped(){ return proj==='all' ? APPS : APPS.filter(a => a.p===proj); }
+function pshort(id){ return PROJECTS.find(p=>p.id===id).short; }
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// ---- sidebar ----
+function allSessions(){ return [...SESSIONS, ...Object.values(liveChats).map(c => c.meta).filter(m => !SESSIONS.includes(m))]; }
+function renderSide(){
+  const el = document.getElementById('projList');
+  document.getElementById('nav-home').setAttribute('aria-pressed', proj==='all' && mode==='dash');
+  document.getElementById('nav-settings').setAttribute('aria-pressed', mode==='settings');
+  document.getElementById('homeCount').textContent = APPS.length;
+  el.innerHTML = PROJECTS.map(p => {
+    const sess = allSessions().filter(s => s.p===p.id).sort((a,b) => b.at.localeCompare(a.at)).map(s =>
+      `<li><button data-session="${s.id}" aria-current="${mode==='session'&&sessId===s.id}" title="${esc(s.title)}"><span>${esc(s.title)}</span></button></li>`).join('');
+    return `<div><button class="pbtn" id="proj-${p.id}" data-proj="${p.id}" aria-pressed="${proj===p.id && mode==='dash'}"><span>${esc(p.name)}</span><small>${p.short}</small></button><ul class="sess">${sess}</ul></div>`;
+  }).join('');
+}
+function tagsHtml(tags){ return tags.map(t => `<span class="tagc ${t}">${t}</span>`).join(' '); }
+
+// ---- recent sessions (project page) ----
+function renderRecent(){
+  const panel = document.getElementById('recentPanel');
+  panel.hidden = proj==='all';
+  if (proj==='all') return;
+  const S = allSessions().filter(s => s.p===proj).sort((a,b) => b.at.localeCompare(a.at)).slice(0,4);
+  document.getElementById('recentSessions').innerHTML = S.map(s =>
+    `<div class="li"><time>${md(s.at)}</time><div class="t"><div>${esc(s.title)}　${tagsHtml(s.tags)}</div><small>${esc(s.sum)}</small></div><button class="linkbtn" data-session="${s.id}">打开</button></div>`).join('');
+}
+
+// ---- leads pool ----
+function renderLeads(){
+  const P = proj==='all' ? null : proj;
+  const leads = LEADS.filter(l => !P || l.p===P);
+  const apps = scoped();
+  const cos = [...new Set([...leads.map(l=>l.co), ...apps.map(a=>a.co)])];
+  const rows = cos.map(co => {
+    const L = leads.filter(l => l.co===co), A = apps.filter(a => a.co===co);
+    const best = Math.max(0, ...L.filter(l=>l.st!=='skipped').map(l=>l.score));
+    return {co, L, A, best};
+  }).filter(r => r.L.length).sort((a,b) => b.best-a.best);
+  document.getElementById('leads').innerHTML = rows.map(r => {
+    const inflight = r.A.filter(a => phaseOf(a)!=='closed').length;
+    const head = `<div class="cohead"><b>${esc(r.co)}</b><span>${esc(QUOTA[r.co]||'额度未核实')} · 已申请 ${r.A.length}（进行中 ${inflight}）· 候选 ${r.L.length}</span></div>`;
+    const ls = r.L.sort((a,b)=>b.score-a.score).map(l => `<div class="lead">
+        <div class="nm"><div>${esc(l.title)}</div><small>${esc(l.city)} · ${esc(l.type)}${proj==='all'?' · '+pshort(l.p):''} · 发现于「${esc((SESSIONS.find(s=>s.id===l.from)||{}).title||'')}」${l.why?' · '+esc(l.why):''}</small></div>
+        <span class="sc" data-tip="匹配分（30% 方向 + 40% 技能 + 18% 级别 + 12% 资格 − 硬门槛罚分）">${l.score.toFixed(1)}</span>
+        <span class="el ${l.el==='hard_gap'?'hard':''}">${EL_NAME[l.el]}</span>
+        <span class="chip ${l.st==='shortlisted'?'rev':l.st==='skipped'?'':'inp'}">${LEAD_ST[l.st]}</span></div>`).join('');
+    const as = r.A.map(a => `<div class="lead"><div class="nm"><div>${esc(a.title)}</div><small>${esc(a.city)} · ${esc(a.type)}</small></div><span class="sc">—</span><span class="el">${PHASE_NAME[phaseOf(a)]}</span><button class="linkbtn" data-open="${a.id}">已转申请</button></div>`).join('');
+    return `<div class="cogrp">${head}${ls}${as}</div>`;
+  }).join('') || '<div class="empty">候选池是空的。新建一个 Session，让 Agent 去调研。</div>';
+}
+
+// ---- session (chat) ----
+function jobLabel(id){
+  const a = APPS.find(x=>x.id===id); if (a) return {t:`${a.co} · ${a.title}`, s:PHASE_NAME[phaseOf(a)], open:a.id, unk:isUnknown(a)};
+  const l = LEADS.find(x=>x.id===id); if (l) return {t:`${l.co} · ${l.title}`, s:'候选 · '+LEAD_ST[l.st]};
+  return {t:id, s:''};
+}
+function openingFor(p){
+  const L = LEADS.filter(l => l.p===p && l.st!=='skipped');
+  const byCo = {}; L.forEach(l => byCo[l.co] = (byCo[l.co]||0)+1);
+  const top = Object.entries(byCo).sort((a,b)=>b[1]-a[1])[0];
+  const unk = APPS.filter(a => a.p===p && isUnknown(a));
+  const rev = APPS.filter(a => a.p===p && a.prep==='awaiting_review');
+  const inp = APPS.filter(a => a.p===p && a.prep==='needs_input');
+  let h = `我读了这个 Project 的当前状态：<ul><li>候选池里有 <b>${L.length}</b> 个待投岗位${top?`，其中 ${esc(top[0])} 有 ${top[1]} 个都比较匹配`:''}</li>`;
+  if (unk.length) h += `<li>${unk.map(a=>esc(a.co)).join('、')} 有 ${unk.length} 个申请超过 7 天没同步（unknown）</li>`;
+  if (rev.length) h += `<li>${rev.map(a=>esc(a.co+' · '+a.title)).join('、')} 停在关卡 B，等你审核</li>`;
+  if (inp.length) h += `<li>${inp.map(a=>esc(a.co+' · '+a.title)).join('、')} 有问题等你回答</li>`;
+  h += `</ul>今天想先做哪件事？<div class="acts"><button class="linkbtn" data-say="继续调研，再找 5 个">继续调研</button><button class="linkbtn" data-say="投候选池里匹配分最高的两个">投最匹配的两个</button><button class="linkbtn" data-say="更新一下面试情况">更新面试情况</button></div>`;
+  return h;
+}
+function cannedReply(text){
+  if (/调研|找/.test(text)) return '好的。我会用 Search MCP 按这个 Project 的偏好搜索，先列出结果给你看；新岗位进入候选池（状态「新发现」），不会直接投。<i>（示意：真实系统里这里会出现搜索进度和结果列表）</i>';
+  if (/投/.test(text)) return '这两个岗位会从候选池转为申请。开始前我先查：其它 Project 是否投过同一岗位、这家公司的额度还剩多少。然后打开浏览器填写，停在提交前把填写报告给你审核，最终提交由你自己点。<i>（示意）</i>';
+  return '请告诉我是哪家公司、第几轮、问了什么、结果如何。同一家公司投了多个岗位时，我会先确认是哪一个，再起草轮次记录和复盘给你确认。<i>（示意）</i>';
+}
+function renderSession(){
+  const s = allSessions().find(x => x.id===sessId); if (!s) return;
+  const p = PROJECTS.find(x => x.id===s.p);
+  document.getElementById('sessMeta').textContent = `${p.name} · ${s.at}`;
+  document.getElementById('sessTitle').textContent = s.title;
+  document.getElementById('sessTags').innerHTML = s.tags.length ? tagsHtml(s.tags) : '<span class="gen">标签会根据对话内容自动生成</span>';
+  const log = liveChats[s.id] ? liveChats[s.id].log : baseLog(s);
+  document.getElementById('chatlog').innerHTML = log.map(m => `<div class="msg ${m.r}">${m.h}</div>`).join('');
+  document.getElementById('sessJobs').innerHTML = s.jobs.length ? s.jobs.map(id => { const j = jobLabel(id);
+    return `<div class="li"><time></time><div class="t"><div>${esc(j.t)}</div><small>${esc(j.s)}</small></div>${j.unk?'<span class="chip unk">unknown</span>':''}${j.open?`<button class="linkbtn" data-open="${j.open}">详情</button>`:''}</div>`; }).join('')
+    : '<div class="empty">还没有涉及任何岗位。</div>';
+}
+function baseLog(s){
+  if (s.id==='c03') return [
+    {r:'u',h:'一面刚结束，问了 DDP 和 FSDP 的显存差异，还有一道 Agent 工具调用失败怎么恢复。第二题答得一般，面试官说一周内通知。'},
+    {r:'a',h:'澜川智能你有 2 个申请，这次是「Agent 研发工程师」吧？我起草了这一轮的记录，请确认：<ul><li>一面 · technical · 10-10 · 结果待通知</li><li>Q1 DDP vs FSDP 显存 → 归并到题库「DDP 与 FSDP 的显存占用差异」</li><li>Q2 Agent 工具调用失败恢复 → 新题，主题 agent；自评：没讲到幂等重试</li><li>经验候选：回答恢复类问题时，先分可重试 / 不可重试两类</li></ul>'},
+    {r:'u',h:'对，是 Agent 研发。确认。'},
+    {r:'a',h:'已写入 <code>jobs/s01/rounds/02-technical.md</code>，阶段更新为「面试中」，题库 +2，经验候选放进待确认列表。'}];
+  return [
+    {r:'a',h:`（历史 Session 的对话原文保存在 <code>sessions/${s.id}/transcript.jsonl</code>，这里只显示结束时的交接摘要）`},
+    {r:'a',h:`<b>交接摘要</b>：${esc(s.sum)}`}];
+}
+function newSession(){
+  const n = Object.keys(liveChats).length + 1;
+  const id = 'new' + n;
+  liveChats[id] = { meta:{id, p:proj, title:'新 Session ' + n, at:'2026-10-22', tags:[], jobs:[], sum:'进行中'}, log:[{r:'a', h:openingFor(proj)}] };
+  sessId = id; mode = 'session'; renderAll();
+  document.getElementById('composerInput').focus();
+}
+function say(text){
+  if (!liveChats[sessId]) { const m = allSessions().find(s=>s.id===sessId); liveChats[sessId] = {meta: m, log: baseLog(m)}; }
+  const chat = liveChats[sessId];
+  chat.log.push({r:'u', h:esc(text)}, {r:'a', h:cannedReply(text)});
+  const tag = /调研|找/.test(text) ? 'research' : /投/.test(text) ? 'apply' : 'review';
+  if (chat.meta.tags && !chat.meta.tags.includes(tag)) chat.meta.tags = [...chat.meta.tags, tag];
+  renderSession(); renderSide();
+}
+
+// ---- settings ----
+const PRESETS = [
+  {id:'openai',name:'OpenAI',fmt:'openai',url:'https://api.openai.com/v1'},
+  {id:'anthropic',name:'Anthropic',fmt:'anthropic',url:'https://api.anthropic.com'},
+  {id:'gemini',name:'Google Gemini（OpenAI 兼容端点）',fmt:'openai',url:'https://generativelanguage.googleapis.com/v1beta/openai'},
+  {id:'deepseek',name:'DeepSeek',fmt:'openai',url:'https://api.deepseek.com'},
+  {id:'dashscope',name:'通义千问 DashScope',fmt:'openai',url:'https://dashscope.aliyuncs.com/compatible-mode/v1'},
+  {id:'moonshot',name:'Moonshot / Kimi',fmt:'openai',url:'https://api.moonshot.cn/v1'},
+  {id:'zhipu',name:'智谱 GLM',fmt:'openai',url:'https://open.bigmodel.cn/api/paas/v4'},
+  {id:'openrouter',name:'OpenRouter',fmt:'openai',url:'https://openrouter.ai/api/v1'},
+  {id:'ollama',name:'Ollama（本地）',fmt:'openai',url:'http://localhost:11434/v1'},
+  {id:'custom',name:'自定义',fmt:'openai',url:''}
+];
+const PROVIDERS = [
+  {id:'anthropic-main',preset:'Anthropic',fmt:'anthropic',url:'https://api.anthropic.com',key:'••••7Qx2',model:'示例主模型',tools:true},
+  {id:'local',preset:'Ollama（本地）',fmt:'openai',url:'http://localhost:11434/v1',key:'无需 key',model:'示例本地模型',tools:false}
+];
+const ASSIGN = [
+  {k:'main',n:'主模型',d:'对话、规划、填表循环',v:'anthropic-main'},
+  {k:'aux',n:'辅助模型',d:'长页面摘要、快照压缩、交接摘要',v:'local'},
+  {k:'cross',n:'交叉核验',d:'可选：复核匹配评分',v:''}
+];
+function renderSettings(){
+  document.getElementById('providers').innerHTML = PROVIDERS.map(p => `<div class="prov"><div><b>${esc(p.id)}</b> · ${esc(p.preset)}
+      <small>${p.fmt==='anthropic'?'Anthropic 格式':'OpenAI 兼容格式'} · ${esc(p.url)} · key ${esc(p.key)}</small><small>模型：${esc(p.model)} · ${p.tools?'支持工具调用':'不支持工具调用（不能做主模型）'}</small></div>
+      <span class="chip ${p.tools?'good':''}">${p.tools?'可做主模型':'仅辅助'}</span></div>`).join('');
+  const sel = document.getElementById('pfPreset');
+  if (!sel.options.length) sel.innerHTML = PRESETS.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  document.getElementById('assign').innerHTML = ASSIGN.map(a => `<label for="as-${a.k}">${a.n}<br><small style="color:var(--muted)">${a.d}</small></label>
+    <select id="as-${a.k}">${a.k!=='main'?'<option value="">不使用</option>':''}${PROVIDERS.filter(p => a.k!=='main' || p.tools).map(p => `<option value="${p.id}" ${p.id===a.v?'selected':''}>${esc(p.id)} · ${esc(p.model)}</option>`).join('')}</select>`).join('');
+}
+function applyPreset(){
+  const p = PRESETS.find(x => x.id===document.getElementById('pfPreset').value);
+  document.getElementById('pfUrl').value = p.url;
+  document.getElementById(p.fmt==='anthropic' ? 'pfFmtAnthropic' : 'pfFmtOpenai').checked = true;
+}
+
+// ---- KPIs ----
+function renderKpis(){
+  const A = scoped(); const sub = A.filter(a => phaseOf(a)!=='prep');
+  const cnt = ph => A.filter(a => phaseOf(a)===ph).length;
+  const cos = new Set(sub.map(a=>a.co)).size;
+  const unk = A.filter(isUnknown).length;
+  const k = [
+    ['投递',sub.length],['公司',cos],['准备中',cnt('prep')],['筛选中',cnt('screening')+cnt('applied')],
+    ['笔试 / OA',cnt('assessment')],['面试中',cnt('interview')],['Offer',cnt('offer')],['待追踪',unk,'warn']
+  ];
+  document.getElementById('kpis').innerHTML = k.map(([l,v,c]) => `<div class="kpi ${c||''}"><b>${v}</b><span>${l}</span></div>`).join('');
+}
+
+// ---- funnel ----
+function renderFunnel(){
+  const A = scoped().filter(a => phaseOf(a)!=='prep');
+  const byCo = {};
+  A.forEach(a => { byCo[a.co] = Math.max(byCo[a.co]||0, level(a)); });
+  const coLv = Object.values(byCo);
+  const rows = FUNNEL.map((name,i) => {
+    const L = i+1;
+    return { name, co: coLv.filter(v => v>=L).length, app: A.filter(a => level(a)>=L).length };
+  });
+  const key = fmode==='co' ? 'co' : 'app';
+  const max = Math.max(1, rows[0][key]);
+  const fills = ['--f1','--f2','--f3','--f4','--f5','--f6'];
+  document.getElementById('funnelSub').textContent = fmode==='co'
+    ? '每家公司按它各个申请里走得最远的一步计 1 次；右侧灰字是同层的申请数'
+    : '每个申请计 1 次；右侧灰字是同层的公司数';
+  document.getElementById('funnel').innerHTML = rows.map((r,i) => {
+    const v = r[key], other = fmode==='co' ? r.app : r.co, ou = fmode==='co' ? '申请' : '家';
+    const pct = rows[0][key] ? Math.round(v / rows[0][key] * 100) : 0;
+    const tip = `${r.name}：${r.co} 家公司 / ${r.app} 个申请（占已投递的 ${pct}%）`;
+    return `<div class="frow"><span class="lab">${r.name}</span>
+      <div class="ftrack"><div class="fbar" style="width:${v/max*100}%;background:var(${fills[i]})" data-tip="${esc(tip)}"></div></div>
+      <span class="val">${v}${fmode==='co'?' 家':''} <em>· ${other} ${ou}</em></span></div>`;
+  }).join('');
+}
+
+// ---- lists ----
+function renderUpcoming(){
+  const A = scoped(); const end = new Date(+TODAY + 7*DAY);
+  const ev = [];
+  A.forEach(a => a.rounds.forEach(r => { const t = d(r.at); if (r.r==='pending' && t > TODAY && t <= end) ev.push({a,r,t}); }));
+  ev.sort((x,y) => x.t-y.t);
+  const prep = A.filter(a => phaseOf(a)==='prep');
+  let html = ev.map(({a,r}) => `<div class="li"><time>${md(r.at)}</time><div class="t"><div>${esc(a.co)} · ${esc(r.n)}</div><small>${esc(a.title)}</small></div><button class="linkbtn" data-open="${a.id}">打开</button></div>`).join('');
+  html += prep.map(a => `<div class="li"><time>待你</time><div class="t"><div>${esc(a.co)} · ${esc(a.title)}</div><small>${esc(a.next)}</small></div><span class="chip ${a.prep==='awaiting_review'?'rev':'inp'}">${a.prep==='awaiting_review'?'待审核':'待回答'}</span></div>`).join('');
+  document.getElementById('upcoming').innerHTML = html || '<div class="empty">接下来 7 天没有安排。</div>';
+}
+function renderUnknown(){
+  const A = scoped().filter(isUnknown).sort((x,y) => d(x.updated)-d(y.updated));
+  document.getElementById('unknownList').innerHTML = A.length ? A.map(a =>
+    `<div class="li"><time>${days(d(a.updated),TODAY)} 天</time><div class="t"><div>${esc(a.co)} · ${esc(a.title)}</div><small>最近同步 ${md(a.updated)} · ${PHASE_NAME[phaseOf(a)]}</small></div><button class="linkbtn" data-open="${a.id}">去回复</button></div>`
+  ).join('') : '<div class="empty">没有超过 7 天未同步的申请。</div>';
+}
+
+// ---- progress dots ----
+function dotsHtml(a){
+  const rs = a.rounds.filter(r => r.t!=='offer-call' || true);
+  let h = rs.map(r => { const s = roundStatus(r); return `<span class="d ${s}" data-tip="${esc(r.n+' · '+md(r.at)+' · '+resName(s))}"></span>`; }).join('');
+  const remain = a.tpl && !a.closed ? Math.max(0, a.tpl - a.rounds.length) : 0;
+  for (let i=0;i<remain;i++) h += `<span class="d expect" data-tip="模板预计的轮次（不代表真实情况）"></span>`;
+  return h;
+}
+function resName(s){ return {passed:'通过',pending:'待结果 / 已约',failed:'未通过',unknown:'未同步',cancelled:'取消'}[s]; }
+function curText(a){
+  const ph = phaseOf(a);
+  if (ph==='prep') return a.prep==='awaiting_review' ? '关卡 B 待审核' : '待回答问题';
+  if (ph==='closed') return OUTCOME[a.closed.o] + (a.closed.o==='rejected' ? ' · ' + a.closed.at : '');
+  const last = a.rounds[a.rounds.length-1];
+  if (!last) return isUnknown(a) ? '未同步' : '等待中';
+  return last.n + ' · ' + resName(roundStatus(last));
+}
+
+// ---- board ----
+function renderBoard(){
+  const A = scoped();
+  document.getElementById('board').innerHTML = PHASES.map(([ph,name]) => {
+    const items = A.filter(a => phaseOf(a)===ph);
+    const cards = items.map(a => `<button class="card" data-open="${a.id}">
+        <span class="co">${esc(a.co)}</span><span class="ro">${esc(a.title)} · ${esc(a.city)}</span>
+        <span class="meta"><span class="dots">${dotsHtml(a)}<span class="dtext">${esc(curText(a))}</span></span></span>
+        <span class="meta"><span class="ptag">${pshort(a.p)} · ${esc(a.type)}</span>${isUnknown(a)?'<span class="chip unk">unknown</span>':''}${a.prep==='awaiting_review'?'<span class="chip rev">待审核</span>':''}${a.prep==='needs_input'?'<span class="chip inp">待回答</span>':''}</span>
+      </button>`).join('');
+    return `<div class="col"><div class="colh"><b>${name}</b><span>${items.length}</span></div>${cards || '<div class="empty">—</div>'}</div>`;
+  }).join('');
+}
+
+// ---- timeline ----
+function renderTimeline(){
+  const A = scoped().filter(a => a.applied).sort((x,y) => d(x.applied)-d(y.applied));
+  const svg = document.getElementById('timeline');
+  const start = d('2026-09-21'), end = d('2026-11-02');
+  const W = 960, L = 200, R = 16, rowH = 26, top = 26, H = top + A.length*rowH + 8;
+  const x = t => L + (t-start)/(end-start)*(W-L-R);
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('width', W); svg.style.maxWidth = '100%'; svg.style.minWidth = '760px'; svg.style.height = 'auto';
+  let g = '';
+  for (let t = +start; t <= +end; t += 7*DAY){
+    const X = x(t); const dt = new Date(t);
+    g += `<line x1="${X}" y1="${top-6}" x2="${X}" y2="${H}" stroke="var(--grid)" stroke-width="1"/>`;
+    g += `<text x="${X}" y="12" text-anchor="middle">${String(dt.getUTCMonth()+1).padStart(2,'0')}-${String(dt.getUTCDate()).padStart(2,'0')}</text>`;
+  }
+  const tx = x(TODAY);
+  A.forEach((a,i) => {
+    const y = top + i*rowH + rowH/2;
+    const lastT = a.rounds.length ? Math.max(...a.rounds.map(r=>+d(r.at))) : +d(a.updated);
+    const endT = Math.max(lastT, a.closed ? +d(a.updated) : Math.min(+TODAY, Math.max(lastT, +TODAY)));
+    g += `<text x="0" y="${y+4}" class="ink">${esc(a.co.length>8?a.co.slice(0,8)+'…':a.co)} · ${esc(a.title.length>9?a.title.slice(0,9)+'…':a.title)}</text>`;
+    g += `<line x1="${x(+d(a.applied))}" y1="${y}" x2="${x(a.closed? +d(a.updated) : endT)}" y2="${y}" stroke="var(--axis)" stroke-width="2" stroke-linecap="round"/>`;
+    g += `<circle cx="${x(+d(a.applied))}" cy="${y}" r="5" fill="var(--surface)" stroke="var(--ink-2)" stroke-width="2" data-tip="${esc(a.co+' · 投递 '+md(a.applied))}"/>`;
+    a.rounds.forEach(r => {
+      const s = roundStatus(r);
+      const fill = s==='passed' ? 'var(--good)' : s==='failed' ? 'var(--crit)' : s==='unknown' ? 'var(--warn)' : 'var(--ink-2)';
+      const mark = s==='passed' ? '✓' : s==='failed' ? '✕' : s==='unknown' ? '?' : '';
+      const cx = x(+d(r.at));
+      g += `<g data-tip="${esc(a.co+' · '+r.n+' · '+md(r.at)+' · '+resName(s))}"><circle cx="${cx}" cy="${y}" r="9" fill="transparent"/><circle cx="${cx}" cy="${y}" r="6" fill="${fill}" stroke="var(--surface)" stroke-width="2"/>${mark?`<text x="${cx}" y="${y+3.5}" text-anchor="middle" style="fill:var(--surface);font-size:9px;font-weight:600">${mark}</text>`:''}</g>`;
+    });
+    if (a.closed){ g += `<text x="${x(+d(a.updated))+10}" y="${y+4}">${esc(OUTCOME[a.closed.o])}</text>`; }
+  });
+  g += `<line x1="${tx}" y1="${top-8}" x2="${tx}" y2="${H}" stroke="var(--accent)" stroke-width="1.5"/>`;
+  g += `<text x="${tx+4}" y="${top-10}" style="fill:var(--accent)">今天</text>`;
+  svg.innerHTML = A.length ? g : `<text x="0" y="20">这个 Project 还没有已投递的申请。</text>`;
+}
+
+// ---- weekly ----
+function renderWeekly(){
+  const A = scoped();
+  const weeks = ['2026-09-21','2026-09-28','2026-10-05','2026-10-12','2026-10-19'].map(d);
+  const wk = t => weeks.findIndex((w,i) => t >= w && (i===weeks.length-1 || t < weeks[i+1]));
+  const apps = weeks.map(()=>0), ivs = weeks.map(()=>0);
+  A.forEach(a => {
+    if (a.applied){ const i = wk(d(a.applied)); if (i>=0) apps[i]++; }
+    a.rounds.forEach(r => { const t = d(r.at); if (INTERVIEW_TYPES.includes(r.t) && t <= TODAY){ const i = wk(t); if (i>=0) ivs[i]++; } });
+  });
+  const svg = document.getElementById('weekly');
+  const W = 520, H = 200, L = 28, B = 26, T = 14, R = 8;
+  const max = Math.max(4, ...apps, ...ivs); const yMax = Math.ceil(max/2)*2;
+  const y = v => T + (1 - v/yMax) * (H-T-B);
+  const band = (W-L-R)/weeks.length, bw = Math.min(20, band/3);
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.style.width='100%'; svg.style.minWidth='360px'; svg.style.height='auto';
+  let g = '';
+  for (let v=0; v<=yMax; v+=yMax/2){ g += `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="${v===0?'var(--axis)':'var(--grid)'}" stroke-width="1"/><text x="${L-6}" y="${y(v)+4}" text-anchor="end" style="font-variant-numeric:tabular-nums">${v}</text>`; }
+  const bar = (cx,v,color,tip) => {
+    if (!v) return `<rect x="${cx-bw/2}" y="${y(0)-1}" width="${bw}" height="1" fill="${color}" opacity=".5" data-tip="${esc(tip)}"/>`;
+    const top = y(v), h = y(0)-top, r = Math.min(4,h);
+    return `<g data-tip="${esc(tip)}"><rect x="${cx-bw/2-3}" y="${top-3}" width="${bw+6}" height="${h+3}" fill="transparent"/><path d="M${cx-bw/2},${y(0)} V${top+r} Q${cx-bw/2},${top} ${cx-bw/2+r},${top} H${cx+bw/2-r} Q${cx+bw/2},${top} ${cx+bw/2},${top+r} V${y(0)} Z" fill="${color}"/></g>`;
+  };
+  weeks.forEach((w,i) => {
+    const c = L + band*i + band/2; const lab = md(w.toISOString().slice(0,10));
+    g += bar(c-bw/2-1, apps[i], 'var(--s1)', `${lab} 那周：投递 ${apps[i]}`);
+    g += bar(c+bw/2+1, ivs[i], 'var(--s2)', `${lab} 那周：面试 ${ivs[i]}`);
+    g += `<text x="${c}" y="${H-8}" text-anchor="middle">${lab}${i===weeks.length-1?' (本周)':''}</text>`;
+  });
+  svg.innerHTML = g;
+}
+
+// ---- review overview ----
+function hbars(el, rows, cls){
+  const max = Math.max(1, ...rows.map(r=>r[1]));
+  document.getElementById(el).innerHTML = rows.map(([l,n,tip]) =>
+    `<div class="hb" data-tip="${esc(tip||l+'：'+n)}"><span class="lab">${esc(l)}</span><div class="tr"><div class="bar ${cls||''}" style="width:${n/max*100}%"></div></div><span class="n">${n}</span></div>`).join('');
+}
+function topicRows(){
+  const m = {};
+  QUESTIONS.forEach(q => { m[q.topic] = (m[q.topic]||0) + q.src.length; });
+  return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([t,n]) => [t,n,`${t}：被问过 ${n} 次`]);
+}
+function renderReview(){
+  hbars('topics', topicRows().slice(0,5));
+  const A = scoped().filter(a => a.closed && a.closed.o==='rejected');
+  const m = {}; A.forEach(a => { m[a.closed.at] = (m[a.closed.at]||0)+1; });
+  const order = ['简历筛选','笔试','一面','二面','三面','终面'];
+  const rows = order.filter(k => m[k]).map(k => ['挂在 '+k, m[k], `挂在${k}：${m[k]} 个申请`]);
+  if (rows.length) hbars('fails', rows, 'crit'); else document.getElementById('fails').innerHTML = '<div class="empty">这个 Project 没有被拒的记录。</div>';
+}
+
+// ---- tables ----
+function renderAppsTable(){
+  const A = scoped();
+  const order = ['prep','interview','assessment','screening','applied','offer','closed'];
+  const cols = ['#','公司','岗位','Project','类型','城市','投递日','阶段','进度','下一件事','最近动态','最近核验','同步','下一步'];
+  let i = 0, body = '';
+  order.forEach(ph => {
+    const rows = A.filter(a => phaseOf(a)===ph); if (!rows.length) return;
+    body += `<tr class="grp"><td colspan="${cols.length}">${PHASE_NAME[ph]} · ${rows.length}</td></tr>`;
+    rows.forEach(a => {
+      i++;
+      const nxt = a.rounds.find(r => r.r==='pending' && d(r.at) > TODAY);
+      const lastEv = a.rounds.filter(r=>d(r.at)<=TODAY).map(r=>r.at).sort().pop() || a.applied;
+      body += `<tr><td class="num">${i}</td><td>${esc(a.co)}</td><td><button class="linkbtn" data-open="${a.id}">${esc(a.title)}</button></td><td class="num">${pshort(a.p)}</td><td>${esc(a.type)}</td><td>${esc(a.city)}</td>
+        <td class="num">${md(a.applied)}</td><td>${PHASE_NAME[ph]}</td><td><span class="dots">${dotsHtml(a)}</span><span class="dtext">${esc(curText(a))}</span></td>
+        <td>${nxt ? md(nxt.at)+' '+esc(nxt.n) : '—'}</td><td class="num">${md(lastEv)}</td><td class="num">${md(a.updated)}</td>
+        <td>${isUnknown(a) ? '<span class="chip unk">unknown</span>' : (ph==='closed'||ph==='prep' ? '—' : '<span class="chip good">已同步</span>')}</td><td>${esc(a.next)}</td></tr>`;
+    });
+  });
+  document.getElementById('appsTable').innerHTML = `<thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${body}</tbody>`;
+}
+function renderRoundsTable(){
+  const rows = [];
+  scoped().forEach(a => a.rounds.forEach(r => rows.push({a,r})));
+  rows.sort((x,y) => d(y.r.at)-d(x.r.at));
+  const cols = ['日期','公司','岗位','轮次','类型','结果','题数','复盘'];
+  const body = rows.map(({a,r}) => { const s = roundStatus(r);
+    const chip = s==='passed' ? '<span class="chip good">通过</span>' : s==='failed' ? '<span class="chip bad">未通过</span>' : s==='unknown' ? '<span class="chip unk">未同步</span>' : '<span class="chip">待结果 / 已约</span>';
+    return `<tr><td class="num">${md(r.at)}</td><td>${esc(a.co)}</td><td>${esc(a.title)}</td><td>${esc(r.n)}</td><td class="num">${r.t}</td><td>${chip}</td><td class="num">${r.q||'—'}</td><td>${r.q?`<button class="linkbtn" data-open="${a.id}">rounds/${String(a.rounds.indexOf(r)+1).padStart(2,'0')}-${r.t}.md</button>`:'—'}</td></tr>`; }).join('');
+  document.getElementById('roundsTable').innerHTML = `<thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${body}</tbody>`;
+}
+function renderQB(){
+  const qs = [...QUESTIONS].sort((a,b) => b.src.length - a.src.length);
+  document.getElementById('qlist').innerHTML = qs.map(q => `<div class="q"><span class="cnt" data-tip="被问过 ${q.src.length} 次">×${q.src.length}</span>
+    <div><div class="qt">${esc(q.q)}</div><div class="src">${q.src.map(esc).join('　·　')}</div></div>
+    <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end"><span class="topic">${q.topic}</span><span class="chip ${q.st==='mastered'?'good':q.st==='reviewed'?'rev':''}">${ST_NAME[q.st]}</span></div></div>`).join('');
+  hbars('qtopics', topicRows());
+}
+
+// ---- drawer ----
+function openSession(id){
+  const a = APPS.find(x => x.id===id); if (!a) return;
+  const ph = phaseOf(a);
+  const rl = a.rounds.map(r => { const s = roundStatus(r);
+    return `<div class="ritem"><span class="d ${s}"></span><b>${esc(r.n)}</b> · ${r.t}<small>${md(r.at)} · ${resName(s)}${r.q?` · 记了 ${r.q} 道题`:''}</small></div>`; }).join('');
+  const touched = SESSIONS.filter(s => s.jobs.includes(a.id));
+  const sample = `<div class="list">${touched.map(s => `<div class="li"><time>${md(s.at)}</time><div class="t"><div>${esc(s.title)}　${tagsHtml(s.tags)}</div><small>${esc(s.sum)}</small></div><button class="linkbtn" data-session="${s.id}">打开</button></div>`).join('') || '<div class="empty">还没有 Session 涉及它。</div>'}</div>`;
+  document.getElementById('drawerBody').innerHTML = `
+    <div style="padding-right:28px"><div class="ptag">${pshort(a.p)} · Job ${a.id} · ${esc(a.type)} · ${esc(a.city)}</div><h3>${esc(a.co)} · ${esc(a.title)}</h3></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="chip">${PHASE_NAME[ph]}</span>${isUnknown(a)?'<span class="chip unk">unknown · '+days(d(a.updated),TODAY)+' 天未同步</span>':''}${a.closed?`<span class="chip bad">${OUTCOME[a.closed.o]}${a.closed.o==='rejected'?' · '+a.closed.at:''}</span>`:''}</div>
+    <div><div class="gen">投递 ${md(a.applied)} · 最近同步 ${md(a.updated)}${a.closed&&a.closed.raw?' · '+esc(a.closed.raw):''}</div></div>
+    <div><h6 style="margin:0 0 8px;font-size:11px;color:var(--muted);letter-spacing:.08em">轮次</h6>${rl ? `<div class="rlist">${rl}</div>` : '<div class="empty">还没有轮次。</div>'}</div>
+    <div><h6 style="margin:0 0 6px;font-size:11px;color:var(--muted);letter-spacing:.08em">下一步</h6><div>${esc(a.next)}</div></div>
+    <div><h6 style="margin:0 0 8px;font-size:11px;color:var(--muted);letter-spacing:.08em">涉及过这个岗位的 Session</h6>${sample}</div>
+    <p class="gen">在任意 Session 里回复面试经过或最新状态，Agent 会起草轮次记录和复盘，你确认后写入。</p>`;
+  document.getElementById('drawer').hidden = false; document.getElementById('drawerClose').focus(); return;
+  const dr = document.getElementById('drawer'); dr.hidden = false; document.getElementById('drawerClose').focus();
+}
+
+// ---- wiring ----
+const TAB_VIEWS = ['dash','leads','apps','rounds','qb'];
+function showSections(){
+  const dashMode = mode==='dash';
+  document.querySelector('.tabs').hidden = !dashMode;
+  TAB_VIEWS.forEach(v => { document.getElementById('view-'+v).hidden = !dashMode || v!==view; });
+  document.getElementById('view-session').hidden = mode!=='session';
+  document.getElementById('view-settings').hidden = mode!=='settings';
+  document.getElementById('newSession').hidden = !(dashMode && proj!=='all');
+  document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-selected', b.dataset.view===view));
+}
+function renderAll(){
+  const p = PROJECTS.find(x => x.id===proj);
+  const sub = document.getElementById('subtitle').firstChild;
+  if (mode==='settings'){ document.getElementById('title').textContent = '设置 · 模型'; sub.textContent = '自定义模型供应商：OpenAI 兼容格式或 Anthropic 格式 '; }
+  else if (mode==='session'){ document.getElementById('title').textContent = 'Session'; sub.textContent = '对话视图 '; }
+  else { document.getElementById('title').textContent = p ? p.name : '全局 Dashboard'; sub.textContent = p ? p.desc + ' · ' : '2026-10-22 · 所有 Project 汇总 '; }
+  renderSide(); showSections();
+  if (mode==='session'){ renderSession(); return; }
+  if (mode==='settings'){ renderSettings(); return; }
+  renderKpis(); renderRecent(); renderFunnel(); renderUpcoming(); renderUnknown(); renderBoard(); renderTimeline(); renderWeekly(); renderReview();
+  renderLeads(); renderAppsTable(); renderRoundsTable(); renderQB();
+  document.querySelectorAll('[data-fm]').forEach(b => b.setAttribute('aria-pressed', b.dataset.fm===fmode));
+}
+document.addEventListener('click', e => {
+  const sy = e.target.closest('[data-say]'); if (sy){ say(sy.dataset.say); return; }
+  if (e.target.closest('#newSession')){ newSession(); return; }
+  if (e.target.closest('#pfTest')){
+    const url = document.getElementById('pfUrl').value.trim();
+    document.getElementById('pfResult').textContent = url ? '示意：连接成功 · 支持工具调用 · 412 ms（真实系统会发一条最小请求）' : '请先填写 Base URL。';
+    return;
+  }
+  const nv = e.target.closest('[data-nav]'); if (nv){ mode = nv.dataset.nav; renderAll(); return; }
+  const sb = e.target.closest('[data-session]'); if (sb){ sessId = sb.dataset.session; const s = allSessions().find(x=>x.id===sessId); proj = s.p; mode = 'session'; renderAll(); return; }
+  const pb = e.target.closest('[data-proj]'); if (pb){ proj = pb.dataset.proj; mode = 'dash'; save(); renderAll(); return; }
+  const ob = e.target.closest('[data-open]'); if (ob){ openSession(ob.dataset.open); return; }
+  const fb = e.target.closest('[data-fm]'); if (fb){ fmode = fb.dataset.fm; save(); renderFunnel(); document.querySelectorAll('[data-fm]').forEach(b => b.setAttribute('aria-pressed', b.dataset.fm===fmode)); return; }
+  const tb = e.target.closest('[data-view]'); if (tb){ view = tb.dataset.view; showSections(); return; }
+});
+document.getElementById('composer').addEventListener('submit', e => {
+  e.preventDefault();
+  const inp = document.getElementById('composerInput'); const t = inp.value.trim(); if (!t) return;
+  inp.value = ''; say(t);
+});
+document.getElementById('pfPreset').addEventListener('change', applyPreset);
+document.getElementById('providerForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const preset = PRESETS.find(x => x.id===document.getElementById('pfPreset').value);
+  const fmt = document.querySelector('input[name="pfFormat"]:checked').value;
+  const url = document.getElementById('pfUrl').value.trim(), model = document.getElementById('pfModel').value.trim();
+  const key = document.getElementById('pfKey').value;
+  if (!url || !model){ document.getElementById('pfResult').textContent = '请填写 Base URL 和模型名。'; return; }
+  PROVIDERS.push({id: preset.id + '-' + (PROVIDERS.length+1), preset: preset.name, fmt, url, key: key ? '••••' + key.slice(-4) : '未填', model, tools:true});
+  document.getElementById('pfKey').value = '';
+  document.getElementById('pfResult').textContent = '已添加（示意：key 会存进 macOS 钥匙串，页面只显示末四位）';
+  renderSettings();
+});
+document.getElementById('drawerClose').addEventListener('click', () => { document.getElementById('drawer').hidden = true; });
+document.addEventListener('keydown', e => { if (e.key==='Escape') document.getElementById('drawer').hidden = true; });
+const tip = document.getElementById('tip');
+document.addEventListener('mousemove', e => {
+  const t = e.target.closest && e.target.closest('[data-tip]');
+  if (!t){ tip.hidden = true; return; }
+  tip.textContent = t.getAttribute('data-tip'); tip.hidden = false;
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = e.clientX + 14, y = e.clientY + 14;
+  if (x + w > innerWidth - 8) x = e.clientX - w - 14;
+  if (y + h > innerHeight - 8) y = e.clientY - h - 14;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+});
+renderAll();
+</script>
+
+</body></html>

@@ -27,7 +27,9 @@ public record JobEvent(
     public enum Type {
         LEAD_CREATED, LEAD_STATUS_CHANGED, CONVERTED, PREP_STATE_CHANGED, PHASE_CHANGED, CLOSED,
         /** 识别规则认为仍在登录页，用户带 override 继续。不改状态，只做审计。 */
-        LOGIN_OVERRIDE;
+        LOGIN_OVERRIDE,
+        /** 用户反馈看过了、没有变化（C007）。不改状态，只推后下一次查看。 */
+        STATUS_CHECKED;
 
         public String value() {
             return name().toLowerCase(Locale.ROOT);

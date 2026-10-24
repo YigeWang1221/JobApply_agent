@@ -1,4 +1,6 @@
-import type { ChatMessage, JobView, ProjectCounts, ToolStep } from "./api";
+import { useState } from "react";
+import { api, errorText, type JobView } from "./api";
+import { toast } from "./toast";
 
 // 状态的中文说法和小标签，几个页面共用
 
@@ -6,14 +8,18 @@ export const LEAD: Record<string, string> = {
   new: "新发现",
   shortlisted: "想投",
   skipped: "不投",
+  closed: "已下线",
   converted: "已转申请",
 };
 
 export const APPLICATION: Record<string, string> = {
+  queued: "排队中",
   running: "Agent 正在做",
   waiting_user: "等你",
   ready: "停在提交前",
   failed: "失败",
+  interrupted: "中断",
+  done: "已结束",
 };
 
 export const PREP: Record<string, string> = {
@@ -40,15 +46,40 @@ export const PHASE: Record<string, string> = {
   closed: "已结束",
 };
 
+export const OUTCOME: Record<string, string> = {
+  rejected: "被拒",
+  withdrawn: "主动撤回",
+  accepted: "接受 Offer",
+  declined: "拒绝 Offer",
+  ghosted: "长期无回应",
+  not_submitted: "最终未投",
+  posting_closed: "岗位下线",
+};
+
+// 阶段的说法：prep 显示子状态，closed 带上结局（label 形如 closed:posting_closed）
+export function phaseText(job: JobView): string {
+  if (job.phase === "prep" && job.prepState) {
+    return PREP[job.prepState] ?? job.prepState;
+  }
+  if (job.phase === "closed") {
+    const outcome = job.label?.split(":")[1];
+    return outcome ? `已结束 · ${OUTCOME[outcome] ?? outcome}` : PHASE.closed;
+  }
+  return PHASE[job.phase ?? ""] ?? job.label;
+}
+
 const APPLICATION_CHIP: Record<string, string> = {
+  queued: "rev",
   running: "rev",
   waiting_user: "wait",
   ready: "good",
   failed: "bad",
+  interrupted: "wait",
+  done: "",
 };
 
 export function LeadChip({ status }: { status: string }) {
-  const kind = status === "shortlisted" ? "rev" : status === "new" ? "inp" : "";
+  const kind = status === "shortlisted" ? "rev" : status === "new" ? "inp" : status === "closed" ? "bad" : "";
   return <span className={`chip ${kind}`}>{LEAD[status] ?? status}</span>;
 }
 
@@ -74,8 +105,7 @@ export function JobState({ job }: { job: JobView }) {
   if (job.leadStatus !== "converted") {
     return <LeadChip status={job.leadStatus} />;
   }
-  const phase = job.phase === "prep" && job.prepState ? PREP[job.prepState] ?? job.prepState
-    : PHASE[job.phase ?? ""] ?? job.label;
+  const phase = phaseText(job);
   return (
     <>
       <span className="chip">{phase}</span>
@@ -84,70 +114,51 @@ export function JobState({ job }: { job: JobView }) {
   );
 }
 
-export function Kpis({ counts }: { counts: ProjectCounts }) {
-  const items: [string, number, boolean][] = [
-    ["候选", counts.leads, false],
-    ["想投", counts.shortlisted, false],
-    ["准备中", counts.preparing, false],
-    ["等你", counts.waiting, counts.waiting > 0],
-    ["停在提交前", counts.ready, counts.ready > 0],
-    ["已投递", counts.applied, false],
-  ];
-  return (
-    <div className="kpis">
-      {items.map(([label, value, warn]) => (
-        <div key={label} className={`kpi${warn ? " warn" : ""}`}><b>{value}</b><span>{label}</span></div>
-      ))}
-    </div>
-  );
-}
-
-export function sumCounts(all: ProjectCounts[]): ProjectCounts {
-  return all.reduce((sum, c) => ({
-    leads: sum.leads + c.leads,
-    shortlisted: sum.shortlisted + c.shortlisted,
-    preparing: sum.preparing + c.preparing,
-    waiting: sum.waiting + c.waiting,
-    ready: sum.ready + c.ready,
-    applied: sum.applied + c.applied,
-  }), { leads: 0, shortlisted: 0, preparing: 0, waiting: 0, ready: 0, applied: 0 });
-}
-
-// 对话：用户在右，Agent 在左；工具调用折叠成一行一行的「名字 · 说明 → 结果」
-export function ChatLog({ messages }: { messages: ChatMessage[] }) {
-  return (
-    <>
-      {messages.map((m, i) => m.role === "user"
-        ? <div key={i} className="msg u">{m.text}</div>
-        : (
-          <div key={i} style={{ display: "contents" }}>
-            {m.text && <div className="msg a">{m.text}</div>}
-            {m.tools.length > 0 && <Steps tools={m.tools} />}
-          </div>
-        ))}
-    </>
-  );
-}
-
-function Steps({ tools }: { tools: ToolStep[] }) {
-  return (
-    <details className="steps">
-      <summary>{tools.length === 1 ? tools[0].name : `${tools.length} 个工具调用：${tools.map((t) => t.name).join("、")}`}</summary>
-      <ul>
-        {tools.map((t, i) => (
-          <li key={i}><code>{t.name}</code>{t.summary ? ` · ${t.summary}` : ""}{t.result ? ` → ${t.result}` : ""}</li>
-        ))}
-      </ul>
-    </details>
-  );
-}
-
-export function lastTool(messages: ChatMessage[]): string | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m.role === "assistant" && m.tools.length > 0) {
-      return m.tools[m.tools.length - 1].name;
+// 停在提交前的确认（C007）：用户在 Chrome 里亲自点了提交以后告诉 JobApply。工作台右栏和 Session 对话里共用
+export function SubmitConfirm({ job, onDone }: { job: JobView; onDone: () => void | Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [notYet, setNotYet] = useState(false);
+  async function act(action: () => Promise<unknown>, done: string) {
+    setBusy(true);
+    try {
+      await action();
+      toast(done);
+      await onDone();
+    } catch (e) {
+      toast(errorText(e), "error");
+    } finally {
+      setBusy(false);
     }
   }
-  return null;
+  const name = `${job.company} · ${job.title}`;
+  return (
+    <div className="submitcard" role="group" aria-label={`${name} 提交了吗`}>
+      <p>
+        {job.pageLooksSubmitted
+          ? <>页面像是已经投递成功了，确认一下：<b>{name}</b> 提交了吗？</>
+          : <><b>{name}</b> 已经填好，提交了吗？</>}
+      </p>
+      {!notYet ? (
+        <div className="row">
+          <button className="primary" disabled={busy}
+            onClick={() => void act(() => api.markSubmitted(job.id), `${name}：记为已投递`)}>
+            我已经在 Chrome 里提交了
+          </button>
+          <button disabled={busy} onClick={() => setNotYet(true)}>还没提交 / 不投了</button>
+        </div>
+      ) : (
+        <div className="row">
+          <button disabled={busy}
+            onClick={() => void act(() => api.markNotSubmitted(job.id, false), `${name}：先暂停，之后可以接着申请`)}>
+            还没提交，先放着
+          </button>
+          <button disabled={busy}
+            onClick={() => void act(() => api.markNotSubmitted(job.id, true), `${name}：不投了`)}>
+            不投了
+          </button>
+          <button className="linkbtn" disabled={busy} onClick={() => setNotYet(false)}>返回</button>
+        </div>
+      )}
+    </div>
+  );
 }

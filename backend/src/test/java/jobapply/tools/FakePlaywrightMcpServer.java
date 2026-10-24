@@ -111,8 +111,14 @@ public final class FakePlaywrightMcpServer {
         if (scenario.get("toolError") instanceof String error && !error.isEmpty()) {
             return McpSchema.CallToolResult.builder().addTextContent("### Error\n" + error).isError(true).build();
         }
+        if ("browser_find".equals(tool) && scenario.get("findText") instanceof String raw) {
+            return text(raw);
+        }
         if (scenario.get("form") instanceof Map<?, ?>) {
             return form.handle(tool, args, scenario);
+        }
+        if (scenario.get("tabs") instanceof List<?>) {
+            return withTabs(tool, args, scenario);
         }
         return switch (tool) {
             case "browser_navigate" -> {
@@ -133,6 +139,52 @@ public final class FakePlaywrightMcpServer {
             }
             default -> text("### Result\nok");
         };
+    }
+
+    /**
+     * 多标签页模式（场景文件有 {@code tabs}：各标签页的网址，{@code currentTab}：当前序号，见 {@link FakeBrowser#tabs}）。
+     * {@code browser_tabs new / select} 和 {@code browser_navigate} 改动后写回场景文件；测试在两次调用之间改这两个键，
+     * 就是用户在 Chrome 里关标签页、在标签页里换了网址。
+     */
+    private McpSchema.CallToolResult withTabs(String tool, Map<String, Object> args, Map<String, Object> scenario) {
+        List<String> urls = new java.util.ArrayList<>(((List<?>) scenario.get("tabs")).stream()
+                .map(String::valueOf).toList());
+        int current = scenario.get("currentTab") instanceof Number n ? n.intValue() : 0;
+        boolean changed = false;
+        if ("browser_tabs".equals(tool) && "new".equals(args.get("action"))) {
+            String url = String.valueOf(args.get("url"));
+            Object redirect = map(scenario.get("redirects")).get(url);
+            urls.add(redirect == null ? url : redirect.toString());
+            current = urls.size() - 1;
+            changed = true;
+        } else if ("browser_tabs".equals(tool) && "select".equals(args.get("action"))
+                && args.get("index") instanceof Number index) {
+            current = index.intValue();
+            changed = true;
+        } else if ("browser_navigate".equals(tool)) {
+            urls.set(current, String.valueOf(args.get("url")));
+            changed = true;
+        }
+        if (changed) {
+            Map<String, Object> next = new LinkedHashMap<>(scenario);
+            next.put("tabs", urls);
+            next.put("currentTab", current);
+            write(next);
+        }
+        currentUrl = urls.isEmpty() ? "about:blank" : urls.get(current);
+        if ("browser_tabs".equals(tool)) {
+            StringBuilder out = new StringBuilder("### Open tabs\n");
+            for (int i = 0; i < urls.size(); i++) {
+                Object title = map(map(scenario.get("pages")).get(urls.get(i))).get("title");
+                out.append("- ").append(i).append(':').append(i == current ? " (current)" : "").append(" [")
+                        .append(title == null ? "" : title).append("](").append(urls.get(i)).append(")\n");
+            }
+            return text(out + page(scenario));
+        }
+        if ("browser_snapshot".equals(tool) || "browser_navigate".equals(tool)) {
+            return text(page(scenario));
+        }
+        return text("### Result\nok");
     }
 
     private String page(Map<String, Object> scenario) {

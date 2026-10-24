@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.function.Function;
 import jobapply.agents.ApplyAgent;
 import jobapply.domain.AgentRun;
+import jobapply.persistence.AttachmentStore;
 import jobapply.domain.Claim;
 import jobapply.domain.FactClass;
 import jobapply.memory.ResolvedFact;
@@ -89,7 +90,13 @@ public final class FillContext {
 
     /** 组装这一步的全部消息。 */
     public static List<Message> messages(Inputs inputs, List<AgentRun.Turn> turns, Conversation.LatestPage latest) {
-        return Conversation.messages(ApplyAgent.systemPrompt(), context(inputs), turns, latest);
+        return messages(inputs, turns, latest, null);
+    }
+
+    /** @param attachments 用户附的文件存在哪里（C006 附件）；为 null 时图片不发 */
+    public static List<Message> messages(Inputs inputs, List<AgentRun.Turn> turns, Conversation.LatestPage latest,
+                                         AttachmentStore attachments) {
+        return Conversation.messages(ApplyAgent.systemPrompt(), context(inputs), turns, latest, attachments);
     }
 
     private static String context(Inputs inputs) {

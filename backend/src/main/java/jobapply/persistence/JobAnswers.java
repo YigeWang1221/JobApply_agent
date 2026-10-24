@@ -99,23 +99,25 @@ public final class JobAnswers {
             }
         }
         Path file = requireJob(projectId, jobId);
-        String content = AtomicFiles.read(file);
-        String body = FrontmatterFile.parse(content, file.toString()).body();
-        String head = content.substring(0, content.length() - body.length());
+        synchronized (StorageLock.WRITES) {
+            String content = AtomicFiles.read(file);
+            String body = FrontmatterFile.parse(content, file.toString()).body();
+            String head = content.substring(0, content.length() - body.length());
 
-        List<String> ids = new ArrayList<>(parse(body).stream().map(Answer::id).toList());
-        String at = Timestamps.now(clock);
-        List<Answer> written = new ArrayList<>();
-        StringBuilder block = new StringBuilder();
-        for (NewAnswer answer : answers) {
-            String id = IdSequence.next(PREFIX, ids);
-            ids.add(id);
-            Answer next = new Answer(id, oneLine(answer.question()), answer.value().strip(), sessionId, at);
-            written.add(next);
-            block.append(render(next));
+            List<String> ids = new ArrayList<>(parse(body).stream().map(Answer::id).toList());
+            String at = Timestamps.now(clock);
+            List<Answer> written = new ArrayList<>();
+            StringBuilder block = new StringBuilder();
+            for (NewAnswer answer : answers) {
+                String id = IdSequence.next(PREFIX, ids);
+                ids.add(id);
+                Answer next = new Answer(id, oneLine(answer.question()), answer.value().strip(), sessionId, at);
+                written.add(next);
+                block.append(render(next));
+            }
+            AtomicFiles.write(file, head + insert(body, block.toString()));
+            return List.copyOf(written);
         }
-        AtomicFiles.write(file, head + insert(body, block.toString()));
-        return List.copyOf(written);
     }
 
     /** 「本次答案」里的全部答案，按写入顺序。 */

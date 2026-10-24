@@ -130,6 +130,11 @@ public record StorageLayout(Path root) {
         return uploadsDir().resolve(Ids.requireJobId(jobId));
     }
 
+    /** 用户在申请工作台附的文件（C006 附件）：在上传区里，浏览器能上传；关卡 B 时不清空，重新开始申请时清空。 */
+    public Path jobAttachmentsDir(String jobId) {
+        return uploadsDir(jobId).resolve("attachments");
+    }
+
     public Path playbookDir() {
         return root.resolve("playbook");
     }
@@ -213,6 +218,16 @@ public record StorageLayout(Path root) {
 
     public Path sessionFile(String projectId, String sessionId) {
         return sessionDir(projectId, sessionId).resolve("session.md");
+    }
+
+    /** 用户在 Session 对话里附的文件（C006 附件）。 */
+    public Path sessionAttachmentsDir(String projectId, String sessionId) {
+        return sessionDir(projectId, sessionId).resolve("attachments");
+    }
+
+    /** 对话 Agent 在这个 Session 里读过的网页（开头部分，{@link SessionPages}）。 */
+    public Path sessionPagesDir(String projectId, String sessionId) {
+        return sessionDir(projectId, sessionId).resolve("pages");
     }
 
     public Path transcript(String projectId, String sessionId) {

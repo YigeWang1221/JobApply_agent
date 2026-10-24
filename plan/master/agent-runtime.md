@@ -85,7 +85,7 @@ C004-B 做出来的是「Java 写死的流程，中间加了 LLM」：
 | 旧工作 | 初步判断 | 说明 |
 | --- | --- | --- |
 | 模型接入、设置页（C004-A） | 保留 | `ModelRegistry`、`ModelFactory.withTools(ChatModel, …)` 直接用 |
-| Playwright MCP 连接 `BrowserSession`、`PlaywrightMcpClient` | 保留 | 连接属于应用：同意一次以后一直挂着，断开后等用户说重连。多个 Job 各用一个标签页（`browser_tabs select`）做过一版，已撤回，需要时重做 |
+| Playwright MCP 连接 `BrowserSession`、`PlaywrightMcpClient` | 保留 | 连接属于应用：同意一次以后一直挂着，~~断开后等用户说重连~~（2026-10-23 起：断开后下一次使用自动重连一次，连不上再等用户点「重新连接」或发消息，见 workflow.md「Chrome MCP」）。多个 Job 各用一个标签页（`browser_tabs select`）做过一版，已撤回，需要时重做 |
 | 浏览器工具定义 `BrowserTools`、白名单 `BrowserToolPolicy` | 保留，可能放宽 | 按新设计调整参数（例如字段上的 `fact` 改成可选） |
 | 提交守卫 `SubmitGuard`、C 级字段 `FieldClassGuard`、快照遮值 `SnapshotRedactor` | 保留最必要的 | 用户定下的线：系统不替用户点最终提交。其余守卫和确认能少就少 |
 | skill：`SkillCatalog`、`PlaybookSeeder`、`SiteNotes`、预置的 6 个 skill | 保留 | 提示词里要告诉模型什么时候读哪个 |
@@ -106,7 +106,7 @@ C004-B 做出来的是「Java 写死的流程，中间加了 LLM」：
 ## 5. 做出一个能跑通的流程
 
 - 先在夹具上用真实模型试跑（假浏览器）。再在用户的 Chrome 上跑一次：
-  - 用户的 Chrome 没装 Playwright 扩展，用远程调试：打开 `chrome://inspect/#remote-debugging` 的开关，MCP 参数换成 `-y,@playwright/mcp@0.0.83,--cdp-endpoint,chrome,--snapshot-mode,none,--console-level,error,--image-responses,omit,--no-webmcp`；
+  - 用远程调试模式（2026-10-23 起是默认）：打开 `chrome://inspect/#remote-debugging` 的开关，MCP 参数用默认的 `--cdp-endpoint chrome`；
   - 一个应用、一条连接跑多个夹具（`-Djobapply.smoke.form=a,b,c`），只需要用户同意一次连接。
 - **算跑通**：
   - 模型自己打开页面、自己判断要不要登录、把能填的填好；
@@ -137,7 +137,7 @@ C004-B 做出来的是「Java 写死的流程，中间加了 LLM」：
   - 模型调 `ask_user`：等用户回答；
   - 模型调 `finish`：能填的都填了，停在最终提交前；
   - 模型只回了文字、没调工具：当成发给用户的话，等用户回复（OpenMAIC 的自动 cue）；
-  - 浏览器断开：等用户说重连；
+  - 浏览器断开：停下等你（2026-10-23 起连接状态只有一份；断开的那一步不重放，用户回复后第一次用浏览器时再连，也可以先点「重新连接」，见 workflow.md「Chrome MCP」）；
   - 迭代上限（兜底，例如一次运行 150 次工具调用）：给模型一次宽限调用，让它总结做到哪了，再交给用户决定要不要继续。
 - **不强制转交**：打转（同一元素连续失败、相同操作相同结果、页面一直不变）、守卫拒绝、工具出错，都只在工具结果里如实说「这是第 N 次」，由模型换办法或问用户（Hermes 的 BLOCKED 文字）。不做中途的预算提醒。
 - **恢复**：每轮之后把对话、计划和用量存到这个 Job 的目录。用户回答 / 重连 / 要求修改时，读回对话，追加一条用户消息（回答原文 + 系统附带的事实，例如选好的文件编号），接着跑（OpenMAIC：回答就是下一条消息）。应用重启后也一样能接上。
@@ -232,6 +232,17 @@ C004-B 做出来的是「Java 写死的流程，中间加了 LLM」：
 每一步一次小改动，说清改了什么和跑的结果。
 
 ---
+
+## 8. 运行时的结构规则（用户确认，2026-10-23）
+
+来源：C006 之后的四个问题和用户要求「从流程和结构上解决，不要打补丁」；参考 OpenMAIC、Deep Agents，出处见 [research-agent-design.md](../reference/research-agent-design.md)「运行时」，施工见 [C006-fix-runtime.md](../coding/C006-fix-runtime.md)。
+
+1. **事件日志是真相的变化记录，推送只是它的尾巴**：应用级一条带序号的事件日志；`GET /api/events` 按 `Last-Event-ID` 补发、发 `caught_up`、心跳、不关流；应用重启（纪元变了）发 `reset`。Session 的推送包括它涉及的 Job 的事件。客户端靠浏览器原生重连，不因为一次出错就退回轮询。
+2. **子 Agent 回报父 Session**：申请线程停在提交前、等用户、出错、结束时，往发起它的 Session 记一条（transcript 的 note + 事件）。父 Session 空闲时**不自动唤醒模型**，用户下一句话时对话 Agent 看得到。
+3. **用户说的事实优先于 Agent 的流程状态**：已提交、岗位下线、撤回、不投了，在任何未结束的状态下都接受；正在跑的线程先停下，结束时不覆盖用户定下的状态。Agent 自己的进度状态仍按状态机走。
+4. **有副作用的工具可重放**：按业务键幂等，重复调用返回回执，不做第二次。重新生成保留上一次的调用和结果原文，不合成「已经生效、不要重复」这类约束句。
+5. **文件只有一张清单**：一个申请能用的文件（原件、附件）在同一张带编号的清单里；上传位置是模型的请求，服务端只校验文件存在，不替模型判断「必填填了没有」。
+6. **对话读回时补中断的调用**：没有结果的工具调用补一条「被中断了，没有执行完」，再发给模型。
 
 ## 附：交接时的状态
 

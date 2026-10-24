@@ -4,6 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -13,9 +14,10 @@ import jobapply.tools.SnapshotIndex;
 
 /**
  * 点击守卫（agent-runtime.md 7.6）：名字含提交类词（硬边界）的按钮一律不点，由用户自己点。纯函数：输入最新一次快照和
- * 这次调用，输出 {@link GuardDecision}。「下一步」「继续」「保存」这类按钮（软边界）平时放行；拿不准时
- * （页面上看不到第几步、已经是最后一步、同一页上还有提交类按钮）要模型先问用户（{@link GuardDecision.AskUser}，
- * 用户确认 2026-10-23：夹具 {@code submitted-page} 里「下一步」直接完成了投递）。
+ * 这次调用，输出 {@link GuardDecision}。「下一步」「继续」「保存」这类按钮（软边界）由模型判断是不是最后一步
+ * （{@code final_step_suspected}，C006-fix-runtime-2）：不是就放行；怀疑是、或者页面上看得出「下一步」可能直接提交
+ * （已经是最后一步、同一页上还有提交类按钮；夹具 {@code submitted-page} 里「下一步」直接完成了投递）时先问用户
+ * （{@link GuardDecision.AskUser}），用户的批准只对这一页的这一个按钮有效一次（{@link Approval}）。
  * 页面上出现安全验证、网页弹窗或像是已经提交了时不强制停，只用 {@link #pageWarning(PageSnapshot)} 告诉模型。
  */
 public final class SubmitGuard {
@@ -26,7 +28,8 @@ public final class SubmitGuard {
     }
 
     /**
-     * 模型点击时可以多给的说明（可选，只进日志）。调用方发给 MCP 之前用 {@link #strip(Map)} 去掉。
+     * 模型点击时多给的说明：{@code final_step_suspected} 决定软边界按钮放不放行，其它只进日志。调用方发给 MCP 之前用
+     * {@link #strip(Map)} 去掉。
      *
      * @param purpose            {@code next_step} / {@code save_draft} / {@code open_control} / {@code unsure}
      * @param finalStepSuspected 是否像是最后一步
@@ -79,17 +82,65 @@ public final class SubmitGuard {
             Pattern.compile("第\\s*(\\d+)\\s*步\\s*[，,、/]?\\s*共\\s*(\\d+)\\s*步"),
             Pattern.compile("(?i)step\\s*(\\d+)\\s*(?:of|/)\\s*(\\d+)"));
 
-    /** 点击之前检查（没有用户确认过的按钮）。 */
+    /**
+     * 用户批准过的一次点击：哪一页（网址）、哪个 ref、按钮叫什么。只对这一页的这一个按钮放行一次，用过或者翻页就作废。
+     */
+    public record Approval(String url, String ref, String button) {
+
+        public boolean matches(PageSnapshot latest, String ref, String label) {
+            return latest != null && Objects.equals(url, latest.url()) && Objects.equals(this.ref, ref)
+                    && SubmitWords.normalize(button).equals(SubmitWords.normalize(label));
+        }
+    }
+
+    /** 点击之前检查（模型没给说明、没有批准）。 */
     public static GuardDecision click(PageSnapshot latest, String ref) {
-        return click(latest, ref, null);
+        return click(latest, ref, null, null);
     }
 
     /**
-     * 点击之前检查：ref 要在最新快照里，名字不能含提交类词；软边界按钮拿不准时要先问用户。
+     * 申请 Agent 点击之前检查：ref 要在最新快照里，名字不能含提交类词（硬边界，什么都放不过）。软边界按钮
+     * （「下一步」「保存」）按这个顺序：用户批准过这一页的这个按钮 → 放行；「下一步」这类而页面上看得出可能直接提交
+     * （同一页还有提交类按钮、步骤条已经是最后一步）→ 问用户；模型怀疑是最后一步 → 问用户；模型说不是 → 放行；
+     * 模型没说 → 请模型补上说明。
      *
-     * @param confirmed 用户刚确认过可以点的软边界按钮名字；没有时为 null
+     * @param intent   模型给的说明；没有时为 null
+     * @param approved 用户批准过的一次点击；没有时为 null
      */
-    public static GuardDecision click(PageSnapshot latest, String ref, String confirmed) {
+    public static GuardDecision click(PageSnapshot latest, String ref, ClickIntent intent, Approval approved) {
+        GuardDecision base = readOnly(latest, ref);
+        if (!(base instanceof GuardDecision.Allow)) {
+            return base;
+        }
+        String label = label(SnapshotIndex.of(latest).find(ref).orElseThrow());
+        if (!SubmitWords.isSoft(label)) {
+            return base;
+        }
+        if (approved != null && approved.matches(latest, ref, label)) {
+            return GuardDecision.allow();
+        }
+        if (SubmitWords.isNext(label)) {
+            String signal = signal(latest);
+            if (signal != null) {
+                return new GuardDecision.AskUser(label.strip(), signal);
+            }
+        }
+        Boolean last = intent == null ? null : intent.finalStepSuspected();
+        if (last == null) {
+            return new GuardDecision.Explain("「" + label.strip() + "」可能直接交出申请。先看页面（步骤条、进度、按钮旁的说明），"
+                    + "带上 purpose、final_step_suspected 和 evidence 再点");
+        }
+        if (last) {
+            String evidence = intent.evidence() == null || intent.evidence().isBlank() ? "" : "（" + intent.evidence().strip() + "）";
+            return new GuardDecision.AskUser(label.strip(), "你判断这可能是最后一步" + evidence + "，这个按钮可能直接提交");
+        }
+        return GuardDecision.allow();
+    }
+
+    /**
+     * 调研（只读）点击之前检查：只拦判断不了的元素和名字含提交类词的按钮；「下一页」「继续」这类放行。
+     */
+    public static GuardDecision readOnly(PageSnapshot latest, String ref) {
         if (latest == null) {
             return new GuardDecision.Reject("还没有最新快照，判断不了这个元素");
         }
@@ -105,20 +156,11 @@ public final class SubmitGuard {
         if (SubmitWords.isHard(label)) {
             return new GuardDecision.Reject(HARD_REASON + "（「" + label.strip() + "」）");
         }
-        if (SubmitWords.isSoft(label)) {
-            if (confirmed != null && SubmitWords.normalize(confirmed).equals(SubmitWords.normalize(label))) {
-                return GuardDecision.allow();
-            }
-            String doubt = doubt(latest);
-            if (doubt != null) {
-                return new GuardDecision.AskUser(label.strip(), doubt);
-            }
-        }
         return GuardDecision.allow();
     }
 
-    /** 软边界按钮为什么拿不准；看得出只是翻页时为 null。 */
-    private static String doubt(PageSnapshot latest) {
+    /** 页面上看得出「下一步」可能直接提交的硬信号；没有时为 null。看不出第几步不算（交给模型判断）。 */
+    private static String signal(PageSnapshot latest) {
         boolean submitOnPage = SnapshotIndex.of(latest).nodes().stream()
                 .anyMatch(node -> "button".equals(node.role()) && SubmitWords.isHard(label(node)));
         if (submitOnPage) {
@@ -132,7 +174,7 @@ public final class SubmitGuard {
                         ? "已经是最后一步（第 " + step.group(1) + "/" + step.group(2) + " 步），这个按钮可能直接提交" : null;
             }
         }
-        return "页面上看不出这是第几步，这个按钮可能直接提交";
+        return null;
     }
 
     /** 判断用的名字：可访问名字；没有名字时用行尾文字（例如 {@code - button: 提交}）。 */

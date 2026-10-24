@@ -27,11 +27,10 @@ jobapply:
       command: npx
       # 写操作的返回不附带快照、不写快照文件；console 只留错误；不返回图片；不收集页面注册的 WebMCP 工具。
       # --output-dir（storage/cache/playwright-mcp）由程序按 storage 追加；不加 --caps
-      args: ["-y", "@playwright/mcp@0.0.83", "--extension", "--snapshot-mode", "none", "--console-level", "error",
+      # 远程调试模式（--cdp-endpoint chrome）：在 chrome://inspect/#remote-debugging 打开开关，只有第一次连接要确认，不用装扩展
+      args: ["-y", "@playwright/mcp@0.0.83", "--cdp-endpoint", "chrome", "--snapshot-mode", "none", "--console-level", "error",
              "--image-responses", "omit", "--no-webmcp"]
-      # 可选：Chrome 的资料目录名，例如 "Profile 1"
-      profile-dir-name: ""
-      # 要长于扩展等待用户同意连接的 30 秒
+      # 要长于 Chrome 等待用户同意第一次连接的时间
       call-timeout: 60s
   search:
     # 可选：本机 SearXNG 的地址（例如 http://127.0.0.1:8888）；不写时跳过这一级。Brave 的 key 在 storage/settings/.env 的 BRAVE_API_KEY

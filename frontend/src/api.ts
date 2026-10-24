@@ -1,5 +1,5 @@
 // 对后端接口的薄封装。出错时把后端返回的 {"error": "..."} 原样交给页面显示。
-// 写接口一律带 Content-Type: application/json（后端的本地请求防护要求这样，没有请求体时发 {}，DELETE 也一样）；上传原件除外。
+// 写接口一律带 Content-Type: application/json（后端的本地请求防护要求这样，没有请求体时发 {}，DELETE 也一样）；上传文件（原件、附件）除外。
 
 export class ApiError extends Error {
   constructor(
@@ -19,6 +19,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return parse<T>(await fetch(path, init));
 }
 
+// 上传一个文件：multipart 字段 file，不设 Content-Type（浏览器自己带 boundary）
+async function uploadFile<T>(path: string, file: File): Promise<T> {
+  const form = new FormData();
+  form.append("file", file);
+  return parse<T>(await fetch(path, { method: "POST", body: form }));
+}
+
 async function parse<T>(response: Response): Promise<T> {
   const text = await response.text();
   let data: unknown = null;
@@ -35,6 +42,14 @@ async function parse<T>(response: Response): Promise<T> {
     throw new ApiError(response.status, message || `HTTP ${response.status}`);
   }
   return data as T;
+}
+
+// 全应用只有一份的浏览器连接状态：generation 是第几次连上（还没连上过为 0）
+export interface BrowserState {
+  state: "not_connected" | "connecting" | "connected" | "disconnected";
+  reason: string | null;
+  since: string | null;
+  generation: number;
 }
 
 export interface Preset {
@@ -71,6 +86,8 @@ export interface Provider {
 export interface Assignment {
   provider: string;
   model: string;
+  // 显示思考（C006-agent）：只有 Anthropic 格式的提供方用它；后端没给这个字段时设置页不显示开关
+  showThinking?: boolean;
 }
 
 export type Usage = "main" | "auxiliary" | "cross_check";
@@ -335,18 +352,50 @@ export interface ApplicationStatus {
   report?: "draft" | "final" | null;
   round?: number | null;
   error?: string | null;
+  // 这个申请已经存下的附件（C006-fix）：上传位置也可以选它们（attachment:<id>）
+  attachments?: SentAttachment[] | null;
 }
 
 export interface ReplyBody {
   session: string;
   text?: string;
   answers?: Record<string, string>;
-  // 原件键，按 fileSlots 的顺序，每个对应一个上传位置；跳过的选填位置写空字符串
+  // 按 fileSlots 的顺序，每个对应一个上传位置：原件键，或 attachment:<附件编号>；不选写空字符串
   files?: string[];
+  // 这次回复附的文件（C006-fix），上传接口返回的编号
+  attachments?: string[];
 }
 
+// 回复里附的文件、图片（C006-fix）：选中后立刻上传拿到编号，发送时只带编号
+// Chrome 里一个没有主人的标签页（C006-fix-browser 第 2 节）：只给你看，你选了才交给 Agent
+export interface BrowserTab {
+  index: number;
+  title: string;
+  url: string;
+}
+
+export interface Attachment {
+  id: string;
+  name: string;
+  size: number;
+  contentType: string;
+  image: boolean;
+}
+
+// 已发出的用户消息上的附件；url 用来显示缩略图、点开看原件
+export interface SentAttachment {
+  id: string;
+  name: string;
+  contentType: string;
+  image: boolean;
+  url: string;
+}
+
+// 单个附件的上限，和后端一致
+export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
 // Project / Session / Job（C005）：候选池、对话 Agent、申请工作台
-export type LeadStatus = "new" | "shortlisted" | "skipped" | "converted";
+export type LeadStatus = "new" | "shortlisted" | "skipped" | "closed" | "converted";
 
 export interface JobView {
   id: string;
@@ -369,6 +418,40 @@ export interface JobView {
   note: string | null;
   // 申请线程的状态：running / waiting_user / ready / failed；还没有申请线程时为 null
   application: string | null;
+  // 投递以后（C007）：用户确认提交的时间、最近一次反馈的时间、下次查看的日期（yyyy-MM-dd）
+  appliedAt: string | null;
+  lastCheckedAt: string | null;
+  nextCheckAt: string | null;
+  // 申请 Agent 结束时页面已经像投递成功了，确认卡片写「确认一下」
+  pageLooksSubmitted: boolean;
+  // 阶段变化（转为申请、阶段变化、结束），按时间先后；只有 Project 主页和全局页的列表带，其它地方为 null
+  events: PhaseEvent[] | null;
+  // 下面三个由服务器算好（C006-fix 第 6 节），前端只读：「该查看了」（按服务器的今天）、分组、能不能开始申请线程
+  due: boolean;
+  bucket: JobBucket;
+  canStart: boolean;
+}
+
+// 分组（服务器 JobBucket）：lead 候选池里还在考虑；preparing 准备中；waiting 准备中、要你做事（申请线程在等你 / 失败 / 中断，
+// 或者 prep 是 needs_input / needs_login / handoff_user / failed）；ready 停在提交前；applied 投递以后、没结束；
+// closed 跳过 / 下线 / 已结束
+export type JobBucket = "lead" | "preparing" | "waiting" | "ready" | "applied" | "closed";
+
+// to 是变化后的标签：applied、screening…、prep:selected、closed:rejected
+export interface PhaseEvent {
+  at: string;
+  type: "converted" | "phase_changed" | "closed";
+  to: string;
+}
+
+export function localDay(date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+// 停在提交前、等用户说提交了没有（C007）
+export function awaitingSubmit(job: JobView): boolean {
+  return job.bucket === "ready";
 }
 
 export interface SessionSummary {
@@ -380,7 +463,7 @@ export interface SessionSummary {
   jobs: string[];
   handoff: string;
   // 运行中标记（C006-agent）；没有时不显示
-  status?: "running" | "idle" | null;
+  status?: "running" | "idle" | "interrupted" | null;
 }
 
 export interface ProjectCounts {
@@ -390,6 +473,8 @@ export interface ProjectCounts {
   waiting: number;
   ready: number;
   applied: number;
+  // 「该查看了」的申请个数（C007）
+  dueChecks: number;
 }
 
 export interface ProjectSummary {
@@ -428,7 +513,7 @@ export interface ProcessStep {
 }
 
 export type ChatMessage =
-  | { role: "user"; text: string; at: string | null }
+  | { role: "user"; text: string; at: string | null; attachments?: SentAttachment[] | null }
   | { role: "assistant"; text: string | null; tools: ToolStep[]; steps?: ProcessStep[] | null; at: string | null };
 
 // 现在在做什么（C006-agent）；没有时前端退回「对话里最后一个工具」
@@ -441,7 +526,8 @@ export interface Activity {
 
 export interface SessionView {
   session: SessionSummary;
-  status: "running" | "idle";
+  // interrupted：上一轮没跑完就断了（例如后端重启），error 写着原因
+  status: "running" | "idle" | "interrupted";
   error: string | null;
   messages: ChatMessage[];
   jobs: JobView[];
@@ -484,11 +570,7 @@ export const api = {
     request<Partial<Record<Usage, Assignment>>>("PUT", `${MODELS}/assignments`, { main, auxiliary, crossCheck }),
 
   assets: () => request<{ assets: Asset[] }>("GET", "/api/assets"),
-  upload: async (file: File) => {
-    const form = new FormData();
-    form.append("file", file);
-    return parse<UploadResult>(await fetch("/api/assets", { method: "POST", body: form }));
-  },
+  upload: (file: File) => uploadFile<UploadResult>("/api/assets", file),
   describe: (key: string, description: string) =>
     request<Asset>("PATCH", `/api/assets/${encodeURIComponent(key)}`, { description }),
 
@@ -515,23 +597,50 @@ export const api = {
   confirmSummary: (body: { zh: Record<string, string>; en: Record<string, string>; userEdited: string[];
     reviewed: string[] }) => request<ProfileSummary>("PUT", "/api/profile/summary", body),
 
+  // 浏览器连接状态（C006-fix-browser 第 1 节）；变化时全局事件流也会推 browser 事件
+  browser: () => request<BrowserState>("GET", "/api/browser"),
+  reconnectBrowser: () => request<BrowserState>("POST", "/api/browser/reconnect"),
+
   projects: () => request<{ projects: ProjectSummary[] }>("GET", "/api/projects"),
   createProject: (id: string, title: string) => request<ProjectSummary>("POST", "/api/projects", { id, title }),
+  jobs: () => request<{ jobs: JobView[] }>("GET", "/api/jobs"),
   project: (id: string) => request<{ project: ProjectSummary; jobs: JobView[] }>("GET", `/api/projects/${enc(id)}`),
   createSession: (projectId: string, title?: string) =>
     request<SessionView>("POST", `/api/projects/${enc(projectId)}/sessions`, title ? { title } : {}),
   session: (id: string) => request<SessionView>("GET", `/api/sessions/${enc(id)}`),
-  sendMessage: (id: string, text: string) => request<SessionView>("POST", `/api/sessions/${enc(id)}/messages`, { text }),
+  renameSession: (id: string, title: string) => request<SessionView>("PATCH", `/api/sessions/${enc(id)}`, { title }),
+  renameProject: (id: string, title: string) => request<ProjectSummary>("PATCH", `/api/projects/${enc(id)}`, { title }),
+  sendMessage: (id: string, text: string, attachments: string[] = []) =>
+    request<SessionView>("POST", `/api/sessions/${enc(id)}/messages`,
+      attachments.length > 0 ? { text, attachments } : { text }),
+  sessionAttachment: (id: string, file: File) => uploadFile<Attachment>(`/api/sessions/${enc(id)}/attachments`, file),
+  sessionAttachmentUrl: (id: string, attachment: string) => `/api/sessions/${enc(id)}/attachments/${enc(attachment)}`,
   stopSession: (id: string) => request<SessionView>("POST", `/api/sessions/${enc(id)}/stop`),
+  // 重新生成最后一条回复（C006-agent）；已经做过的操作不会撤销
+  regenerate: (id: string) => request<SessionView>("POST", `/api/sessions/${enc(id)}/regenerate`),
   job: (id: string) => request<JobDetail>("GET", `/api/jobs/${enc(id)}`),
-  markLead: (id: string, status: "new" | "shortlisted" | "skipped", reason?: string) =>
+  markLead: (id: string, status: "new" | "shortlisted" | "skipped" | "closed", reason?: string) =>
     request<JobView>("PATCH", `/api/jobs/${enc(id)}/lead`, reason ? { status, reason } : { status }),
+  // 用户在 Chrome 里亲自提交了（C007）：awaiting_review → applied，用户的确认就是证据
+  markSubmitted: (id: string, note?: string) =>
+    request<JobView>("POST", `/api/jobs/${enc(id)}/submitted`, note ? { note } : {}),
+  // 岗位下线了：候选标成 closed，已转申请的以 posting_closed 结束
+  postingClosed: (id: string, note?: string) =>
+    request<JobView>("POST", `/api/jobs/${enc(id)}/posting-closed`, note ? { note } : {}),
+  // 还没提交（暂停）/ 不投了（giveUp，以 not_submitted 结束）（C007）
+  markNotSubmitted: (id: string, giveUp: boolean, note?: string) =>
+    request<JobView>("POST", `/api/jobs/${enc(id)}/not-submitted`, note ? { giveUp, note } : { giveUp }),
 
   startApplication: (jobId: string, body: { project: string; session: string }) =>
     request<ApplicationStatus>("POST", jobPath(jobId), body),
   application: (jobId: string) => request<ApplicationStatus>("GET", jobPath(jobId)),
   reply: (jobId: string, body: ReplyBody) => request<ApplicationStatus>("POST", `${jobPath(jobId)}/reply`, body),
   stop: (jobId: string) => request<ApplicationStatus>("POST", `${jobPath(jobId)}/stop`),
+  jobAttachment: (jobId: string, file: File) => uploadFile<Attachment>(`${jobPath(jobId)}/attachments`, file),
+  // 没有主人的标签页（只给界面看）；把其中一个交给这个申请：标签页变了或者有主人了时 409
+  freeTabs: () => request<{ tabs: BrowserTab[] }>("GET", "/api/browser/tabs"),
+  handOverTab: (jobId: string, tab: BrowserTab) =>
+    request<BrowserTab>("POST", `${jobPath(jobId)}/tab`, { index: tab.index, url: tab.url }),
   // 报告是 Markdown 文本；还没有报告（404）时返回 null
   report: async (jobId: string) => {
     const response = await fetch(`${jobPath(jobId)}/report`);

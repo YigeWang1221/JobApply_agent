@@ -1,17 +1,26 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { api, errorText, type SessionView } from "../api";
+import { useCallback, useEffect, useState } from "react";
+import { api, ApiError, awaitingSubmit, errorText, type Attachment, type ChatMessage, type JobView, type SentAttachment, type SessionView } from "../api";
+import { ChatSkeleton } from "../chat/ChatSkeleton";
+import { Composer } from "../chat/Composer";
+import { readDraft, writeDraft } from "../chat/draft";
+import { Icon } from "../chat/icons";
+import { MessageList } from "../chat/MessageList";
+import { useAttachments } from "../chat/useAttachments";
+import { useLiveUpdates } from "../chat/useLiveUpdates";
 import { go } from "../route";
-import { ChatLog, JobState, lastTool } from "../status";
+import { RenameTitle } from "../RenameTitle";
+import { JobState, SubmitConfirm } from "../status";
+import { toast } from "../toast";
 
-const POLL_MS = 2000;
+const SUGGESTIONS = ["按我的简历撒网找岗位", "核验候选池里没核验的", "投想投的那几个"];
 
-// 对话视图（C005-research-agent.md）：和对话 Agent 聊、调研出候选、开始申请。Agent 在后台跑，运行中每 2 秒查一次
+// 对话视图（C006-front）：整屏高度，中间是消息流，底部固定输入框，右侧是这个 Session 涉及的岗位（可收起）
 export default function SessionPage({ id }: { id: string }) {
   const [view, setView] = useState<SessionView | null>(null);
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const bottom = useRef<HTMLDivElement>(null);
+  const [text, setText] = useState(() => readDraft(id));
+  const [pending, setPending] = useState<{ text: string; failed: boolean; attachments: SentAttachment[] } | null>(null);
+  const [jobsOpen, setJobsOpen] = useState(() => window.matchMedia("(min-width: 1100px)").matches);
 
   const load = useCallback(async () => {
     try {
@@ -27,107 +36,141 @@ export default function SessionPage({ id }: { id: string }) {
   }, [load]);
 
   const running = view?.status === "running";
+  const sse = useLiveUpdates({ session: id }, running, load);
+  const upload = useCallback((file: File) => api.sessionAttachment(id, file), [id]);
+  const attach = useAttachments(upload);
+
   useEffect(() => {
-    if (!running) {
+    document.title = view ? `${view.session.title} · JobApply` : "JobApply";
+    return () => {
+      document.title = "JobApply";
+    };
+  }, [view?.session.title]);
+
+  function edit(next: string) {
+    setText(next);
+    writeDraft(id, next);
+  }
+
+  // 附件已经上传好，这里只带编号；重发、重试时沿用那一条的附件
+  async function send(message: string, files: SentAttachment[], fromComposer: boolean) {
+    const body = message.trim();
+    if (!body && files.length === 0) {
       return;
     }
-    const timer = window.setInterval(() => void load(), POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [running, load]);
-
-  const count = view?.messages.length ?? 0;
-  useEffect(() => {
-    bottom.current?.scrollIntoView({ block: "end" });
-  }, [count, running]);
-
-  async function send() {
-    const message = text.trim();
-    if (!message) {
-      return;
+    setPending({ text: body, failed: false, attachments: files });
+    if (fromComposer) {
+      edit("");
+      attach.clear();
     }
-    setBusy(true);
-    setError(null);
     try {
-      setView(await api.sendMessage(id, message));
-      setText("");
+      setView(await api.sendMessage(id, body, files.map((f) => f.id)));
+      setPending(null);
     } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setBusy(false);
+      setPending({ text: body, failed: true, attachments: files });
+      toast(describe(e), "error");
     }
   }
 
-  async function stop() {
+  const sent = (file: Attachment): SentAttachment => ({
+    id: file.id, name: file.name, contentType: file.contentType, image: file.image,
+    url: api.sessionAttachmentUrl(id, file.id),
+  });
+
+  async function act(action: () => Promise<SessionView>) {
     try {
-      setView(await api.stopSession(id));
+      setView(await action());
     } catch (e) {
-      setError(errorText(e));
+      toast(describe(e), "error");
     }
   }
 
   if (!view) {
-    return error ? <p className="error">{error}</p> : <p className="muted">读取中…</p>;
+    return error ? <p className="error pad">{error}</p> : <ChatSkeleton />;
   }
-  const tool = lastTool(view.messages);
+  const lastUser = [...view.messages].reverse()
+    .find((m): m is Extract<ChatMessage, { role: "user" }> => m.role === "user") ?? null;
+  const failure = view.status === "interrupted" ? view.error ?? "上一轮没跑完就中断了。" : view.error;
 
   return (
-    <div className="sessgrid">
-      <div className="panel chatpanel">
-        <div className="ph">
-          <div>
-            <div className="muted small mono">{view.session.project} · {view.session.createdAt}</div>
-            <h2 style={{ fontSize: 16 }}>{view.session.title}</h2>
+    <div className="chatpage">
+      <div className="chatmain">
+        <header className="chathead">
+          <div className="chathead-t">
+            <RenameTitle value={view.session.title}
+              onSave={async (title) => setView(await api.renameSession(id, title))} />
+            <span className="muted small">
+              {view.session.project}
+              {view.session.tags.map((tag) => <span key={tag} className={`tagc ${tag}`}>{tag}</span>)}
+              {sse.reconnecting && <span className="reconnecting" title="和后端的推送断开了，正在自动重连">重新连接中…</span>}
+            </span>
           </div>
-          <div>{view.session.tags.map((tag) => <span key={tag} className={`tagc ${tag}`}>{tag}</span>)}</div>
-        </div>
-        <div className="chatlog">
-          {view.messages.length === 0 && !running && <p className="empty">还没有对话。</p>}
-          <ChatLog messages={view.messages} />
-          {running && <div className="thinking">Agent 正在{tool ? `用 ${tool}` : "想"}…</div>}
-          {view.error && <p className="error">出错：{view.error}</p>}
-          <div ref={bottom} />
-        </div>
-        {error && <p className="error">{error}</p>}
-        <div className="composer">
-          <textarea rows={2} value={text} disabled={busy}
-            placeholder="例如：按我的简历找上海的后端校招 / 核验一下第一个 / 投这两个"
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                if (!running) {
-                  void send();
-                }
-              }
-            }} />
-          {running
-            ? <button className="danger" onClick={() => void stop()}>停止</button>
-            : <button className="primary" disabled={busy || !text.trim()} onClick={() => void send()}>发送</button>}
-        </div>
-      </div>
-      <div className="panel">
-        <h2>这个 Session 涉及的岗位</h2>
-        {view.jobs.length === 0
-          ? <p className="empty">还没有涉及任何岗位。</p>
-          : (
-            <div className="list">
-              {view.jobs.map((job) => (
-                <div key={job.id} className="li">
-                  <div className="t">
-                    <div>{job.company} · {job.title}</div>
-                    <small>{job.city.join("、")}</small>
-                  </div>
-                  <div className="acts">
-                    <JobState job={job} />
-                    <button className="linkbtn" onClick={() => go({ kind: "job", id: job.id })}>
-                      {job.leadStatus === "converted" ? "工作台" : "详情"}
-                    </button>
-                  </div>
-                </div>
-              ))}
+          <button className="iconbtn labeled" aria-expanded={jobsOpen} onClick={() => setJobsOpen(!jobsOpen)}
+            title={jobsOpen ? "收起岗位面板" : "展开岗位面板"}>
+            <Icon name="panel" size={15} /> 岗位 {view.jobs.length}
+          </button>
+        </header>
+        {error && <p className="error small pad">刷新失败：{error}</p>}
+        <MessageList messages={view.messages} running={running} jobs={view.jobs}
+          activity={sse.activity !== undefined ? sse.activity : view.activity}
+          pending={pending}
+          onResend={pending ? () => void send(pending.text, pending.attachments, false) : undefined}
+          error={failure}
+          onRetry={lastUser ? () => void send(lastUser.text, lastUser.attachments ?? [], false) : undefined}
+          onRegenerate={() => void act(() => api.regenerate(id))}
+          empty={
+            <div className="emptychat">
+              <h2>想让 Agent 做什么？</h2>
+              <div className="suggestions">
+                {SUGGESTIONS.map((s) => <button key={s} onClick={() => void send(s, [], false)}>{s}</button>)}
+              </div>
             </div>
-          )}
+          } />
+        <div className="composerwrap">
+          {view.jobs.filter(awaitingSubmit).map((job) => <SubmitConfirm key={job.id} job={job} onDone={load} />)}
+          <Composer value={text} onChange={edit} running={running} disabled={!!pending && !pending.failed}
+            attach={attach}
+            onSend={() => void send(text, attach.ready.map(sent), true)}
+            onStop={() => void act(() => api.stopSession(id))}
+            placeholder="例如：按我的简历找上海的后端校招 / 核验一下第一个 / 投这两个" />
+        </div>
       </div>
+      {jobsOpen && <JobsPanel jobs={view.jobs} onClose={() => setJobsOpen(false)} />}
     </div>
   );
+}
+
+function JobsPanel({ jobs, onClose }: { jobs: JobView[]; onClose: () => void }) {
+  return (
+    <aside className="jobsside" aria-label="这个 Session 涉及的岗位">
+      <div className="ph">
+        <h2>这个 Session 涉及的岗位</h2>
+        <button className="iconbtn" aria-label="收起" title="收起" onClick={onClose}><Icon name="cross" size={14} /></button>
+      </div>
+      {jobs.length === 0
+        ? <p className="empty">还没有涉及任何岗位。</p>
+        : (
+          <div className="list">
+            {jobs.map((job) => (
+              <div key={job.id} className="li">
+                <div className="t">
+                  <div>{job.company} · {job.title}</div>
+                  <small>{job.city.join("、")}</small>
+                </div>
+                <div className="acts">
+                  <JobState job={job} />
+                  <button className="linkbtn" onClick={() => go({ kind: "job", id: job.id })}>
+                    {job.leadStatus === "converted" ? "工作台" : "详情"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+    </aside>
+  );
+}
+
+function describe(error: unknown): string {
+  return error instanceof ApiError ? `${error.status}：${error.message}` : errorText(error);
 }

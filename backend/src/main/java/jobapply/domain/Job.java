@@ -1,5 +1,7 @@
 package jobapply.domain;
 
+import java.time.DateTimeException;
+import java.time.LocalDate;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -34,5 +36,19 @@ public record Job(
     public String extraString(String key) {
         Object value = extra.get(key);
         return value == null ? null : value.toString();
+    }
+
+    /** 「该查看了」（C007）：投递以后、没结束，{@code next_check_at} 的日期到了 {@code today}（含）。 */
+    public boolean checkDue(LocalDate today) {
+        String next = extraString("next_check_at");
+        if (next == null || !JobBucket.AFTER_APPLIED.contains(status.phase())) {
+            return false;
+        }
+        next = next.strip();
+        try {
+            return next.length() >= 10 && !LocalDate.parse(next.substring(0, 10)).isAfter(today);
+        } catch (DateTimeException e) {
+            return false;
+        }
     }
 }
