@@ -53,4 +53,22 @@
 
 | # | 问题 | 怎么修 | 状态 |
 | --- | --- | --- | --- |
-| 20 | 项目经历区域的标题行、标题文字、「添加」按钮点击都超时（15000ms），同一页上「自我评价输入框」能点。第一次跑同一个「添加」按钮是能点的。模型又编了原因（「无 tabindex 的自定义 div」），请用户手动点 3 次添加。真实原因看不到：MCP 的超时错误不带 Playwright 的调用日志（本来会写「某某元素挡住了点击」）。可能是页面底部固定的操作栏、没关掉的下拉 / 级联弹层盖住了这块 | 提议（待用户定）：① 点击超时时系统用固定模板（`browser_run_code_unsafe`，和上传同一做法）查元素中心点上最上层是什么元素、元素是否可见，把实情写进结果给模型；② 盖住时系统用固定模板对同一个 ref 做一次 DOM 点击（守卫已经按这个 ref 的文字放行过，不放宽提交线）；③ 提示词：先 Escape 关掉弹层、滚动后重试 | 待用户定 |
+| 20 | 项目经历区域的标题行、标题文字、「添加」按钮点击都超时（15000ms），同一页上「自我评价输入框」能点。第一次跑同一个「添加」按钮是能点的。模型又编了原因（「无 tabindex 的自定义 div」），请用户手动点 3 次添加。真实原因看不到：MCP 的超时错误不带 Playwright 的调用日志（本来会写「某某元素挡住了点击」）。可能是页面底部固定的操作栏、没关掉的下拉 / 级联弹层盖住了这块 | 提议（待用户定）：① 点击超时时系统用固定模板（`browser_run_code_unsafe`，和上传同一做法）查元素中心点上最上层是什么元素、元素是否可见，把实情写进结果给模型；② 盖住时系统用固定模板对同一个 ref 做一次 DOM 点击（守卫已经按这个 ref 的文字放行过，不放宽提交线）；③ 提示词：先 Escape 关掉弹层、滚动后重试 | 已修（用户同意，51f5887，见下面「第 20 条」；真实页面未跑） |
+
+## 第 20 条（第四次跑，2026-10-24）
+
+| # | 问题 | 怎么修 | 状态 |
+| --- | --- | --- | --- |
+| 20 | 小米校招申请表（飞书 / Lark，真实 Chrome，`@playwright/mcp@0.0.83 --cdp-endpoint chrome --timeout-action 15000`）：项目经历下 `browser_click` 区域标题行、标题文字、「添加」按钮都报 `TimeoutError: browserBackend.callTool: Timeout 15000ms exceeded.`；同一页的自我评价文本框能点；第一次跑同一个「添加」能点。模型编了原因（「自定义 div 没有 tabindex」），请用户手动点三次添加。真正原因看不到：MCP 的超时错误不带 Playwright 的调用日志（平时会写「<div class=…> intercepts pointer events, retrying」或「element is not visible」）。嫌疑：页面底部的固定操作栏（提交等）盖住、或者没关掉的下拉 / 级联浮层（前面「所在地点」级联也点超时过） | 见下 | 已修（夹具 + 无头 Chrome 验证过；真实小米页面未运行） |
+
+**修法**（用户批准，2026-10-24）
+
+1. **超时后系统检查一次原因**（`BrowserSession.afterTimeout` → `PlaywrightMcpClient.diagnose`）：`browser_click`、`browser_type`、`browser_select_option` 带 target、报动作超时时，系统用固定模板 `DIAGNOSE` 经 `browser_run_code_unsafe` 在同一个 ref（`aria-ref=eN`）上检查：把元素 `scrollIntoView({block:'center'})`（DOM 的滚动，不等可操作性，避免 `scrollIntoViewIfNeeded` 在不可见元素上再等一次超时），看是否可见、中心是否在屏幕里，用 `elementFromPoint` 取中心最上层的元素；它不是目标、也不在目标里面时报它的 tag、role、前 60 字文字、class（前 80 字）、position，以及往上找到的 fixed / sticky 层；再列最多 3 个还开着的弹出层（role 为 listbox / menu / tree / dialog，或 class 含 popover / dropdown / cascader / picker / popup，且是 fixed / absolute、可见、不包含目标）。只读，除了滚动不改页面。结果替换原来那句笼统的「动作超时」说明写进错误交给模型；检查本身失败（例如文件选择框挡着）时照旧用 `hint` 的说明。
+2. **被盖住时直接点一次**（`PlaywrightMcpClient.clickThrough`）：只对 `browser_click`，且检查结果是「可见、在屏幕里、中心被别的元素盖住」。固定模板 `CLICK_THROUGH` 在同一个 ref 上按真实点击的顺序派发 pointerdown / mousedown / pointerup / mouseup，再 `element.click()`。事件直接发给目标元素，不经过屏幕坐标，盖在上面的层收不到。成功时系统照常取新快照，并留一句说明给模型（「被别的层盖住，系统在同一个元素上直接点了一次」+ 检查结果 + 「看快照核对有没有生效」）；失败时照实报「系统又直接点了一次，也失败了」。只试一次。
+   - 没用 `locator.click({force:true})`：force 只跳过可操作性检查，仍然是在元素中心的**屏幕坐标**上发鼠标事件，被盖住时点到的还是上面那一层，解决不了这个问题。
+   - 提交线不动：这条路径在 `BrowserSession.act` 里、MCP 的普通点击超时之后才走；调用方（`HarnessLoop` 的 `SubmitGuard.click`、调研 `SessionLoop` 的 `SubmitGuard.readOnly`）在发出任何点击之前已经判断过这个 ref，提交类按钮当场拒绝，走不到这里；ref 也已经过了白名单（在最新快照里）。模型仍然不能调 run_code，两个模板只嵌 ref 一个 JSON 字符串。
+3. **提示词 + skill**：`ApplyAgent` 加「点不动（动作超时）」一条；skill apply-form「保存并回读」加两条、repeatable-entries「点了添加却没有多出卡片」加一条：先读系统的检查结果；弹出层还开着就按 Escape 或点空白处关掉再重试；被固定栏挡住就滚到屏幕中间再点；不编原因；都试过还不行再问用户，说清是哪个元素、被什么盖住。
+
+**验证**：夹具 `file-slots` 加了项目经历的「添加」（场景里 `blocked` + `coveredBy` 固定栏，HTML 里盖一层透明遮罩），`BrowserSessionActTest` 加几行：点击超时 → 检查 → 直接点击 → 快照里「已添加的项目」变成「项目 1（待填写）」，说明里有盖住它的层；作品集按钮（没写 `coveredBy`）照旧报超时，错误里带检查结果。用 MCP 同版本的 playwright-core（npx 缓存，1.64.0-alpha）在无头 Chrome 里打开 `file-slots.html`：普通点击 2 秒超时；`DIAGNOSE` 报被 `span.cover.picker-mask` 盖住；`CLICK_THROUGH` 之后页面显示「项目 1（待填写）」；再注入一个 `position:fixed` 的底栏和一个 `role=listbox` 的级联浮层，`DIAGNOSE` 报出 fixed 层 `div.bottom-bar` 和这个浮层。`mvn -B -q clean verify` 退出码 0。真实小米页面：未运行。
+
+**下次真实跑看什么**：项目经历「添加」超时后错误里写的是哪个元素盖住、在什么层里；系统直接点了之后有没有多出卡片（飞书的添加如果只认 mousedown 之外的东西，这里会照实报没生效）；所在地点级联超时时检查结果是什么、模型有没有先按 Escape 关浮层。

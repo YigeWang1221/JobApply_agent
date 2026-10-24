@@ -158,6 +158,7 @@ public final class BrowserSession implements AutoCloseable {
      * （{@link jobapply.harness.policies.FieldIntent}、{@link jobapply.harness.policies.SubmitGuard.ClickIntent}）；
      * 点击和填写的守卫由调用方先判断。{@code browser_snapshot} 直接返回这次的快照，不再多取一次。
      * 点击打开了新标签页时切过去，返回新标签页的快照（{@link #takeNotice} 说明一次）。
+     * 点击、输入、选择动作超时时系统检查一次原因写进错误；点击的目标只是被别的层盖住时直接点一次（{@link #afterTimeout}）。
      * 正在用的那页认不出时：{@code browser_navigate} 过了白名单就新开一个标签页打开它，别的操作抛出 {@link TabLost}。
      * 连接断开时抛出 {@link BrowserException.Disconnected}，标签页记录清空。
      */
@@ -172,7 +173,12 @@ public final class BrowserSession implements AutoCloseable {
             throw new TabLost(had ? LOST : "还没有你在用的标签页，不能操作");
         }
         int before = tabCount;
-        String result = call(tool, args, context);
+        String result;
+        try {
+            result = call(tool, args, context);
+        } catch (BrowserException.ToolFailed e) {
+            result = afterTimeout(owner, tool, args, e);
+        }
         if (BrowserToolPolicy.SNAPSHOT.equals(tool)) {
             return remember(owner, PageSnapshot.parse(result));
         }
@@ -188,6 +194,42 @@ public final class BrowserSession implements AutoCloseable {
             }
         }
         return read(owner);
+    }
+
+    /**
+     * 点击、输入、选择动作超时（C006-fix-real-run 第 20 条）：MCP 的超时错误看不出原因，系统用固定模板检查一次
+     * （{@link PlaywrightMcpClient#diagnose}，只读），把实情写进错误交给模型。点击的目标看得见、只是被别的层盖住
+     * （底部固定栏、没关的浮层）时，系统在同一个 ref 上直接点一次（{@link PlaywrightMcpClient#clickThrough}），返回它的
+     * 结果，之后照常取快照，并留一句说明给模型核对。只试一次，失败照实报。调用方在这之前已经过了点击守卫：
+     * 提交类按钮在发出任何点击之前就被拒绝了，走不到这里。别的错误、检查本身失败时原样抛出 {@code failed}。
+     */
+    private String afterTimeout(String owner, String tool, Map<String, Object> args, BrowserException.ToolFailed failed) {
+        boolean click = BrowserToolPolicy.CLICK.equals(tool);
+        if (!(click || BrowserToolPolicy.TYPE.equals(tool) || BrowserToolPolicy.SELECT_OPTION.equals(tool))
+                || !(args.get("target") instanceof String ref) || !PlaywrightMcpClient.isActionTimeout(failed.getMessage())) {
+            throw failed;
+        }
+        PlaywrightMcpClient.Diagnosis diagnosis;
+        try {
+            diagnosis = system(c -> c.diagnose(ref));
+        } catch (BrowserException.ToolFailed e) {
+            throw failed;
+        }
+        String timedOut = tool + " 返回错误：动作超时，元素在等待时间内一直不能操作，这次操作没有发生（不是浏览器的安全限制）。"
+                + diagnosis.describe();
+        if (!click || !diagnosis.coveredButVisible()) {
+            throw new BrowserException.ToolFailed(timedOut);
+        }
+        String result;
+        try {
+            result = system(c -> c.clickThrough(ref));
+        } catch (BrowserException.ToolFailed e) {
+            throw new BrowserException.ToolFailed(timedOut + "系统又在这个元素上直接点了一次，也失败了：" + e.getMessage());
+        }
+        notices.put(owner, "这个元素被别的层盖住，普通点击超时了；系统在同一个元素上直接点了一次（不经过屏幕坐标）。"
+                + diagnosis.describe() + "下面是点击之后的快照，核对一下是不是真的生效了（例如多了一张新卡片、弹出层打开了）；"
+                + "没有生效时照上面的说明处理，不要自己猜原因。");
+        return result;
     }
 
     /** 模型的 {@code browser_find}：只读，先切到这个使用者正在用的那页，返回 MCP 的原文。 */
@@ -457,9 +499,14 @@ public final class BrowserSession implements AutoCloseable {
     }
 
     private String call(String tool, Map<String, Object> args, BrowserToolPolicy.Context context) {
+        return system(c -> c.call(tool, args, context));
+    }
+
+    /** 在当前连接上做一次调用：连接状态的记账（答话了 = 连接好；断开 = 记下、清空标签页记录）都在这里。 */
+    private <T> T system(Function<PlaywrightMcpClient, T> call) {
         ensureConnected();
         try {
-            String result = client.call(tool, args, context);
+            T result = call.apply(client);
             answered();
             return result;
         } catch (BrowserException.ToolFailed e) {

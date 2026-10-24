@@ -736,3 +736,9 @@
 - 结果：调研写进 `plan/reference/research-agent-design.md`「运行中插话（steer）」。新增 `domain/Inbox`；共用循环 `AgentLoop` 每次调模型之前取走插话、作为用户消息加进对话（不打断正在执行的工具）。`SessionRunner.send`、`ApplicationRunner.reply` 在跑时不再 409，放进收件箱返回 202（申请工作台运行中只收文字）；跑完还有的写进对话并接着跑。`SessionView`、`ApplicationStatus` 多 `inserted`。ResearchAgent、ApplyAgent 提示词各加一句「插话优先」。前端两个输入框运行中可发，显示「已插入，Agent 下一步会看到」，保留停止，加「打断并发送」（= 停止 + 发送）。细节见 [C010](plan/coding/C010-steer.md)。
 - 验证：`mvn -B -q clean verify` 退出码 0（没改测试、没新增测试）；`npm run build` 通过。真实模型、真实 Chrome：未运行。
 - 待用户确认：C010「待用户确认回写 master」那两句（`plan/master/agent-runtime.md` 未改）。
+
+## 2026-10-24 · C006-fix-real-run 第 20 条：点击超时后检查原因，被盖住时系统直接点一次
+
+- 改动：`BrowserSession.act` 在 `browser_click` / `browser_type` / `browser_select_option` 动作超时时调 `afterTimeout`：系统用固定模板（`PlaywrightMcpClient.DIAGNOSE`，经 `browser_run_code_unsafe`，只读，只滚动）检查同一个 ref 可不可见、在不在屏幕里、被哪个元素 / fixed 层盖住、还有哪些浮层开着，写进错误；点击目标可见、只是被盖住时，用 `CLICK_THROUGH` 在元素上直接派发一次点击，成功就取新快照并留说明，失败照实报。连接记账抽成 `BrowserSession.system`。`ApplyAgent` 提示词加「点不动（动作超时）」；skill apply-form、components/repeatable-entries 各加一两条。夹具 `file-slots`（场景 + HTML）加被盖住的「添加」，`FakeFormScript` 认得两个新模板，`BrowserSessionActTest` 加几行。
+- 验证：`mvn -B -q clean verify` 退出码 0（surefire 621、failsafe 1）。MCP 同版本 playwright-core + 无头 Chrome 打开 `file-slots.html`：普通点击超时；检查报出盖住它的遮罩；直接点击后页面变成「项目 1（待填写）」；注入的 fixed 底栏和 listbox 浮层都被报出。真实小米页面、真实模型：未运行。
+- 预置 skill 改了 `apply-form/SKILL.md`、`components/repeatable-entries/SKILL.md`；`storage/playbook/skills/` 里已有的副本不会被覆盖（本步没碰 `storage/`）。

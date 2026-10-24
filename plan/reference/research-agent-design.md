@@ -139,3 +139,9 @@
 3. 「打断并发送」= 现有的停止 + 发送（Hermes 的 interrupt 模式），不另造中止机制：循环先查停止再取收件箱，这条留给下一次运行。
 4. 前端照 OpenMAIC：输入框一直可用，运行中发送就是插话，停止按钮保留。
 5. 插话只收文字（Session 可带附件，因为它本来就是对话里的一条用户消息）；申请工作台的回答问题、选上传文件要改上传区和文件编号，运行中不收，和 Hermes「带图片退回 queue」同理。
+
+**补充：点击超时后的检查和直接点击（2026-10-24，C006-fix-real-run 第 20 条）**
+
+- 同一个 playwright-core（1.64.0-alpha，@playwright/mcp 0.0.83 的 npx 缓存）：命中检查失败时 Playwright 会换几种滚动对齐（end / center / start）重试，所以单纯在页面底部、被固定底栏挡住的按钮多半能自己滚开；一直超时多半是盖在按钮上的透明层或没关掉的浮层遮罩。超时错误不带调用日志，MCP 返回给模型的只有 `Timeout … exceeded`。
+- `click({force:true})` 只跳过可操作性检查，仍在元素中心的屏幕坐标上发鼠标事件，被盖住时点到的是上层元素，解决不了遮挡。直接在元素上派发事件（`dispatchEvent` / `element.click()`）不经过坐标，盖在上面的层收不到。
+- 结论：超时后系统用固定模板只读检查一次（滚到中间、`elementFromPoint`、fixed / sticky 层、还开着的浮层），写进错误；点击目标只是被盖住时系统直接点一次。点击守卫在这之前已经放行这个 ref。见 `PlaywrightMcpClient.DIAGNOSE`、`CLICK_THROUGH`。

@@ -146,18 +146,27 @@ class BrowserSessionActTest {
             assertThat(uploaded.snapshot()).contains("- generic \"简历文件\" [ref=e4]: resume-demo.pdf")
                     .contains("- generic \"作品集文件\" [ref=e7]: 未上传");
 
-            // 作品集按钮被遮罩盖住：点击是动作超时，错误里说明实情；带 target 上传不点击，直接设到文件输入框
+            // 作品集按钮点不到：点击是动作超时，错误里写着系统检查的结果；带 target 上传不点击，直接设到文件输入框
             assertThatThrownBy(() -> session.act(JOB, BrowserToolPolicy.CLICK,
                     Map.of("target", "e6", "element", "上传作品集"), model(uploaded, url, uploads)))
-                    .isInstanceOf(BrowserException.ToolFailed.class).hasMessageContaining("动作超时");
+                    .isInstanceOf(BrowserException.ToolFailed.class).hasMessageContaining("动作超时")
+                    .hasMessageContaining("系统检查了这个元素");
             BrowserTools.Call direct = BrowserTools.translate(BrowserToolPolicy.FILE_UPLOAD,
                     "{\"target\":\"e6\",\"files\":[1]}", List.of(resume));
             PageSnapshot set = session.act(JOB, direct.tool(), direct.args(), model(uploaded, url, uploads));
             assertThat(set.snapshot()).contains("- generic \"作品集文件\" [ref=e7]: resume-demo.pdf");
+
+            // 「添加」被底部固定栏盖住：点击超时 → 系统检查出盖住它的层 → 在同一个 ref 上直接点一次，留说明、取新快照
+            PageSnapshot added = session.act(JOB, BrowserToolPolicy.CLICK,
+                    Map.of("target", "e31", "element", "添加"), model(set, url, uploads));
+            assertThat(added.snapshot()).contains("- generic \"已添加的项目\" [ref=e32]: 项目 1（待填写）");
+            assertThat(session.takeNotice(JOB)).contains("直接点了一次").contains("class=\"bottom-bar\"")
+                    .contains("position: fixed");
         }
         assertThat(fake.calls(BrowserToolPolicy.FILE_UPLOAD)).extracting(args -> args.get("paths"))
                 .containsExactly(List.of(resume.toString()), List.of(resume.toString()));
-        assertThat(fake.calls("browser_run_code_unsafe")).singleElement()
+        assertThat(fake.calls("browser_run_code_unsafe"))
+                .filteredOn(args -> String.valueOf(args.get("code")).contains("setInputFiles")).singleElement()
                 .satisfies(args -> assertThat(String.valueOf(args.get("code"))).contains("\"aria-ref=e6\"")
                         .contains("setInputFiles([\"" + resume + "\"])"));
     }

@@ -36,6 +36,9 @@ import tools.jackson.databind.json.JsonMapper;
  *           "fileChooser": "e7",         //   可选：打开文件选择框；上传后文件名写到 ref e7 这一行的行尾
  *           "blocked": true,             //   可选：点不到（被遮罩盖住），返回动作超时，什么都不发生；
  *                                        //   browser_run_code_unsafe 的 setInputFiles 仍能把文件设到 fileChooser 那一行
+ *           "coveredBy": {"tag": "div", "cls": "bottom-bar", "text": "提交", "position": "fixed"},
+ *                                        //   可选（和 blocked 一起）：系统检查时报告盖住它的固定层；
+ *                                        //   系统的直接点击（PlaywrightMcpClient.clickThrough）照常生效
  *           "set": {"e3": "值"}           //   可选：（转到的）页面上这些 ref 的值
  *         }
  *       },
@@ -108,17 +111,53 @@ final class FakeFormScript {
                 yield fill(form, fields);
             }
             case "browser_file_upload" -> upload(form, args);
-            case "browser_run_code_unsafe" -> setInputFiles(form, String.valueOf(args.get("code")));
+            case "browser_run_code_unsafe" -> runCode(form, String.valueOf(args.get("code")));
             default -> text("### Result\nok");
         };
     }
 
+    /** 系统的固定模板：按代码里的标记认出是哪一个（setInputFiles、超时后的检查、直接点击）。 */
+    private McpSchema.CallToolResult runCode(Map<String, Object> form, String code) {
+        Matcher ref = Pattern.compile("aria-ref=([a-z0-9]+)").matcher(code);
+        if (code.contains("elementFromPoint") && ref.find()) {
+            return diagnose(form, ref.group(1));
+        }
+        if (code.contains("clicked the element directly") && ref.find()) {
+            McpSchema.CallToolResult clicked = click(form, ref.group(1), true);
+            return Boolean.TRUE.equals(clicked.isError()) ? clicked
+                    : text("### Result\n\"clicked the element directly\"\n" + render(form));
+        }
+        return setInputFiles(form, code);
+    }
+
+    /** 超时后的检查：{@code coveredBy} 写了就报被它盖住，否则报可见、没被盖住。 */
+    private McpSchema.CallToolResult diagnose(Map<String, Object> form, String ref) {
+        if (!hasRef(form, ref)) {
+            return missingRef(ref);
+        }
+        Map<String, Object> cover = map(map(map(current(form).get("clicks")).get(ref)).get("coveredBy"));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("visible", true);
+        result.put("inViewport", true);
+        result.put("covered", !cover.isEmpty());
+        result.put("target", Map.of("tag", "button", "role", "", "text", ref, "cls", "", "position", "static"));
+        result.put("cover", cover.isEmpty() ? null : cover);
+        result.put("layer", cover.isEmpty() ? null : cover);
+        result.put("popups", List.of());
+        return text("### Result\n" + JSON.writeValueAsString(result) + "\n### Ran Playwright code\n```js\n// fake\n```");
+    }
+
     private McpSchema.CallToolResult click(Map<String, Object> form, String ref) {
+        return click(form, ref, false);
+    }
+
+    /** {@code direct}：系统的直接点击，不受 {@code blocked} 影响。 */
+    private McpSchema.CallToolResult click(Map<String, Object> form, String ref, boolean direct) {
         if (!hasRef(form, ref)) {
             return missingRef(ref);
         }
         Object action = map(current(form).get("clicks")).get(ref);
-        if (action instanceof Map<?, ?> step && Boolean.TRUE.equals(step.get("blocked"))) {
+        if (!direct && action instanceof Map<?, ?> step && Boolean.TRUE.equals(step.get("blocked"))) {
             return error("TimeoutError: browserBackend.callTool: Timeout 15000ms exceeded.");
         }
         if (action instanceof String to) {

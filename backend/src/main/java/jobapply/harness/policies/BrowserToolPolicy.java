@@ -18,7 +18,7 @@ import jobapply.tools.SnapshotIndex;
  * 浏览器工具白名单（C004-A「关键规则 · 白名单」）。规则写在代码里，不从配置、skill 或站点记录读取。发出之前检查，
  * 不允许时抛出 {@link ToolNotAllowedException}，调用方不得把这次调用发给 MCP 服务端。
  * 这里只管「能不能调、参数对不对」；点击和填写还要再过 {@link SubmitGuard}、{@link FieldClassGuard}（由 C004-B 的循环组合）。
- * 不开放：evaluate、run_code_unsafe（只在 {@code browser_file_upload} 带 target 时由系统用固定模板代发）、handle_dialog、hover、drag、drop、navigate_back、close、console_messages、
+ * 不开放：evaluate、run_code_unsafe（只由系统用固定模板代发：{@code browser_file_upload} 带 target、动作超时后的检查和被盖住时的直接点击）、handle_dialog、hover、drag、drop、navigate_back、close、console_messages、
  * network_*、take_screenshot、tabs select / close，以及只有加 {@code --caps} 才出现的工具。
  */
 public final class BrowserToolPolicy {

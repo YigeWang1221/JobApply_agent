@@ -42,7 +42,10 @@ public final class PlaywrightMcpClient implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(PlaywrightMcpClient.class);
 
-    /** MCP 的 {@code browser_run_code_unsafe}：不在白名单里，只由 {@link #setInputFiles} 用固定模板代发。 */
+    /**
+     * MCP 的 {@code browser_run_code_unsafe}：不在白名单里，只由系统用固定模板代发（{@link #setInputFiles}、
+     * {@link #diagnose}、{@link #clickThrough}），模板里只嵌 ref 和路径的 JSON 字符串。
+     */
     static final String RUN_CODE = "browser_run_code_unsafe";
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -68,6 +71,71 @@ public final class PlaywrightMcpClient implements AutoCloseable {
               await element.setInputFiles(%s);
               return 'files set on the file input';
             }""";
+
+    /**
+     * 动作超时之后的检查（C006-fix-real-run 第 20 条）：MCP 的超时错误不带 Playwright 的调用日志，看不出是被盖住、
+     * 不可见还是弹出层没关。只读：把元素滚到屏幕中间（{@code scrollIntoView}，不等可操作性），量它的位置，用
+     * {@code elementFromPoint} 看中心那一点最上层是谁；被盖住时报盖住它的元素和它所在的 fixed / sticky 层；
+     * 再列出页面上还开着的弹出层（下拉、级联、菜单、对话框）。不点击、不输入。
+     */
+    private static final String DIAGNOSE = """
+            async (page) => page.locator(%s).evaluate(el => {
+              const brief = n => n && {
+                tag: n.tagName.toLowerCase(),
+                role: n.getAttribute('role') || '',
+                text: (n.innerText || n.value || n.getAttribute('aria-label') || n.getAttribute('placeholder') || '')
+                  .replace(/\\s+/g, ' ').trim().slice(0, 60),
+                cls: String(typeof n.className === 'string' ? n.className : '').trim().slice(0, 80),
+                position: getComputedStyle(n).position
+              };
+              const shown = n => {
+                const b = n.getBoundingClientRect(), s = getComputedStyle(n);
+                return b.width > 0 && b.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
+              };
+              const layerOf = n => {
+                for (; n && n !== document.body; n = n.parentElement) {
+                  const p = getComputedStyle(n).position;
+                  if (p === 'fixed' || p === 'sticky') return n;
+                }
+                return null;
+              };
+              el.scrollIntoView({block: 'center', inline: 'center'});
+              const r = el.getBoundingClientRect();
+              const visible = shown(el);
+              const x = r.left + r.width / 2, y = r.top + r.height / 2;
+              const inViewport = visible && x >= 0 && y >= 0 && x < innerWidth && y < innerHeight;
+              const top = inViewport ? document.elementFromPoint(x, y) : null;
+              const covered = !!top && top !== el && !el.contains(top);
+              const popups = [];
+              document.querySelectorAll('[role=listbox],[role=menu],[role=tree],[role=dialog],[role=alertdialog],'
+                  + '[class*=popover],[class*=dropdown],[class*=cascader],[class*=picker],[class*=popup]').forEach(n => {
+                const p = getComputedStyle(n).position;
+                if (popups.length < 3 && shown(n) && !n.contains(el) && (p === 'fixed' || p === 'absolute')
+                    && !popups.some(o => o.contains(n))) popups.push(n);
+              });
+              return {visible, inViewport, covered, target: brief(el), cover: covered ? brief(top) : null,
+                layer: covered ? brief(layerOf(top)) : null, popups: popups.map(brief)};
+            })""";
+
+    /**
+     * 目标可见、只是被别的层盖住时（{@link Diagnosis#coveredButVisible()}），系统在同一个 ref 上直接派发一次点击：
+     * 按真实点击的顺序派发 pointerdown / mousedown / pointerup / mouseup，再调 {@code element.click()}。事件直接发给目标，
+     * 不经过屏幕坐标，所以盖在上面的层收不到。只在点击守卫已经放行这个 ref 之后、由 {@link BrowserSession#act} 调用。
+     */
+    private static final String CLICK_THROUGH = """
+            async (page) => page.locator(%s).evaluate(el => {
+              el.scrollIntoView({block: 'center', inline: 'center'});
+              const r = el.getBoundingClientRect();
+              const at = {bubbles: true, cancelable: true, composed: true, view: window, button: 0,
+                clientX: r.left + r.width / 2, clientY: r.top + r.height / 2};
+              const pointer = {...at, pointerId: 1, pointerType: 'mouse', isPrimary: true};
+              el.dispatchEvent(new PointerEvent('pointerdown', pointer));
+              el.dispatchEvent(new MouseEvent('mousedown', at));
+              el.dispatchEvent(new PointerEvent('pointerup', pointer));
+              el.dispatchEvent(new MouseEvent('mouseup', at));
+              el.click();
+              return 'clicked the element directly';
+            })""";
 
     private final McpSyncClient client;
 
@@ -139,6 +207,103 @@ public final class PlaywrightMcpClient implements AutoCloseable {
     static Map<String, Object> setInputFiles(String ref, Object paths) {
         String code = SET_INPUT_FILES.formatted(JSON.writeValueAsString("aria-ref=" + ref), JSON.writeValueAsString(paths));
         return Map.of("code", code);
+    }
+
+    /** 系统的检查（{@link #DIAGNOSE}），不过白名单，模型不能调用。{@code ref} 已经由刚才那次调用的白名单查过。 */
+    Diagnosis diagnose(String ref) {
+        return Diagnosis.parse(send(RUN_CODE, code(DIAGNOSE, ref), "系统检查"));
+    }
+
+    /** 系统直接点击（{@link #CLICK_THROUGH}），不过白名单，模型不能调用。调用方先确认点击守卫放行了这个 ref。 */
+    String clickThrough(String ref) {
+        return send(RUN_CODE, code(CLICK_THROUGH, ref), BrowserToolPolicy.CLICK);
+    }
+
+    private static Map<String, Object> code(String template, String ref) {
+        return Map.of("code", template.formatted(JSON.writeValueAsString("aria-ref=" + ref)));
+    }
+
+    /** MCP 的动作超时错误（{@code TimeoutError: … Timeout 15000ms exceeded.}）。 */
+    static boolean isActionTimeout(String text) {
+        String lower = text == null ? "" : text.toLowerCase(Locale.ROOT);
+        return lower.contains("timeout") && lower.contains("exceeded");
+    }
+
+    /**
+     * {@link #DIAGNOSE} 的结果。{@link #describe()} 是给模型的话：元素可不可见、在不在屏幕里、被谁盖住、还有哪些弹出层开着。
+     */
+    record Diagnosis(boolean visible, boolean inViewport, boolean covered, Map<String, Object> target,
+                     Map<String, Object> cover, Map<String, Object> layer, List<Map<String, Object>> popups) {
+
+        /** MCP 返回的 {@code ### Result} 小节里是模板返回值的 JSON。 */
+        @SuppressWarnings("unchecked")
+        static Diagnosis parse(String text) {
+            int at = text.indexOf("### Result");
+            if (at < 0) {
+                throw new BrowserException.ToolFailed("系统检查没有返回结果");
+            }
+            String body = text.substring(at + "### Result".length()).strip();
+            int next = body.indexOf("\n###");
+            Map<String, Object> m;
+            try {
+                m = JSON.readValue(next < 0 ? body : body.substring(0, next), Map.class);
+            } catch (RuntimeException e) {
+                throw new BrowserException.ToolFailed("系统检查的结果读不出来：" + e.getMessage());
+            }
+            return new Diagnosis(Boolean.TRUE.equals(m.get("visible")), Boolean.TRUE.equals(m.get("inViewport")),
+                    Boolean.TRUE.equals(m.get("covered")), map(m.get("target")), map(m.get("cover")),
+                    map(m.get("layer")),
+                    m.get("popups") instanceof List<?> list ? list.stream().map(Diagnosis::map).toList() : List.of());
+        }
+
+        /** 目标看得见、在屏幕里，只是中心那一点被别的元素盖住：可以直接点它。 */
+        boolean coveredButVisible() {
+            return visible && inViewport && covered;
+        }
+
+        String describe() {
+            StringBuilder text = new StringBuilder("系统检查了这个元素（已把它滚到屏幕中间）：");
+            if (!visible) {
+                text.append("它现在不可见（大小为 0 或被隐藏），可能在折叠的区域里、还没渲染出来，或者快照里的是另一个同名元素。");
+            } else if (!inViewport) {
+                text.append("它可见，但滚过之后中心仍不在屏幕里。");
+            } else if (covered) {
+                text.append("它可见，但中心那一点最上层是另一个元素 ").append(element(cover));
+                if (!layer.isEmpty()) {
+                    text.append("，它在一个 position: ").append(layer.get("position")).append(" 的层里 ")
+                            .append(element(layer)).append("（固定在屏幕上的栏或浮层）");
+                }
+                text.append("。");
+            } else {
+                text.append("它可见、在屏幕里，现在没有被别的元素盖住；刚才可能在动画或被临时的加载层挡住，可以再试一次。");
+            }
+            if (!popups.isEmpty()) {
+                text.append("页面上还开着这些弹出层：")
+                        .append(String.join("；", popups.stream().map(Diagnosis::element).toList()))
+                        .append("。先按 Escape 或点一下空白处把它关掉，再重试。");
+            }
+            return text.toString();
+        }
+
+        private static String element(Map<String, Object> node) {
+            StringBuilder text = new StringBuilder("<").append(node.getOrDefault("tag", "?"));
+            if (node.get("role") instanceof String role && !role.isEmpty()) {
+                text.append(" role=").append(role);
+            }
+            if (node.get("cls") instanceof String cls && !cls.isEmpty()) {
+                text.append(" class=\"").append(cls).append('"');
+            }
+            text.append('>');
+            if (node.get("text") instanceof String content && !content.isEmpty()) {
+                text.append("「").append(content).append("」");
+            }
+            return text.toString();
+        }
+
+        @SuppressWarnings("unchecked")
+        private static Map<String, Object> map(Object value) {
+            return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+        }
     }
 
     /** 发给 MCP；{@code shown} 是模型看到的工具名，写进错误里。 */

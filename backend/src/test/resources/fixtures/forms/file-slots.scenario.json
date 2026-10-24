@@ -14,6 +14,9 @@
         "- group \"作品集（选填）\" [ref=e5]:",
         "  - button \"上传作品集\" [ref=e6]",
         "  - generic \"作品集文件\" [ref=e7]: 未上传",
+        "- group \"项目经历\" [ref=e30]:",
+        "  - button \"添加\" [ref=e31]",
+        "  - generic \"已添加的项目\" [ref=e32]: 无",
         "- button \"下一步\" [ref=e8]"
       ],
       "clicks": {
@@ -23,6 +26,11 @@
         "e6": {
           "fileChooser": "e7",
           "blocked": true
+        },
+        "e31": {
+          "blocked": true,
+          "coveredBy": {"tag": "div", "role": "", "text": "下一步", "cls": "bottom-bar", "position": "fixed"},
+          "set": {"e32": "项目 1（待填写）"}
         },
         "e8": "review"
       }
