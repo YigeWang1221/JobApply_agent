@@ -2,6 +2,7 @@ package jobapply.config;
 
 import java.time.Clock;
 import jobapply.persistence.EnvFile;
+import jobapply.persistence.PersonalEnv;
 import jobapply.persistence.StorageLayout;
 import jobapply.tools.BrowserSession;
 import jobapply.tools.WebFetch;
@@ -35,7 +36,8 @@ public class ApplicationConfiguration {
 
     @Bean(destroyMethod = "close")
     BrowserSession browserSession(BrowserMcpProperties properties, StorageLayout layout) {
-        return new BrowserSession(properties.toLaunch(layout));
+        // personal.env 的真实值在快照交出去之前换回占位符（C014-D）
+        return new BrowserSession(properties.toLaunch(layout), new PersonalEnv(layout)::values);
     }
 
     /** 应用级事件日志（C006-fix）：两个 Runner、台账和 {@code GET /api/events} 共用一个。 */

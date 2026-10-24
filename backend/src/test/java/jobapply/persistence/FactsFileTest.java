@@ -80,6 +80,17 @@ class FactsFileTest {
     }
 
     @Test
+    void classCPlaceholderIsReadAndWritten() {
+        Path file = root.resolve("facts.md");
+        List<Fact> facts = List.of(Fact.of("sensitive.id_number", "{ID_NUMBER}", FactClass.C, "user-confirmed", null));
+        FactsFile.write(file, "facts", facts);
+
+        assertThat(FactsFile.read(file)).isEqualTo(facts);
+        assertThatThrownBy(() -> FactsFile.parse("## sensitive.id_number\n- value: {ID_NUMBER} 和明文\n- class: C\n",
+                "facts.md")).isInstanceOf(StorageFormatException.class).hasMessageContaining("占位符");
+    }
+
+    @Test
     void duplicateKeysAreRejectedBeforeWriting() {
         Path file = root.resolve("overrides.md");
         List<Fact> original = List.of(Fact.of("skills.languages", "Java", FactClass.A, null, null));

@@ -826,3 +826,16 @@
 - 结果：`SessionRunner` 去掉 `OPENING` 和新建时的自动运行（`create` 只建 Session、发 `changed`，新建 `POST` 返回 201）；Session 页空白时一行固定提示 + 输入框，去掉三个建议按钮；Project 主页的等审阅（「待你」）、「该查看了」（「待追踪」）已有，缺的候选池待投数加成 KPI 第 9 格「候选池待投」。`ui.md`「新建 Session」、`tracking.md`「匹配反馈与提醒」、`workflow.md` 遗漏检查第 10 项改成空白对话 / Project 主页里提醒。已有 Session 里的开场 note 不动。细节见 [C005-fix 开场](plan/coding/C005-fix-session-opening.md)。
 - 验证：`JAVA_HOME=… mvn -B -q clean verify` 退出码 0（没有测试依赖开场，测试未改）；`frontend/` 下 `npm run build` 通过。用户本机新建 Session、看 Project 主页：未运行。
 - 偏差：建议按钮去掉（计划写的是一行提示 + 输入框）；新建接口 202 改 201。
+
+## 2026-10-24 · C014-D 敏感信息占位符
+
+- 日期：2026-10-24
+- 指令：按 C014 D 包施工：C 级资料写成占位符 `{KEY}`，真实值在 `storage/settings/personal.env`，只在填表调用发给 Playwright MCP 的那一刻替换；施工中用户补充：用户不手写文件、不猜键名，设置页「敏感信息」填值，预设键表加自定义键，保存时自动登记占位符事实。
+- 结果：新增 `domain/Placeholder`、`domain/PersonalKey`（15 个预设键）、`persistence/PersonalEnv`、`config/PersonalSettingsService`、`api/PersonalSettingsController`（`GET /api/settings/personal`，`PUT` / `DELETE /api/settings/personal/{KEY}`，不返回值）、前端 `pages/PersonalSettings.tsx`、`backend/src/main/resources/personal.env.example`（只有说明文字）。`Fact` / `FactsFile` / `FillReportWriter` 允许值是占位符的 C 级，明文仍拒绝；`FieldClassGuard` 认登记过且有值的占位符，没值时原因写「`{KEY}` 在 personal.env 里没有值」；`HarnessLoop` 只在 `browser.act` 那一刻替换；`BrowserSession` 交出快照、查找结果和报错前用 `SnapshotRedactor.withoutValues` 把真实值换回占位符；`FillContext`、`ApplyAgent` 提示词改成「有占位符就原样填」。`plan/master/workflow.md`、`agent-runtime.md` 里「C 级一律亲填」的句子补上占位符例外。`SecretFileRules` 把 `*.env` 也当秘密文件（扫描目录、附件时按名字跳过）。代理没有读、建、改任何真实的 `personal.env` 或 `.env`。
+- 验证：`backend/` 下 `JAVA_HOME=… mvn -B -q clean verify` 退出码 0（617 个测试，0 失败），新增 `PersonalPlaceholderTest`（真实值只出现在发给假 MCP 的请求里，模型请求、对话、报告、run log、storage 其它文件都没有；明文 C 级和没值的占位符被拒绝）、`PersonalSettingsControllerTest`（响应不含值、权限 600、自动登记事实）、`FactsFileTest` 占位符读写。`frontend/` 下 `npm ci && npm run build` 通过。真实浏览器手动试用：未运行。
+- 偏差：资料导入（候选抽取 / 合并）没有改成放行占位符，占位符只由设置页登记；`remember` 的占位符入口归 B 包。
+
+## 2026-10-24 · C014 A / B / D 与 C005-fix 开场合并
+
+- 结果：四个分支合进 C013。代码冲突只有两边各加一段的地方（`ResearchAgent` 提示词、`ResearchTools` 工具名单、`HarnessLoop` 的字段和构造），都保留两边。B 里「把真实值写进 personal.env」的说法改成「在设置 → 敏感信息里填」（提示词、skill memory-update、`remember` 说明、`MemoryWriter` 报错）。
+- 验证：合并后 `backend/` 下 `JAVA_HOME=… mvn -B -q clean verify` 退出码 0；`frontend/` 下 `npm run build` 通过。

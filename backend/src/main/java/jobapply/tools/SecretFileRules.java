@@ -15,7 +15,8 @@ public final class SecretFileRules {
     public static final String GIT = "git 内部数据，只读取提交摘要";
 
     private static final Set<String> SECRET_NAMES = Set.of(".env", ".npmrc", ".pypirc", ".netrc");
-    private static final Set<String> SECRET_SUFFIXES = Set.of(".pem", ".key", ".p12", ".pfx", ".keystore", ".jks");
+    // .env 结尾的也算（例如 C014-D 的 personal.env）
+    private static final Set<String> SECRET_SUFFIXES = Set.of(".env", ".pem", ".key", ".p12", ".pfx", ".keystore", ".jks");
     private static final Set<String> SECRET_PREFIXES = Set.of(".env.", "id_rsa", "id_ed25519");
     private static final Set<String> SECRET_PARTS = Set.of("credentials", "secret");
     private static final Set<String> SKIPPED_DIRS = Set.of("node_modules", "dist", "build", "target", ".venv", "venv",

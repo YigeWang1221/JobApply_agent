@@ -16,7 +16,7 @@ import jobapply.domain.Language;
 
 /**
  * {@code facts.md} / {@code overrides.md} 的事实条目：{@code ## <key>} 下面跟 {@code - 字段: 值}。
- * 格式见 plan/master/memory.md「事实条目格式」。C 级条目读写都会报错。
+ * 格式见 plan/master/memory.md「事实条目格式」。C 级条目的值只能是占位符 {@code {KEY}}，明文读写都会报错。
  * 文字字段成对写成 {@code - zh:} / {@code - en:}，与 {@code - value:} 二选一；只有 {@code value} 的旧文件照常读。
  */
 public final class FactsFile {
@@ -125,9 +125,6 @@ public final class FactsFile {
 
     private static Fact toFact(String key, Map<String, String> fields, String source) {
         String classValue = fields.get("class");
-        if ("C".equals(classValue)) {
-            throw new StorageFormatException(source, "C 级字段不允许出现在文件里：" + key);
-        }
         String validFrom = null;
         String validTo = null;
         String valid = fields.get(VALID);

@@ -13,6 +13,7 @@ import jobapply.domain.AgentRun;
 import jobapply.persistence.AttachmentStore;
 import jobapply.domain.Claim;
 import jobapply.domain.FactClass;
+import jobapply.domain.Placeholder;
 import jobapply.memory.ResolvedFact;
 import jobapply.persistence.JobAnswers;
 import org.springframework.ai.chat.messages.Message;
@@ -62,10 +63,10 @@ public final class FillContext {
      * 这一条资料能不能发给模型、能不能用来填表（C004-B「关键规则 · 资料与语言」）：没有关联论断的；
      * 关联论断的用途是 {@code forms_and_resume}、状态不是 {@code discrepancy} 的。{@code interview_only}、
      * {@code none}（包括 {@code needs_verification} 的默认用途）、{@code discrepancy} 和台账里找不到的论断都不发。
-     * C 级本来存不进资料层，这里再挡一次。
+     * C 级只发占位符 {@code {KEY}}（C014-D），真实值不在资料里；万一不是占位符，这里再挡一次。
      */
     public static boolean sendable(ResolvedFact fact, Function<String, Optional<Claim>> claims) {
-        if (fact == null || fact.factClass() == FactClass.C) {
+        if (fact == null || fact.factClass() == FactClass.C && !Placeholder.is(fact.value())) {
             return false;
         }
         if (fact.claim() == null) {
@@ -103,7 +104,9 @@ public final class FillContext {
         StringBuilder out = new StringBuilder();
         out.append("# 有效资料\n\n");
         out.append("资料键可以写进字段的 fact（可选）。有两种写法时按页面语言选；标「未审阅」的写法是起草的，")
-                .append("用之前看一眼是否通顺。\n\n");
+                .append("用之前看一眼是否通顺。")
+                .append("标（C）的是敏感信息，值是占位符 {KEY}：对应的字段就填这个占位符原样（fact 写资料键），")
+                .append("系统发给浏览器时换成真实值，页面上回显的也是占位符；没有占位符的 C 级字段请用户亲填。\n\n");
         Set<String> keys = new LinkedHashSet<>(inputs.profileZh().keySet());
         keys.addAll(inputs.profileEn().keySet());
         int listed = 0;

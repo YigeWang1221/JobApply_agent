@@ -92,3 +92,20 @@
 - **提示词**：申请 Agent 在用户回答了问题、发现站点规律、停在提交前时 remember；对话 Agent 在用户说了新事实或纠正、投递后有反馈时 remember；都说已有的 replace、新的才 add，写了什么在回复里提一句，并指向 skill memory-update。
 - 验证：`JAVA_HOME=… mvn -B -q clean verify` 退出码 0。用 jshell 在临时 storage 上手动调了一遍 `MemoryWriter`（虚构数据）：事实新加、按键更新（给出原值）、C 级明文被拒、站点条目 add / 重复 add / replace / 对不上的 remove、公司记忆、经验超过 4000 字被拒、skill 对不上 old_string 报错，结果都和上面一致。没写测试。真实应用、真实浏览器：未运行。
 - 没做：经验文件（`review/lessons.md`）还没有放进任何 Agent 的上下文，只有写入；对话 Agent 看不到公司记忆（申请 Agent 通过 `read_jd` 看得到）。
+
+（施工后写）
+
+### 实际结果 · D（2026-10-24）
+
+- **占位符**：`domain/Placeholder`（`{KEY}`，键名同 `.env`）。`Fact` 允许 C 级，但值必须正好是占位符；`FactsFile` 不再一律拒绝 C 级，明文 C 级仍报错。`FillReportWriter.Filled` 允许值是占位符的 C 级行。
+- **预设键**：`domain/PersonalKey.PRESETS`（ID_TYPE … CRIMINAL_RECORD 共 15 个），资料键是 `sensitive.<key 小写>`。
+- **personal.env**：`persistence/PersonalEnv` 复用 `EnvFile`（权限 600、原子写入、保留其它行，不找进程环境变量）；`EnvFile` 加了 `entries()`；`StorageLayout.personalEnvFile()`。
+- **设置**：`config/PersonalSettingsService` + `api/PersonalSettingsController`（`GET /api/settings/personal` 只给键、名字、是否预设、已设置；`PUT /{KEY}` 写值并在 base `facts.md` 登记一条 C 级 `{KEY}` 事实（已有就不动），`DELETE /{KEY}` 清值、事实留着）。写接口照样过 `LocalRequestGuard`。前端设置页模型下面加「敏感信息」卡片（`pages/PersonalSettings.tsx`），每行只写不读的输入框、保存 / 清除，加自定义行。参考文件 `backend/src/main/resources/personal.env.example`。
+- **申请 Agent**：`FillContext.sendable` 放行值是占位符的 C 级资料，上下文里加一句怎么用占位符；`ApplyAgent` 提示词的 C 级两句改成「有占位符就原样填，没有的交给用户」。
+- **守卫**：`FieldClassGuard.check(index, ref, label, value, registered, hasValue)`：C 级字段的值正好是登记过的 `{KEY}` 且 personal.env 有值时放行；登记了但没值时交给用户，原因写「`{KEY}` 在 personal.env 里没有值」，结果原样给模型。
+- **替换**：`HarnessLoop` 只在调用 `browser.act` 那一行把 `browser_fill_form` / `browser_type` / `browser_select_option` 里正好是登记过的占位符的值换成真实值（非 C 级字段填了登记过的占位符也换：模型按资料键选了它）。工具结果、对话、run log、报告、循环检测都用占位符。
+- **遮值**：`SnapshotRedactor.withoutValues` 把 personal.env 的值（≥3 个字符，长的先换）换回 `{KEY}`；`BrowserSession` 在交出快照、`browser_find` 结果和工具报错之前统一调用（对话 Agent 和申请 Agent 都覆盖）。之后照旧过 C 级字段遮值。
+- **秘密文件**：`SecretFileRules` 把 `.env` 结尾的文件（含 `personal.env`）也按名字跳过。
+- **没做**：资料导入（候选抽取 / 合并）没有改，抽取出的 C 级照旧丢弃——占位符由设置页登记，不从原件里来。`remember` 写 C 级占位符的入口在 B 包。
+- **测试**：`PersonalPlaceholderTest`（临时 storage、虚构值、假模型 + 假 MCP 子进程）：真实值只出现在发给假 MCP 的 `browser_fill_form` 里；模型请求、对话、报告、run log、storage 里除 personal.env 外的文件都没有；明文期望薪资被拒绝、没发出去；清掉值的 `{WORK_AUTHORIZATION}` 被拒绝并写明没有值；用户在别的框里填的真实值在快照里换回占位符。`PersonalSettingsControllerTest`：每个响应体不含值，文件权限 600，事实登记，清除后事实还在。`FactsFileTest` 加了占位符读写。
+- **验证**：`mvn -B -q clean verify` 退出码 0（617 个测试，0 失败）；`frontend/` 下 `npm ci && npm run build` 通过。真实浏览器里的手动试用：未运行。

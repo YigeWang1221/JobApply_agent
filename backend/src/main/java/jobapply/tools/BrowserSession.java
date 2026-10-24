@@ -13,8 +13,10 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import jobapply.harness.policies.BrowserToolPolicy;
+import jobapply.harness.policies.SnapshotRedactor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -99,9 +101,17 @@ public final class BrowserSession implements AutoCloseable {
     private volatile Consumer<BrowserState> listener = ignored -> {
     };
     private final Clock clock;
+    /** personal.env 里的真实值（C014-D）：交出去的快照、查找结果和报错里出现时换回占位符。 */
+    private final Supplier<Map<String, String>> secrets;
 
     public BrowserSession(BrowserLaunch launch) {
+        this(launch, Map::of);
+    }
+
+    /** @param secrets 每次取一份 personal.env 的 {@code KEY → 值}（{@link SnapshotRedactor#withoutValues}） */
+    public BrowserSession(BrowserLaunch launch, Supplier<Map<String, String>> secrets) {
         this.launch = launch;
+        this.secrets = secrets;
         this.clock = Clock.systemUTC();
         this.state = new BrowserState(BrowserState.NOT_CONNECTED, null, clock.instant(), 0);
     }
@@ -111,7 +121,7 @@ public final class BrowserSession implements AutoCloseable {
         OwnerBrowser o = owner(owner);
         synchronized (o) {
             o.sync(serial);
-            return o.open(url);
+            return masked(o.open(url));
         }
     }
 
@@ -120,7 +130,7 @@ public final class BrowserSession implements AutoCloseable {
         OwnerBrowser o = owner(owner);
         synchronized (o) {
             o.sync(serial);
-            return o.snapshot();
+            return masked(o.snapshot());
         }
     }
 
@@ -139,16 +149,18 @@ public final class BrowserSession implements AutoCloseable {
             boolean had = o.ownsTab();
             if (had) {
                 try {
-                    return o.act(tool, args, context);
+                    return masked(o.act(tool, args, context));
                 } catch (TabLost e) {
                     if (!BrowserToolPolicy.NAVIGATE.equals(tool)) {
                         throw e;
                     }
+                } catch (BrowserException.ToolFailed e) {
+                    throw new BrowserException.ToolFailed(masked(e.getMessage()));
                 }
             }
             if (BrowserToolPolicy.NAVIGATE.equals(tool) && args.get("url") instanceof String target) {
                 BrowserToolPolicy.check(tool, args, context);
-                return o.open(target);
+                return masked(o.open(target));
             }
             throw new TabLost(had ? LOST : "还没有你在用的标签页，不能操作");
         }
@@ -159,7 +171,11 @@ public final class BrowserSession implements AutoCloseable {
         OwnerBrowser o = owner(owner);
         synchronized (o) {
             o.sync(serial);
-            return o.find(args, context);
+            try {
+                return masked(o.find(args, context));
+            } catch (BrowserException.ToolFailed e) {
+                throw new BrowserException.ToolFailed(masked(e.getMessage()));
+            }
         }
     }
 
@@ -190,7 +206,7 @@ public final class BrowserSession implements AutoCloseable {
         OwnerBrowser o = owner(owner);
         synchronized (o) {
             o.sync(serial);
-            return o.select(index);
+            return masked(o.select(index));
         }
     }
 
@@ -339,6 +355,14 @@ public final class BrowserSession implements AutoCloseable {
                 drop(current);
             }
         }
+    }
+
+    private PageSnapshot masked(PageSnapshot page) {
+        return SnapshotRedactor.withoutValues(page, secrets.get());
+    }
+
+    private String masked(String text) {
+        return SnapshotRedactor.withoutValues(text, secrets.get());
     }
 
     private OwnerBrowser owner(String owner) {
