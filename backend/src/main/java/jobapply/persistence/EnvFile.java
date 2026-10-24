@@ -10,7 +10,9 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -78,6 +80,23 @@ public final class EnvFile {
             }
         }
         return Optional.empty();
+    }
+
+    /** 本文件里所有合法的 {@code 名字=值}（同名取第一行），按出现顺序。值只在内存里用，不进日志。 */
+    public synchronized Map<String, String> entries() {
+        Map<String, String> entries = new LinkedHashMap<>();
+        for (String line : lines()) {
+            String trimmed = line.strip();
+            if (trimmed.startsWith("export ")) {
+                trimmed = trimmed.substring("export ".length()).strip();
+            }
+            int equals = trimmed.indexOf('=');
+            String name = equals < 0 ? null : trimmed.substring(0, equals).strip();
+            if (isValidName(name) && !entries.containsKey(name)) {
+                valueOf(line, name).ifPresent(value -> entries.put(name, value));
+            }
+        }
+        return entries;
     }
 
     public boolean has(String name) {

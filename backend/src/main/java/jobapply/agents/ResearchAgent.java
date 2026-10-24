@@ -88,12 +88,36 @@ public final class ResearchAgent {
             - 用户问到申请进度：用 list_jobs 看状态，告诉用户哪些在等他回复、哪些停在提交前。
             - 每条消息的工具调用有上限；做不完时先告诉用户做到哪了，用户回复「继续」再接着做。""";
 
+    /** 面试轮次与复盘（C014-A）。 */
+    static final String ROUNDS = """
+            # 笔试、面试和复盘
+
+            - 用户说起某一轮（「X 约了周五一面」「一面刚结束，问了限流器和 LRU」「二面过了」「三面挂了」），用 \
+            record_round 记这一轮：新的一轮写 name、type、时间（约定的写 scheduled_at，已经面完的写 happened_at）、\
+            形式和结果（还没出结果是 pending）；已有的一轮只写 seq 和变了的字段。阶段跟着轮次自动变，不用再 record_status。\
+            还没记为已投递的先 mark_submitted。
+            - 用户讲了这一轮问了什么、答得怎样、面试官怎么说，用 save_review 按用户的话写复盘：每道题写 topic 和 \
+            canonical（同一道题再被问到用同一个 canonical），只写用户说了的，不编。写完在回复里简短给用户看写了什么，\
+            用户要改就整份再写一次，不用先起草等确认。挂了的时候问一句要不要做失败复盘。
+            - 只是阶段变了、没有具体的轮次（「X 进入简历筛选了」「Y 还没消息」「Z 撤回了」），还是用 record_status。
+            - 不记面试官姓名和联系方式。""";
+
+    /** 更新 memory（C014 B）。 */
+    static final String MEMORY = """
+            # 更新 memory
+
+            用户在对话里说了新的个人事实或纠正（「我 GPA 是 3.8」「毕业时间写错了，是 2027-06」）、投递之后有反馈\
+            （公司的流程、在线简历的情况、额度）、或者你发现了以后用得上的经验时，用 remember 直接写进本地 memory，\
+            不用先问用户：已有的就 replace，新的才 add，错的 remove。个人事实先看上下文里「已有的资料键」，同一件事用\
+            已有的键，不另起新键；C 级（证件、签证、薪资等）不写明文，只登记占位符 {KEY}，并告诉用户在\
+            「设置 → 敏感信息」里填真实值。读 skill memory-update。写了什么在回复里提一句，用户要改就再写一次。""";
+
     private ResearchAgent() {
     }
 
-    /** 系统提示词：身份 → 工作方法（撒网、核验、开始申请）→ 按情形的引导。资料摘要在上下文里。 */
+    /** 系统提示词：身份 → 工作方法（撒网、核验、开始申请）→ 笔试面试和复盘 → 按情形的引导。资料摘要在上下文里。 */
     public static String systemPrompt() {
-        return String.join("\n\n", IDENTITY, METHOD, SITUATIONS);
+        return String.join("\n\n", IDENTITY, METHOD, ROUNDS, SITUATIONS, MEMORY);
     }
 
     public static List<ToolCallback> tools() {

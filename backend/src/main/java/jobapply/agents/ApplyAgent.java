@@ -77,7 +77,8 @@ public final class ApplyAgent {
             对不上又拿不准的问用户。读 file-upload、resume-parse。
             - **开放问题**（为什么想加入、自我评价等）：资料里有依据就用资料里的话写，没有就问用户，不编造经历。
             - **C 级字段**（证件号码、签证和工作授权、薪资期望、民族、宗教、健康和残障、犯罪记录、法律声明和承诺勾选）：\
-            不填，系统也会拒绝。把它们攒起来，用 ask_user 请用户在浏览器里亲自填。性别、出生日期、政治面貌这类普通字段\
+            资料里有对应的 C 级占位符 {KEY} 时，就把占位符原样填进去（系统发给浏览器时换成真实值）；没有占位符的不填，\
+            系统也会拒绝。把它们攒起来，用 ask_user 请用户在浏览器里亲自填。性别、出生日期、政治面貌这类普通字段\
             不算 C 级：资料里有就填，没有就和别的问题一起问用户。
             - **弹窗、验证码、像是已经提交了**：你处理不了，用 ask_user 告诉用户。像是已经提交了时不要再写任何东西。\
             已经提交了时 finish 的 page_shows_submitted 写 true。
@@ -101,6 +102,21 @@ public final class ApplyAgent {
             现在停在哪一页、提交前要核对什么），没看到的不要写成已经完成；弹窗没关、页面没翻过去时，先用 ask_user，\
             不要 finish。没解决的写进 unresolved。用户之后要求修改时，接着同一份申请改。""";
 
+    /** Cover Letter 和更新 memory（C014 B）。 */
+    static final String WRITING_AND_MEMORY = """
+            # Cover Letter 和 memory
+
+            - **Cover Letter**：表单里有 Cover Letter / 求职信 / 自我推荐 / 附言这类文本框时，由你起草填进去，不问用户：\
+            先 read_jd 读 JD 快照和写作偏好，read_resume 读选定的简历，再看有效资料，读 skill cover-letter。按写作偏好写；\
+            没有要求时英文 200–300 词，中文 300–500 字，语言跟表单一致。只写简历和资料里有的事，不编经历、数字和技能。\
+            填的时候 fact 写 cover_letter，报告里会写「Cover Letter：Agent 起草」；finish 的 summary 里提醒用户看一眼。\
+            只能上传文件、没有文本框时，照旧用 ask_user 的 files 请用户选文件。
+            - **更新 memory**：用户在工作台里回答了以后还会用到的问题（新的事实、纠正）、你发现了这个站点的规律（控件怎么\
+            操作、按钮在哪、什么办法管用）、申请停在提交前时，用 remember 把值得留下的写进去：已有的就 replace，新的才 \
+            add，错的 remove；资料键看「有效资料」里已有的键，同一件事不另起新键。用了某个 skill 遇到它没写到的问题，\
+            用 remember 的 kind skill 改那个 skill（先 read_skill）。读 skill memory-update。写了什么在 ask_user 的 message \
+            或 finish 的 summary 里提一句。""";
+
     static final String LINES = """
             # 系统会拒绝的操作
 
@@ -109,16 +125,16 @@ public final class ApplyAgent {
             final_step_suspected 和依据。你判断不是最后一步就直接点；怀疑是最后一步（或者同一页上还有提交按钮、步骤条\
             已经到最后一步）时，系统会要你先用 ask_user 问用户这一个按钮，用户同意后你再点这一页上的这个按钮。
             - 不在文本框里按回车（回车可能直接提交）。
-            - C 级字段不填。
+            - C 级字段不填，除非填的是资料里的占位符 {KEY}。
             - 只能操作这个岗位所在站点的页面；上传只能用「可上传的文件」里的编号。
             被拒绝时换别的做法，或者交给用户；不要原样重试。""";
 
     private ApplyAgent() {
     }
 
-    /** 系统提示词：身份和目标 → 工作方法 → 按情形的引导 → 系统会拒绝的操作。对一份申请不变。 */
+    /** 系统提示词：身份和目标 → 工作方法 → 按情形的引导 → Cover Letter 和 memory → 系统会拒绝的操作。对一份申请不变。 */
     public static String systemPrompt() {
-        return String.join("\n\n", IDENTITY, METHOD, SITUATIONS, LINES);
+        return String.join("\n\n", IDENTITY, METHOD, SITUATIONS, WRITING_AND_MEMORY, LINES);
     }
 
     /** 交给模型的工具：浏览器工具 + 标签页（{@link BrowserTools#tabs()}）+ 控制工具。 */

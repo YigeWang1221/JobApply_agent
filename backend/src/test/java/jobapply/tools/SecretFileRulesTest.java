@@ -8,7 +8,7 @@ class SecretFileRulesTest {
 
     @Test
     void secretNamesAreRecognisedCaseInsensitively() {
-        for (String name : new String[] {".env", ".env.local", ".ENV.production", "server.pem", "tls.key", "cert.p12",
+        for (String name : new String[] {".env", "personal.env", ".env.local", ".ENV.production", "server.pem", "tls.key", "cert.p12",
                 "cert.pfx", "id_rsa", "id_rsa.pub", "id_ed25519", "aws-credentials.json", "client_secret.json",
                 "Secrets.yaml", ".npmrc", ".pypirc", ".netrc", "release.keystore", "app.jks"}) {
             assertThat(SecretFileRules.isSecret(name)).as(name).isTrue();

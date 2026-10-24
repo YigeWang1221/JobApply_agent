@@ -10,6 +10,7 @@ import { Funnel } from "./Funnel";
 import { Kpis } from "./Kpis";
 import { LeadPool } from "./LeadPool";
 import { applications } from "./metrics";
+import { Reviews } from "./Reviews";
 import { Timeline } from "./Timeline";
 import { Upcoming } from "./Upcoming";
 import { Weekly } from "./Weekly";
@@ -121,7 +122,10 @@ export function TabBody({ tab, jobs, showProject, sessions, reload, recent }: {
       </div>
       <Board jobs={jobs} showProject={showProject} />
       <Timeline jobs={jobs} />
-      <Weekly jobs={jobs} />
+      <div className="grid2">
+        <Weekly jobs={jobs} />
+        <Reviews jobs={jobs} />
+      </div>
     </>
   );
 }

@@ -3,12 +3,16 @@ package jobapply.harness.policies;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import jobapply.domain.Placeholder;
 import jobapply.tools.SnapshotIndex;
 
 /**
- * C 级字段守卫：字段的名字，或它所在分组（祖先节点）的名字命中 C 级词表时，交给用户亲自填写。
+ * C 级字段守卫：字段的名字，或它所在分组（祖先节点）的名字命中 C 级词表时，交给用户亲自填写；值是资料里登记过、
+ * personal.env 里有值的占位符 {@code {KEY}} 时放行（C014-D）。
  * 宁可多拦：误判的代价只是多问用户一次。词表写在代码里，只能由开发代理修改。
  * 同一份词表也用来在发给模型之前去掉文字里的 C 级内容（{@link #withoutClassC(String)}）。
  */
@@ -42,6 +46,37 @@ public final class FieldClassGuard {
      * @param givenLabel 模型在调用里给的字段名（例如 {@code fill_form} 的 {@code name}），可以为 null
      */
     public static GuardDecision check(SnapshotIndex index, String ref, String givenLabel) {
+        return check(index, ref, givenLabel, null, Set.of(), key -> false);
+    }
+
+    /**
+     * 同上，并认 C 级占位符（C014-D）：C 级字段的值正好是资料里登记过的占位符 {@code {KEY}}，并且 personal.env 里有这个键时
+     * 放行（发给浏览器时由系统换成真实值）；占位符登记了但没有值时交给用户，原因里写明；其它情况照旧交给用户。
+     *
+     * @param value      要填的值（模型写的，占位符原样）；没有时为 null
+     * @param registered 资料里登记过的 C 级占位符的键名
+     * @param hasValue   personal.env 里有没有这个键的值
+     */
+    public static GuardDecision check(SnapshotIndex index, String ref, String givenLabel, String value,
+                                      Set<String> registered, Predicate<String> hasValue) {
+        GuardDecision decision = byLabel(index, ref, givenLabel);
+        if (!(decision instanceof GuardDecision.Handoff handoff)) {
+            return decision;
+        }
+        Optional<String> key = Placeholder.keyOf(value).filter(registered::contains);
+        if (key.isEmpty()) {
+            return decision;
+        }
+        return hasValue.test(key.get()) ? GuardDecision.allow()
+                : new GuardDecision.Handoff(handoff.reason() + "：" + missingValue(key.get()));
+    }
+
+    /** 「{KEY} 在 personal.env 里没有值」 */
+    public static String missingValue(String key) {
+        return Placeholder.of(key) + " 在 personal.env 里没有值";
+    }
+
+    private static GuardDecision byLabel(SnapshotIndex index, String ref, String givenLabel) {
         List<String> labels = new ArrayList<>();
         if (givenLabel != null) {
             labels.add(givenLabel);

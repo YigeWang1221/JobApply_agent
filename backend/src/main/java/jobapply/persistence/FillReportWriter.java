@@ -11,6 +11,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import jobapply.domain.FactClass;
 import jobapply.domain.Language;
+import jobapply.domain.Placeholder;
 import jobapply.domain.Timestamps;
 import jobapply.memory.ResolvedFact;
 
@@ -18,7 +19,8 @@ import jobapply.memory.ResolvedFact;
  * 写 {@code jobs/<job-id>/fill-report.md}：填写过程中是草稿（头部标「草稿」，每次整份重写），到关卡 B 时定稿。
  * 格式见 C004-B「关键规则 · 填写报告」。
  * <p>
- * C 级字段只能用 {@link UserFilled} 记录，这个类型没有值，所以系统不可能把 C 级的值写进报告。
+ * C 级字段只能用 {@link UserFilled} 记录（这个类型没有值），或者系统填的占位符 {@code {KEY}}（C014-D），所以系统不可能把
+ * C 级的真实值写进报告。
  * 草稿和定稿写同一个文件，草稿的头部标「草稿」。
  * <p>
  * {@link #load} 把自己写出的文件读回成 {@link Report}（字段行读成 {@link Recorded}，原样保留单元格），应用重启后
@@ -30,6 +32,8 @@ public final class FillReportWriter {
     static final String INFERRED = "模型推断";
     /** 申请 Agent 从简历原文取的值（{@code fact: resume}）。 */
     public static final String RESUME_SOURCE = "简历原文";
+    /** 申请 Agent 起草的 Cover Letter（{@code fact: cover_letter}，C014）。 */
+    public static final String COVER_LETTER_SOURCE = "Cover Letter：Agent 起草";
     static final String USER_FILLED_VALUE = "（用户已填）";
     static final String USER_FILLED_SOURCE = "用户亲填";
     private static final String NONE = "—";
@@ -86,8 +90,10 @@ public final class FillReportWriter {
                 factClass = fact.factClass();
                 language = language == null ? fact.language() : language;
             }
-            if (factClass == null || factClass == FactClass.C) {
-                throw new IllegalArgumentException("系统填写的字段只能是 A 或 B 级（C 级用 UserFilled）：" + label);
+            // C 级只能记占位符 {KEY}（C014-D：真实值只在发给浏览器的那一刻替换，不进报告）
+            if (factClass == null || factClass == FactClass.C && !Placeholder.is(value)) {
+                throw new IllegalArgumentException("系统填写的字段只能是 A 或 B 级，或者值是占位符的 C 级（其它 C 级用 UserFilled）："
+                        + label);
             }
         }
 

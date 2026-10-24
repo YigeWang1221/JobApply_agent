@@ -26,7 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Project 的列表和主页（C005-ui）：每个 Project 的 Session 和 Job 计数、全部 Job；新建 Project（继承 base、跟随最新资料）；
- * 新建 Session（Agent 在后台写开场，返回 202）。全局页的全部 Job：{@code GET /api/jobs}（C006-fix-ui）。
+ * 新建 Session（空白对话，不调模型，返回 201）。全局页的全部 Job：{@code GET /api/jobs}（C006-fix-ui）。
  */
 @RestController
 public class ProjectController {
@@ -126,7 +126,7 @@ public class ProjectController {
                                                                        @RequestBody CreateSession request) {
         requireProject(id);
         String session = sessionRunner.create(id, request == null ? null : request.title()).id();
-        return ResponseEntity.status(HttpStatus.ACCEPTED)
+        return ResponseEntity.status(HttpStatus.CREATED)
                 .body(SessionController.view(layout, clock, sessionRunner, applications, session));
     }
 

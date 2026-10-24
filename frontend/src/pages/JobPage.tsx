@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api, ApiError, awaitingSubmit, errorText, type ApplicationQuestion, type ApplicationStatus, type Asset,
   type BrowserTab, type FileSlot,
-  type JobDetail, type JobEventView, type PlanItem, type ReplyBody, type ResumeChoice, type SentAttachment,
+  type JobDetail, type JobEventView, type PlanItem, type ReplyBody, type ResumeChoice, type RoundView,
+  type SentAttachment,
 } from "../api";
+import { Markdown } from "../chat/Markdown";
 import { ChatSkeleton } from "../chat/ChatSkeleton";
 import { eventsUrl, subscribe } from "../chat/eventStream";
 import { Composer } from "../chat/Composer";
@@ -12,7 +14,9 @@ import { MessageList } from "../chat/MessageList";
 import { useAttachments } from "../chat/useAttachments";
 import { useLiveUpdates } from "../chat/useLiveUpdates";
 import { go } from "../route";
-import { APPLICATION, JobState, SubmitConfirm, VerifiedChip } from "../status";
+import {
+  APPLICATION, JobState, ROUND_CHIP, ROUND_RESULT, RoundProgress, SubmitConfirm, VerifiedChip,
+} from "../status";
 import { toast } from "../toast";
 
 const PLAN: Record<string, string> = { todo: "待做", doing: "进行中", done: "完成", blocked: "卡住" };
@@ -255,6 +259,7 @@ export default function JobPage({ id }: { id: string }) {
                 return { ...base, picked: update(base.picked) };
               })} />
           )}
+          <Rounds jobId={job.id} rounds={job.rounds ?? []} />
           <ResumeRank choice={job.resumeChoice ?? null} />
           <Plan plan={status?.plan ?? []} />
           {status && <HandTab jobId={job.id} />}
@@ -300,6 +305,62 @@ function Plan({ plan }: { plan: PlanItem[] }) {
         {plan.map((item, index) => (
           <li key={index}><span><span className="muted small">[{PLAN[item.status] ?? item.status}]</span> {item.text}</span></li>
         ))}
+      </ol>
+    </section>
+  );
+}
+
+// 轮次与复盘（C014-A）：对话 Agent 按你在对话里说的记下；写过复盘的点开看全文
+function Rounds({ jobId, rounds }: { jobId: string; rounds: RoundView[] }) {
+  const [open, setOpen] = useState<number | null>(null);
+  const [review, setReview] = useState<string | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  if (rounds.length === 0) {
+    return null;
+  }
+  async function toggle(seq: number) {
+    if (open === seq) {
+      setOpen(null);
+      return;
+    }
+    setOpen(seq);
+    setReview(null);
+    setReviewError(null);
+    try {
+      // 页面上只看正文，frontmatter 不显示
+      setReview((await api.roundReview(jobId, seq)).replace(/^---\n[\s\S]*?\n---\n/, ""));
+    } catch (e) {
+      setReviewError(describe(e));
+    }
+  }
+  return (
+    <section className="sidesec">
+      <strong className="small">轮次</strong> <span className="small"><RoundProgress rounds={rounds} /></span>
+      <ol className="questions">
+        {rounds.map((r) => {
+          const when = (r.happenedAt ?? r.scheduledAt)?.slice(0, 16).replace("T", " ");
+          return (
+            <li key={r.seq}>
+              <span>
+                <strong>{r.seq}. {r.name}</strong>{" "}
+                <span className={`chip ${ROUND_CHIP[r.result] ?? ""}`}>{ROUND_RESULT[r.result] ?? r.result}</span>
+                <br />
+                <span className="muted small">{[r.type, when, r.format, r.interviewerRole].filter(Boolean).join(" · ")}</span>
+                {r.review && (
+                  <>
+                    <br />
+                    <button className="linkbtn" onClick={() => void toggle(r.seq)}>
+                      {open === r.seq ? "收起复盘" : `复盘（${r.questionCount} 道题）`}
+                    </button>
+                  </>
+                )}
+                {open === r.seq && (reviewError
+                  ? <p className="error small">{reviewError}</p>
+                  : review === null ? <p className="muted small">读取中…</p> : <Markdown text={review} />)}
+              </span>
+            </li>
+          );
+        })}
       </ol>
     </section>
   );

@@ -25,8 +25,12 @@ public final class ResearchTools {
     public static final String LIST_RESUMES = "list_resumes";
     public static final String READ_RESUME = "read_resume";
     public static final String CHOOSE_RESUME = "choose_resume";
+    public static final String RECORD_ROUND = "record_round";
+    public static final String SAVE_REVIEW = "save_review";
     public static final String ASK_USER = ControlTools.ASK_USER;
     public static final String READ_SKILL = ControlTools.READ_SKILL;
+    /** 直接写本地 memory（C014），定义和申请 Agent 共用一份。 */
+    public static final String REMEMBER = ControlTools.REMEMBER;
 
     /** 调研时可以用的浏览器工具（导航另有说明）。 */
     static final Set<String> BROWSER = Set.of(BrowserToolPolicy.SNAPSHOT, BrowserToolPolicy.FIND,
@@ -161,6 +165,47 @@ public final class ResearchTools {
                     "outcome":{"type":"string","enum":["rejected","withdrawn","ghosted","accepted","declined","posting_closed","not_submitted"]},\
                     "note":{"type":"string"},"next_check_in_days":{"type":"integer","minimum":1,"maximum":90}},\
                     "required":["job"]}"""),
+            definition(RECORD_ROUND,
+                    "Record or update one round of an applied job (OA, written test, interview, HR call, offer call) "
+                            + "from what the user said. Without seq a new round is added after the last one; with seq "
+                            + "only the fields you give are changed (e.g. seq 2 + result passed). The phase follows the "
+                            + "rounds: latest round a test -> assessment, an interview -> interview, an offer-call round "
+                            + "-> offer, latest round failed -> closed as rejected. Also sets the next event (the nearest "
+                            + "pending round still to come). The job must be applied already (mark_submitted first). "
+                            + "Dates are yyyy-MM-dd or yyyy-MM-ddTHH:mm with offset. Don't record interviewer names. "
+                            + "Repeating the same call records nothing new; the result gives the round's seq.",
+                    """
+                    {"type":"object","properties":{"job":{"type":"string","description":"Job id"},\
+                    "seq":{"type":"integer","minimum":1,"description":"round number; omit to add a new round"},\
+                    "name":{"type":"string","description":"the company's name for it, e.g. 一面, 技术二面, HR 面, Onsite 1"},\
+                    "type":{"type":"string","enum":["screen-call","oa","written-test","assessment","technical",\
+                    "coding","system-design","behavioral","manager","hr","final","offer-call","other"]},\
+                    "scheduled_at":{"type":"string"},"happened_at":{"type":"string"},\
+                    "format":{"type":"string","description":"e.g. 线上 60 分钟, 线下, 电话"},\
+                    "interviewer_role":{"type":"string","description":"role only, e.g. 组内工程师"},\
+                    "result":{"type":"string","enum":["pending","passed","failed","cancelled"]},\
+                    "result_source":{"type":"string","enum":["user","portal","email","recruiter"]},\
+                    "note":{"type":"string","description":"the user's words"}},"required":["job"]}"""),
+            definition(SAVE_REVIEW,
+                    "Write the review of one round (record_round it first) as rounds/<seq>-<type>.md, from what the "
+                            + "user told you: what happened, each question with topics and a canonical id, the user's "
+                            + "answer, self-assessment, follow-ups, the interviewer's feedback, lessons. Write it "
+                            + "directly, then show the user what you wrote in the chat; when they want changes call it "
+                            + "again with the whole review (it replaces the file). Only what the user said; don't invent "
+                            + "questions or answers. topic: short lowercase tags like system-design, coding, "
+                            + "data-structure, behavioral, project-deep-dive. canonical: q-<short-slug>, the same id for "
+                            + "the same question when it is asked again.",
+                    """
+                    {"type":"object","properties":{"job":{"type":"string","description":"Job id"},\
+                    "seq":{"type":"integer","minimum":1},\
+                    "summary":{"type":"string","description":"how the round went"},\
+                    "questions":{"type":"array","items":{"type":"object","properties":{\
+                    "title":{"type":"string"},"topic":{"type":"array","items":{"type":"string"}},\
+                    "canonical":{"type":"string"},"answer":{"type":"string"},"self_review":{"type":"string"},\
+                    "follow_up":{"type":"string"},\
+                    "status":{"type":"string","enum":["todo","reviewed","mastered"]}},"required":["title"]}},\
+                    "feedback":{"type":"string"},"lessons":{"type":"array","items":{"type":"string"}}},\
+                    "required":["job","seq"]}"""),
             definition(ASK_USER,
                     "Hand control to the user and end this turn: e.g. ask them to log in to a careers site in Chrome, "
                             + "to paste a link you cannot reach, or to choose which jobs to apply to. message is shown "
@@ -171,11 +216,12 @@ public final class ResearchTools {
                     "Read the full text of a skill from the catalog (how to come up with search queries, how to verify "
                             + "jobs on official campus sites).",
                     """
-                    {"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}"""));
+                    {"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}"""),
+            ControlTools.REMEMBER_DEFINITION);
 
     private static final Set<String> NAMES = Set.of(WEB_SEARCH, WEB_FETCH, LIST_JOBS, ADD_LEAD, UPDATE_LEAD,
             START_APPLICATION, MARK_SUBMITTED, RECORD_STATUS, LIST_RESUMES, READ_RESUME, CHOOSE_RESUME, ASK_USER,
-            READ_SKILL);
+            READ_SKILL, RECORD_ROUND, SAVE_REVIEW, REMEMBER);
 
     private ResearchTools() {
     }

@@ -2,8 +2,10 @@ package jobapply.harness.policies;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -18,6 +20,9 @@ import jobapply.tools.PageSnapshot;
  * {@link FieldClassGuard#isClassC(String)} 时，这一行和它下面的所有行：行尾的值换成 {@link FieldClassGuard#REMOVED}，
  * 去掉 {@code [checked]}、{@code [selected]}、{@code [pressed]} 这类状态。其它行原样保留，ref 不变。
  * 行的写法按 @playwright/mcp 0.0.83（见 {@link jobapply.tools.SnapshotIndex}）。
+ * <p>
+ * 另外，{@code personal.env} 里的真实值（C014-D）不管出现在哪一行，都由 {@link #withoutValues} 换回占位符
+ * {@code {KEY}}：浏览器会话把快照交出来之前就换（{@link jobapply.tools.BrowserSession}），之后谁都只看到占位符。
  */
 public final class SnapshotRedactor {
 
@@ -37,6 +42,40 @@ public final class SnapshotRedactor {
             return null;
         }
         return new PageSnapshot(page.url(), page.title(), redact(page.snapshot()), page.modalState());
+    }
+
+    /** 少于这么多个字符的值不换：太短的值（例如「是」「No」）会把普通文字也换掉。 */
+    static final int MIN_SECRET_LENGTH = 3;
+
+    /**
+     * 文字里出现的真实值换回占位符 {@code {KEY}}（C014-D）：页面回显了系统替换进去的值、用户亲手填的值、报错里带出的值，
+     * 模型、日志、报告都只看到占位符。长的值先换。
+     *
+     * @param values personal.env 里的 {@code KEY → 值}
+     */
+    public static String withoutValues(String text, Map<String, String> values) {
+        if (text == null || text.isEmpty() || values == null || values.isEmpty()) {
+            return text;
+        }
+        List<Map.Entry<String, String>> longestFirst = values.entrySet().stream()
+                .filter(entry -> entry.getValue() != null && entry.getValue().strip().length() >= MIN_SECRET_LENGTH)
+                .sorted(Comparator.comparingInt((Map.Entry<String, String> entry) -> entry.getValue().length())
+                        .reversed())
+                .toList();
+        String out = text;
+        for (Map.Entry<String, String> entry : longestFirst) {
+            out = out.replace(entry.getValue().strip(), "{" + entry.getKey() + "}");
+        }
+        return out;
+    }
+
+    /** 同上，换地址、标题、快照和弹出状态。 */
+    public static PageSnapshot withoutValues(PageSnapshot page, Map<String, String> values) {
+        if (page == null || values == null || values.isEmpty()) {
+            return page;
+        }
+        return new PageSnapshot(withoutValues(page.url(), values), withoutValues(page.title(), values),
+                withoutValues(page.snapshot(), values), withoutValues(page.modalState(), values));
     }
 
     public static String redact(String yaml) {

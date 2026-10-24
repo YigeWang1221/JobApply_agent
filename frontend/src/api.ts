@@ -434,6 +434,26 @@ export interface JobView {
   canStart: boolean;
   // 简历排名（C008，job.md 的 resume_choice）：对话 Agent 开始申请前排的；用户说不用排时只有 skipped
   resumeChoice?: ResumeChoice | null;
+  // 招聘轮次（C014-A，job.md 的 rounds），按 seq 排好；result 已由服务器按今天算过 unknown（用户未同步）
+  rounds: RoundView[];
+}
+
+export interface RoundView {
+  seq: number;
+  name: string;
+  type: string;
+  scheduledAt: string | null;
+  happenedAt: string | null;
+  format: string | null;
+  interviewerRole: string | null;
+  // pending / passed / failed / cancelled / unknown
+  result: string;
+  resultSource: string | null;
+  // 写过复盘：正文用 api.roundReview 读
+  review: boolean;
+  questionCount: number;
+  // 复盘里每道题的主题（一题多个主题时都算）
+  topics: string[];
 }
 
 export interface ResumeChoice {
@@ -581,7 +601,18 @@ export interface WorkerSettings {
   queued: number;
 }
 
+// 敏感信息（C014-D）：一个键的名字和「已设置 / 未设置」，从不带值
+export interface PersonalKey {
+  key: string;
+  zh: string;
+  en: string;
+  fields: string;
+  preset: boolean;
+  set: boolean;
+}
+
 const MODELS = "/api/settings/models";
+const PERSONAL = "/api/settings/personal";
 const enc = encodeURIComponent;
 const jobPath = (jobId: string) => `/api/jobs/${encodeURIComponent(jobId)}/application`;
 
@@ -601,6 +632,11 @@ export const api = {
   workerSettings: () => request<WorkerSettings>("GET", "/api/settings/workers"),
   saveWorkerSettings: (workers: number, perSite: number) =>
     request<WorkerSettings>("PUT", "/api/settings/workers", { workers, perSite }),
+
+  personalKeys: () => request<{ keys: PersonalKey[] }>("GET", PERSONAL),
+  savePersonal: (key: string, value: string, label?: string) =>
+    request<PersonalKey>("PUT", `${PERSONAL}/${enc(key)}`, { value, label }),
+  clearPersonal: (key: string) => request<PersonalKey>("DELETE", `${PERSONAL}/${enc(key)}`),
 
   assets: () => request<{ assets: Asset[] }>("GET", "/api/assets"),
   upload: (file: File) => uploadFile<UploadResult>("/api/assets", file),
@@ -683,6 +719,14 @@ export const api = {
     if (response.status === 404) {
       return null;
     }
+    if (!response.ok) {
+      return parse<never>(response);
+    }
+    return response.text();
+  },
+  // 一轮的复盘 Markdown（C014-A，含 frontmatter）
+  roundReview: async (jobId: string, seq: number) => {
+    const response = await fetch(`/api/jobs/${enc(jobId)}/rounds/${seq}/review`);
     if (!response.ok) {
       return parse<never>(response);
     }

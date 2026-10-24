@@ -27,6 +27,7 @@ import jobapply.domain.JobPosting;
 import jobapply.domain.LeadStatus;
 import jobapply.domain.Outcome;
 import jobapply.domain.Phase;
+import jobapply.domain.HiringRound;
 import jobapply.domain.Transition;
 import jobapply.harness.context.Conversation;
 import jobapply.harness.context.SkillCatalog;
@@ -36,6 +37,8 @@ import jobapply.harness.policies.SnapshotRedactor;
 import jobapply.harness.policies.SubmitGuard;
 import jobapply.harness.policies.ToolNotAllowedException;
 import jobapply.harness.runtime.AgentLoop.Step;
+import jobapply.memory.MemoryWriter;
+import jobapply.memory.ProfileResolver;
 import jobapply.persistence.AgentRunStore;
 import jobapply.persistence.AssetRegistry;
 import jobapply.persistence.AttachmentStore;
@@ -44,6 +47,7 @@ import jobapply.persistence.FrontmatterFile;
 import jobapply.persistence.JobLedger;
 import jobapply.persistence.JobRepository;
 import jobapply.persistence.PlaybookSeeder;
+import jobapply.persistence.RoundReviews;
 import jobapply.persistence.SessionPages;
 import jobapply.persistence.StorageLayout;
 import jobapply.tools.BrowserException;
@@ -112,6 +116,9 @@ public final class SessionLoop {
     private final AgentRunStore runs;
     /** 简历排名（C008）。 */
     private final ResumeMatch resumes;
+    /** 直接写本地 memory（C014 B）。 */
+    private final MemoryWriter memory;
+    private final ProfileResolver profile;
 
     public SessionLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock, WebSearch search,
                        WebFetch fetch, Applications applications) {
@@ -132,6 +139,8 @@ public final class SessionLoop {
         this.ledger = new JobLedger(layout, clock, ledgerEvents);
         this.runs = new AgentRunStore(layout);
         this.resumes = new ResumeMatch(new AssetRegistry(layout, clock), ledger, clock);
+        this.memory = new MemoryWriter(layout, clock);
+        this.profile = new ProfileResolver(layout, clock);
     }
 
     /**
@@ -256,6 +265,8 @@ public final class SessionLoop {
             out.append("- Project：").append(project).append("（Session ").append(session).append("）\n");
             out.append("\n# 用户画像（profile.md）\n\n").append(body(layout.baseProfile(), "还没有画像。"));
             out.append("\n\n# 偏好（preferences.md）\n\n").append(body(layout.preferences(project), "还没有写偏好。"));
+            out.append("\n\n# 已有的资料键（remember fact 之前先看：同一件事用已有的键 replace，不另起新键）\n\n")
+                    .append(factKeys());
             out.append("\n\n# skill 目录（用 read_skill 读全文）\n\n");
             for (SkillCatalog.Skill skill : catalog.skills()) {
                 if ("research".equals(skill.group())) {
@@ -263,6 +274,17 @@ public final class SessionLoop {
                 }
             }
             return out.toString();
+        }
+
+        /** 资料键一行列完（只有键和分级，不带值；C 级的值只会是占位符）。读不出时说原因，不挡住这次对话。 */
+        private String factKeys() {
+            try {
+                List<String> keys = profile.resolve(project, List.of()).values().stream()
+                        .map(fact -> fact.key() + "（" + fact.factClass().name() + "）").toList();
+                return keys.isEmpty() ? "（还没有）" : String.join("、", keys);
+            } catch (RuntimeException e) {
+                return "（读不出：" + e.getMessage() + "）";
+            }
         }
 
         // ---- 工具 ----
@@ -297,8 +319,12 @@ public final class SessionLoop {
                             args, new AttachmentStore(layout.sessionAttachmentsDir(project, session))));
                     case ResearchTools.MARK_SUBMITTED -> result(call, markSubmitted(args));
                     case ResearchTools.RECORD_STATUS -> result(call, recordStatus(args));
+                    case ResearchTools.RECORD_ROUND -> result(call, recordRound(args));
+                    case ResearchTools.SAVE_REVIEW -> result(call, saveReview(args));
                     case ResearchTools.ASK_USER -> askUser(call, text(args.get("message")));
                     case ResearchTools.READ_SKILL -> readSkill(call, text(args.get("name")));
+                    case ResearchTools.REMEMBER -> result(call, memory.remember(project, MemoryWriter.Item.from(args),
+                            null, null));
                     default -> failed(call, "失败：没有这个工具：" + name);
                 };
             } catch (ToolNotAllowedException e) {
@@ -673,6 +699,56 @@ public final class SessionLoop {
             }
             return jobId + "：记下了（现在是 " + job.status().label() + "）"
                     + (next == null ? "，不再提醒。" : "，下次 " + next + " 提醒。");
+        }
+
+        /** 记下或更新一轮（C014-A）：阶段跟着轮次走，结果里给出 seq，之后 save_review 用。 */
+        private String recordRound(Map<String, Object> args) {
+            String jobId = job(text(args.get("job"))).id();
+            Integer seq = args.get("seq") instanceof Number number ? number.intValue() : null;
+            Map<String, String> fields = new LinkedHashMap<>();
+            for (String key : List.of("name", "type", "scheduled_at", "happened_at", "format", "interviewer_role",
+                    "result", "result_source")) {
+                fields.put(key, text(args.get(key)));
+            }
+            int events = ledger.events(project, jobId).size();
+            Job job = ledger.recordRound(project, jobId, session, seq, fields, text(args.get("note")));
+            List<HiringRound> rounds = HiringRound.of(job);
+            String name = fields.get("name");
+            HiringRound round = rounds.stream().filter(r -> seq != null ? r.seq() == seq : r.name().equalsIgnoreCase(name))
+                    .findFirst().orElse(rounds.getLast());
+            String what = "第 " + round.seq() + " 轮「" + round.name() + "」（" + round.type() + "，" + round.result() + "）";
+            if (ledger.events(project, jobId).size() == events) {
+                return "已经是这样了：" + jobId + " 的" + what + "，没有再记一次。";
+            }
+            String next = job.extraString("next_check_at");
+            return jobId + "：记下了" + what + "，现在是 " + job.status().label()
+                    + (next == null ? "，不再提醒。" : "，下次 " + next + " 提醒。")
+                    + "要写复盘时用 save_review，seq 写 " + round.seq() + "。";
+        }
+
+        /** 写一轮的复盘（C014-A）：直接写进文件，回复里给用户看写了什么。 */
+        private String saveReview(Map<String, Object> args) {
+            String jobId = job(text(args.get("job"))).id();
+            if (!(args.get("seq") instanceof Number seq)) {
+                throw new IllegalArgumentException("save_review 要写 seq（record_round 的结果里有）");
+            }
+            List<RoundReviews.Question> questions = new ArrayList<>();
+            if (args.get("questions") instanceof List<?> list) {
+                for (Object item : list) {
+                    if (item instanceof Map<?, ?> q) {
+                        List<String> topics = strings(q.get("topic")).stream().map(RoundReviews::topic).toList();
+                        String canonical = text(q.get("canonical"));
+                        questions.add(new RoundReviews.Question(text(q.get("title")), topics,
+                                canonical == null ? null : RoundReviews.topic(canonical), text(q.get("answer")),
+                                text(q.get("self_review")), text(q.get("follow_up")), text(q.get("status"))));
+                    }
+                }
+            }
+            RoundReviews.Review review = new RoundReviews.Review(text(args.get("summary")), questions,
+                    text(args.get("feedback")), strings(args.get("lessons")));
+            Path file = ledger.saveReview(project, jobId, session, seq.intValue(), review);
+            return "已写好复盘：" + layout.relative(file) + "（" + questions.size() + " 道题），题库和按公司汇总也更新了。"
+                    + "在回复里把写了什么简短告诉用户（经过、每道题、教训），用户要改就再调一次 save_review。";
         }
 
         private Job job(String jobId) {

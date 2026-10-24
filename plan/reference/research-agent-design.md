@@ -166,3 +166,25 @@
 3. 界面照 OpenMAIC 侧栏：行上悬停出现的按钮（和已有的改名笔并排，不另做 ⋯ 菜单），一个确认框写清楚挪走什么、留下什么，只问一次；删的是当前页时回到全局。
 4. 正在跑的：Session 照 OpenMAIC「删除 = 结束运行」，在跑时请它停下、停下后挪走，不让用户先停再删；Project 范围大、牵涉申请线程和浏览器标签页，有对话或申请在跑 / 排队时 409，说是哪几个。
 5. 不学 langgraph 的硬删：删错了没有回头路；也不学它不检查在跑的运行（我们的运行在写同一批文件）。
+
+## Hermes 的 memory 写法（2026-10-24，C014 B）
+
+起因：用户要求 `remember` 已有的就更新、新的才加，不然本地 memory 会越写越乱；照 Hermes 做。
+
+看的版本：本机 `~/.hermes/hermes-agent` `e5dad4ac5`（只读，没看配置、密钥、memories、日志）。看了 `tools/memory_tool.py`（`MEMORY_SCHEMA`、`MemoryStore.add / replace / remove`）和 `tools/skill_manager_tool.py`（`SKILL_MANAGE_SCHEMA` 的 patch / edit）。
+
+| Hermes | 做法 |
+| --- | --- |
+| 两个有上限的 md 文件 | `USER.md`（用户是谁）、`MEMORY.md`（Agent 的笔记），条目用 `§` 分开，字数上限（2200 / 1375）；当前内容放进提示词，模型写之前看得到已有的 |
+| 一个工具 `memory` | `action: add / replace / remove`；replace / remove 用 `old_text`（一小段唯一的原文）找条目：没对上报错，对上几条（内容不同）报「Be more specific」；add 一模一样的返回「already exists」；超过上限报错「Replace or remove existing entries first」，逼模型合并，不一直追加 |
+| 说明里写什么时候记 | 用户纠正和偏好 > 环境事实 > 做法；不记任务进度、临时状态、一眼能再发现的东西、大段原文 |
+| skill | `skill_manage` 的 `patch`（old_string / new_string，要唯一匹配，修小问题首选），`edit` 整篇重写只用于大改；「用了某个 skill 遇到它没写到的问题，马上 patch」 |
+
+**JobApply 怎么用（C014 B）**
+
+1. 一个 `remember` 工具，两个 Agent 共用定义，`action: add / replace / remove`。
+2. `kind fact`：事实本来有键，按键 upsert（键已有就更新并告诉模型原来的值，没有才加），写当前 Project 的 `overrides.md`；remove 删 overrides 里的这个键。模型写之前看已有的键：申请 Agent 看「有效资料」，对话 Agent 的上下文新加一行「已有的资料键」（只有键和分级）。C 级明文拒绝，只收 `{KEY}` 占位符。
+3. `kind site / company / lesson`：`playbook/sites/<host>.md`、`companies/<company>.md`、`review/lessons.md` 里一行 `- ...` 是一条，规则照 Hermes：add 去重，replace / remove 用 `old_text`，每个文件条目合计 4000 字上限，满了报「先合并或删掉旧条目」；结果里列出文件现在的条目。
+4. `kind skill`：只做 patch（old_string 唯一匹配，改正文，不动 frontmatter，改完不超过 skill 正文预算 8000 字），不做整篇重写；站点特有的写 site，不写进 skill（memory.md「Memory 写入」第 4 条）。
+5. 什么时候记、先看已有的、同一件事 replace，写进预置 skill `memory-update`，两个 Agent 的提示词各用一两句指过去。
+6. 不学的：Hermes 把 memory 全文每次放进提示词；我们的事实已经在上下文里，站点记录也在申请 Agent 的上下文里，公司记忆由 `read_jd` 读，经验文件暂时不放进上下文。
