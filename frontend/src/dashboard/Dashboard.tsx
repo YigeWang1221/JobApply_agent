@@ -93,13 +93,12 @@ export function TabBody({ tab, jobs, showProject, sessions, reload, recent }: {
           onMark={(job, status, reason) => act(() => api.markLead(job.id, status, reason),
             `${job.company} · ${job.title}：${LEAD[status]}`)}
           onStart={(job) => {
-            const session = job.discoveredIn ?? sessions.find((s) => s.project === job.project)?.id;
-            if (!session) {
-              toast("先新建一个 Session，再开始申请", "error");
-              return;
-            }
-            void act(() => api.startApplication(job.id, { project: job.project, session }), "已开始申请",
-              () => go({ kind: "job", id: job.id }));
+            // C008：先在发现它的 Session（没有就新开一个）里让对话 Agent 排简历，排完它自己开始申请
+            let session = job.discoveredIn ?? sessions.find((s) => s.project === job.project)?.id;
+            void act(async () => {
+              session ??= (await api.createSession(job.project)).session.id;
+              await api.sendMessage(session, `给 ${job.company} · ${job.title}（${job.id}）排一下简历，然后开始申请`);
+            }, "已交给对话 Agent：先排简历，再开始申请", () => go({ kind: "session", id: session! }));
           }} />
       </div>
     );

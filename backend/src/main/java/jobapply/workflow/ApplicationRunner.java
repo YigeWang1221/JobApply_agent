@@ -209,6 +209,11 @@ public final class ApplicationRunner implements AutoCloseable {
 
         String opening = "开始申请：" + job.posting().company() + " · " + job.posting().title()
                 + "。先看页面：判断要不要登录、怎么进入申请表，然后按工作方法填写，停在最终提交之前。";
+        // C008：对话 Agent 按这个岗位选的简历；上传位置用 ask_user 的 files 请用户确认，工作台默认选中它
+        if (job.extra().get("resume_choice") instanceof Map<?, ?> choice && choice.get("file") instanceof String file) {
+            opening += "\n拟用简历：" + file + "（" + choice.get("asset") + "）。到简历上传位置时用 ask_user 的 files 请用户"
+                    + "确认（工作台已默认选中它）。";
+        }
         AgentRun run = AgentRun.start(projectId, jobId, sessionId, job.posting().company(), job.posting().title(), url,
                 opening);
         moveTo(run, PrepState.PREPARING, Actor.USER, "开始申请线程");

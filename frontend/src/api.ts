@@ -430,6 +430,18 @@ export interface JobView {
   due: boolean;
   bucket: JobBucket;
   canStart: boolean;
+  // 简历排名（C008，job.md 的 resume_choice）：对话 Agent 开始申请前排的；用户说不用排时只有 skipped
+  resumeChoice?: ResumeChoice | null;
+}
+
+export interface ResumeChoice {
+  asset?: string;
+  file?: string;
+  ranking?: { key: string; file: string; rank: number; reason: string; gap: string }[];
+  suggestions?: string[];
+  skipped?: string;
+  at: string;
+  session?: string;
 }
 
 // 分组（服务器 JobBucket）：lead 候选池里还在考虑；preparing 准备中；waiting 准备中、要你做事（申请线程在等你 / 失败 / 中断，

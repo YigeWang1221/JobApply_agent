@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api, ApiError, awaitingSubmit, errorText, type ApplicationQuestion, type ApplicationStatus, type Asset,
   type BrowserTab, type FileSlot,
-  type JobDetail, type JobEventView, type PlanItem, type ReplyBody, type SentAttachment,
+  type JobDetail, type JobEventView, type PlanItem, type ReplyBody, type ResumeChoice, type SentAttachment,
 } from "../api";
 import { ChatSkeleton } from "../chat/ChatSkeleton";
 import { eventsUrl, subscribe } from "../chat/eventStream";
@@ -20,6 +20,7 @@ const PLAN: Record<string, string> = { todo: "待做", doing: "进行中", done:
 const WAITING = new Set(["waiting_user", "ready", "failed", "interrupted"]);
 // 你已经提交了（等确认）：和后端 reply 的 409 同一条规则，不再回复申请 Agent。暂停的可以回复（接着做）
 const USER_DECIDED = new Set(["user_submitting", "verification_pending", "unconfirmed"]);
+const RESUME_SLOT = /简历|履历|resume|cv/i;
 
 interface ReplyForm {
   key: string;
@@ -97,9 +98,16 @@ export default function JobPage({ id }: { id: string }) {
 
   // 同一次等待算一份表单：轮询拿到同样的内容时不重置用户已经填的东西
   const formKey = status ? replyKey(status) : "";
-  const current: ReplyForm = form.key === formKey ? form : { key: formKey, answers: {}, picked: {} };
   const questions = waiting ? status?.questions ?? [] : [];
   const slots = waiting ? status?.fileSlots ?? [] : [];
+  // C008：简历的上传位置默认选中对话 Agent 排名选定的那份（只有一个上传位置时也选它），你仍可改选
+  const chosen = job.resumeChoice?.asset;
+  const fresh: ReplyForm = {
+    key: formKey, answers: {},
+    picked: chosen ? Object.fromEntries(slots.filter((slot) => slots.length === 1 || RESUME_SLOT.test(slot.label))
+      .map((slot) => [slot.id, chosen])) : {},
+  };
+  const current: ReplyForm = form.key === formKey ? form : fresh;
   const answerable = questions.filter((q) => q.fieldClass !== "C");
   const missingAnswers = answerable.filter((q) => q.required && !current.answers[q.id]?.trim());
   const missingFiles = slots.filter((slot) => slot.required !== false && !current.picked[slot.id]);
@@ -150,6 +158,7 @@ export default function JobPage({ id }: { id: string }) {
             <h1>{job.company} · {job.title}</h1>
             <span className="muted small headmeta">
               {[job.city.join("、"), job.type, job.site].filter(Boolean).join(" · ")}
+              {job.resumeChoice?.file && <span title="对话 Agent 按这个岗位排名选定的简历">拟用简历：{job.resumeChoice.file}</span>}
               {job.url && <a href={job.url} target="_blank" rel="noreferrer">岗位链接</a>}
               {job.officialUrl && <a href={job.officialUrl} target="_blank" rel="noreferrer">官方链接</a>}
               {sse.reconnecting && <span className="reconnecting" title="和后端的推送断开了，正在自动重连">重新连接中…</span>}
@@ -169,7 +178,11 @@ export default function JobPage({ id }: { id: string }) {
             {!status && (
               <button className="primary" disabled={busy || !canStart || !session}
                 title={!session ? "没有可用的 Session" : !canStart ? "这个岗位现在不能开始申请" : undefined}
-                onClick={() => void call(() => api.startApplication(job.id, { project: job.project, session: session! }))}>
+                onClick={() => void call(async () => {
+                  // C008：开始申请前先排简历：交给发现它的 Session 里的对话 Agent，排完它自己开始申请
+                  await api.sendMessage(session!, `给 ${job.company} · ${job.title}（${job.id}）排一下简历，然后开始申请`);
+                  go({ kind: "session", id: session! });
+                })}>
                 开始申请
               </button>
             )}
@@ -221,10 +234,11 @@ export default function JobPage({ id }: { id: string }) {
           {slots.length > 0 && (
             <Files slots={slots} offered={status?.assets ?? null} attachments={attachable} picked={current.picked}
               setPicked={(update) => setForm((old) => {
-                const base = old.key === formKey ? old : { key: formKey, answers: {}, picked: {} };
+                const base = old.key === formKey ? old : fresh;
                 return { ...base, picked: update(base.picked) };
               })} />
           )}
+          <ResumeRank choice={job.resumeChoice ?? null} />
           <Plan plan={status?.plan ?? []} />
           {status && <HandTab jobId={job.id} />}
           {status && (ready || status.report) && <section className="sidesec"><Report jobId={job.id} /></section>}
@@ -270,6 +284,42 @@ function Plan({ plan }: { plan: PlanItem[] }) {
           <li key={index}><span><span className="muted small">[{PLAN[item.status] ?? item.status}]</span> {item.text}</span></li>
         ))}
       </ol>
+    </section>
+  );
+}
+
+// 简历排名（C008）：对话 Agent 开始申请前按这个岗位排的名次、理由、缺口和修改建议
+function ResumeRank({ choice }: { choice: ResumeChoice | null }) {
+  if (!choice) {
+    return null;
+  }
+  const day = choice.at.slice(0, 16).replace("T", " ");
+  return (
+    <section className="sidesec">
+      <strong className="small">简历排名</strong> <span className="muted small">{day}</span>
+      {choice.skipped ? <p className="muted small">没有排：{choice.skipped}</p> : (
+        <>
+          <ol className="questions">
+            {(choice.ranking ?? []).map((row) => (
+              <li key={row.key}>
+                <span>
+                  <strong>{row.rank}. {row.file}</strong>{row.key === choice.asset && <span className="muted small">（拟用）</span>}
+                  <br /><span className="small">{row.reason}</span>
+                  {row.gap && <><br /><span className="muted small">缺口：{row.gap}</span></>}
+                </span>
+              </li>
+            ))}
+          </ol>
+          {(choice.suggestions ?? []).length > 0 && (
+            <>
+              <strong className="small">修改建议</strong>
+              <ul className="questions">
+                {choice.suggestions!.map((text, index) => <li key={index}><span className="small">{text}</span></li>)}
+              </ul>
+            </>
+          )}
+        </>
+      )}
     </section>
   );
 }

@@ -681,3 +681,8 @@
   3. 然后做 C008（简历排名）。
 - 已知风险（只记下，不修，交用户决定）：C006-fix-browser 最后一次审查列出的 5 条标签页路径；对话压缩没做；资料导入还是固定流水线。
 - 没有提交 git。暂存区是中途快照，提交前要 `git add -A`。
+
+## 2026-10-23 · C008 简历排名
+
+- 对话 Agent 新工具 `list_resumes` / `read_resume` / `choose_resume`（`ResumeMatch`）；`job.md` 新字段 `resume_choice`，事件 `resume_chosen`；`start_application` 没有本次排名时提示先排（`skip_ranking` 放行并记下）；申请开场写「拟用简历」；`JobView.resumeChoice`；候选池和 Job 页的「开始申请」改为给 Session 发消息；Job 页右栏「简历排名」、头部和候选卡「拟用简历」、上传位置默认选中。细节见 C008「实际结果」。
+- 验证：`mvn -B -q clean verify` 退出码 0（surefire 612，没有改测试）；`npm run build` 通过。真实模型、真实 Chrome：未运行。

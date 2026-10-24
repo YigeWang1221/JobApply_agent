@@ -28,4 +28,11 @@
 
 ## 实际结果
 
-（施工后填写）
+2026-10-23 施工：
+
+- 工具：`list_resumes`、`read_resume`（`AssetAnalyzer.text`：Tika 读前 12,000 字、去掉 C 级的值，超出写明）、`choose_resume`，实现在 `harness/runtime/ResumeMatch`，`SessionLoop` 只加分发。`job.md` 的 `resume_choice`：`asset`、`file`、`ranking[]`（key、file、rank、reason、gap）、`suggestions[]`、`at`、`session`；用户说不用排时是 `skipped`（原话）+ `at`。每次写都覆盖上一次，事件日志记一条 `resume_chosen`（`JobLedger.chooseResume`）。
+- **「本次」的定义**：`resume_choice.at` 晚于原件清单里最新一份的上传时间。一个 Job 只开始一次申请线程，所以这就是「这次开始前排过」；上传了新原件就要重排。`start_application` 在没有本次排名、也没有申请线程时返回提示（不开始），带 `skip_ranking`（用户原话）时照做并记下。
+- 提示词：ResearchAgent 加「简历排名」一节（每个 Job 申请前排一次、小表 + 建议、建议只用 facts.md 确认过的事实和简历原文、用户改选就再调 `choose_resume`），「开始申请」改为先排。
+- 开场：`ApplicationRunner.start` 的开场消息加「拟用简历：文件名（键）」。没有改 `HarnessLoop` / `FillContext`。
+- 界面：候选池「开始申请」和 Job 页「开始申请」都改成往发现它的 Session（候选池没有时新开一个）发「给 X（job id）排一下简历，然后开始申请」并跳到那个 Session；`JobView.resumeChoice`；Job 页头部和候选卡写「拟用简历」，右栏「简历排名」；上传位置标签含「简历 / resume / CV」的（或只有一个上传位置时）默认选中拟用的那份。
+- 验证：`mvn -B -q clean verify` 退出码 0；`npm run build` 通过。真实模型、真实 Chrome：未运行。
