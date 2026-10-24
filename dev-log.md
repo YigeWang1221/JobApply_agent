@@ -728,3 +728,9 @@
   1. 启动后端（`backend/` 下 `java -jar target/jobapply-0.0.1-SNAPSHOT.jar`）和前端（`frontend/` 下 `npm run dev`），刷新工作台页面；点「重新连接」并在 Chrome 30 秒内点允许；在工作台回复让申请 Agent 接着做，看上传（target）、3 个项目（保存 → 添加 → 快照确认）、超链接、时间（NEU 2026 Spring 起每学期一个、各 3 个月）。
   2. 用户决定第 18 条（卡片内「确定 / 完成」）和 C009。
   3. 修第 9 条结构（上传时才复制原件）、12、16、17；token（5、11、19）。
+
+## 2026-10-24 · C006-fix-real-run 第 20 条：点击超时后检查原因，被盖住时系统直接点一次
+
+- 改动：`BrowserSession.act` 在 `browser_click` / `browser_type` / `browser_select_option` 动作超时时调 `afterTimeout`：系统用固定模板（`PlaywrightMcpClient.DIAGNOSE`，经 `browser_run_code_unsafe`，只读，只滚动）检查同一个 ref 可不可见、在不在屏幕里、被哪个元素 / fixed 层盖住、还有哪些浮层开着，写进错误；点击目标可见、只是被盖住时，用 `CLICK_THROUGH` 在元素上直接派发一次点击，成功就取新快照并留说明，失败照实报。连接记账抽成 `BrowserSession.system`。`ApplyAgent` 提示词加「点不动（动作超时）」；skill apply-form、components/repeatable-entries 各加一两条。夹具 `file-slots`（场景 + HTML）加被盖住的「添加」，`FakeFormScript` 认得两个新模板，`BrowserSessionActTest` 加几行。
+- 验证：`mvn -B -q clean verify` 退出码 0（surefire 621、failsafe 1）。MCP 同版本 playwright-core + 无头 Chrome 打开 `file-slots.html`：普通点击超时；检查报出盖住它的遮罩；直接点击后页面变成「项目 1（待填写）」；注入的 fixed 底栏和 listbox 浮层都被报出。真实小米页面、真实模型：未运行。
+- 预置 skill 改了 `apply-form/SKILL.md`、`components/repeatable-entries/SKILL.md`；`storage/playbook/skills/` 里已有的副本不会被覆盖（本步没碰 `storage/`）。
