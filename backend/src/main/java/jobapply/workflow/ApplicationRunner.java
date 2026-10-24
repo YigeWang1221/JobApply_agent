@@ -270,6 +270,9 @@ public final class ApplicationRunner implements AutoCloseable {
             saved.forEach(answer -> message.append("\n- ").append(answer.id()).append("「").append(answer.question())
                     .append("」：").append(answer.value()));
         }
+        // 停在提交前时上传区清空了（settle）；接着做时把已经排上编号的原件放回去，文件编号不变
+        run.files().stream().filter(file -> file.assetKey() != null)
+                .forEach(file -> uploads.stage(jobId, file.assetKey()));
         List<AgentRun.StagedFile> files = stage(run, chosen);
         // 附件编号 → 文件编号（为上传位置选的附件，下面同一个附件不再排一个编号）
         Map<String, Integer> attachmentFiles = new HashMap<>();
