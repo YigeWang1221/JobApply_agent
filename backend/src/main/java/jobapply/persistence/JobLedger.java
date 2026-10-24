@@ -336,6 +336,27 @@ public final class JobLedger {
         }
     }
 
+    /**
+     * 记下这个岗位的简历排名（C008）：{@code choice} 整个写进 job.md 的 {@code resume_choice}（覆盖上一次），
+     * 事件日志记一条 {@code resume_chosen}（from / to 都是当前状态），{@code reason} 是一句摘要。不改状态。
+     */
+    public Job chooseResume(String projectId, String jobId, String sessionId, Map<String, Object> choice, String reason) {
+        try {
+            synchronized (StorageLock.WRITES) {
+                require(choice, "choice");
+                requireProjectAndSession(projectId, sessionId);
+                Job next = jobs.load(projectId, jobId).withExtra(Map.of("resume_choice", choice));
+                jobs.update(next);
+                appendEvent(next, event(sessionId, Actor.AGENT, JobEvent.Type.RESUME_CHOSEN, next.status(),
+                        next.status(), reason, null));
+                afterChange(projectId, sessionId, jobId);
+                return next;
+            }
+        } finally {
+            publish();
+        }
+    }
+
     public List<JobEvent> events(String projectId, String jobId) {
         return eventLog.readJobEvents(layout.jobEvents(projectId, jobId));
     }

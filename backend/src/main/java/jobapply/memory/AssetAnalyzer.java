@@ -68,6 +68,23 @@ public final class AssetAnalyzer {
         return TIKA.detect(content, fileName);
     }
 
+    /**
+     * 原件转成的文字（C008 {@code read_resume}）：Tika 最多读 {@code maxChars} 个字符，去掉 C 级的值。
+     * 只在内存里用，不写文件。
+     *
+     * @throws IOException 读不出文字时（原因不含文件内容）
+     */
+    public static String text(Path file, int maxChars) throws IOException {
+        Metadata metadata = new Metadata();
+        metadata.set(TikaCoreProperties.RESOURCE_NAME_KEY, file.getFileName().toString());
+        try (InputStream in = Files.newInputStream(file)) {
+            String text = TIKA.parseToString(in, metadata, maxChars);
+            return FieldClassGuard.withoutClassC(text == null ? "" : text.strip()).text();
+        } catch (TikaException | RuntimeException e) {
+            throw new IOException("读不出文件里的文字（" + e.getClass().getSimpleName() + "）");
+        }
+    }
+
     public Analysis analyze(Path file, String type) {
         Metadata metadata = new Metadata();
         metadata.set(TikaCoreProperties.RESOURCE_NAME_KEY, file.getFileName().toString());

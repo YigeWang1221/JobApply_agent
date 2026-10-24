@@ -687,3 +687,8 @@
 - 「只操作自己打开的、点击弹出的、用户明确交给你的标签页；用户之前开的不碰」写进 `ApplyAgent`、`ResearchAgent`、`browser_tabs` 工具说明、skill apply-form。`BrowserSession` 只留记账（正在用的页、记在名下的页、转交、点击弹出的新页）；`browser_tabs list` 列出所有标签页并标出「正在用」「你的」，`select` 能切到任何一个；认不出正在用的页时把原话交给模型。删掉规则 ③④、`shrank`、`homes`、`sameSite`、`claim`、`findResult` 等；`HarnessLoop.tabLost` 简化。细节见 [C006-fix 浏览器](plan/coding/C006-fix-browser.md) 第 3 节。
 - 测试：`BrowserSessionTabsTest` 8 → 5 条，`BrowserSessionActTest` 删 1 条（`find` 清洗），没有新增。
 - 验证：`mvn -B -q clean verify` 退出码 0（surefire 621、failsafe 1）。前端没改，`npm run build` 未运行。真实 Chrome、真实模型：未运行。
+
+## 2026-10-23 · C008 简历排名
+
+- 对话 Agent 新工具 `list_resumes` / `read_resume` / `choose_resume`（`ResumeMatch`）；`job.md` 新字段 `resume_choice`，事件 `resume_chosen`；`start_application` 没有本次排名时提示先排（`skip_ranking` 放行并记下）；申请开场写「拟用简历」；`JobView.resumeChoice`；候选池和 Job 页的「开始申请」改为给 Session 发消息；Job 页右栏「简历排名」、头部和候选卡「拟用简历」、上传位置默认选中。细节见 C008「实际结果」。
+- 验证：`mvn -B -q clean verify` 退出码 0（surefire 612，没有改测试）；`npm run build` 通过。真实模型、真实 Chrome：未运行。

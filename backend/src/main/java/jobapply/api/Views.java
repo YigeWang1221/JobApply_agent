@@ -64,7 +64,7 @@ final class Views {
                    String phase, String prepState, String label, String verified, String officialUrl, String note,
                    String application, String appliedAt, String lastCheckedAt, String nextCheckAt,
                    boolean pageLooksSubmitted, List<PhaseEvent> events, boolean due, String bucket,
-                   boolean canStart) {
+                   boolean canStart, Map<?, ?> resumeChoice) {
     }
 
     /**
@@ -182,7 +182,9 @@ final class Views {
                 job.extraString("next_check_at"), looksSubmitted, events, job.checkDue(today),
                 JobBucket.of(job.status(), application).value(),
                 application == null && job.status().canStartApplication()
-                        && job.posting().url() != null && !job.posting().url().isBlank());
+                        && job.posting().url() != null && !job.posting().url().isBlank(),
+                // C008 简历排名：job.md 里 resume_choice 原样给前端（asset、file、ranking、suggestions、at，或 skipped）
+                job.extra().get("resume_choice") instanceof Map<?, ?> choice ? choice : null);
     }
 
     /**
@@ -406,6 +408,8 @@ final class Views {
             case "start_application", "mark_submitted" -> string(args.get("job"));
             case "record_status" -> join(string(args.get("job")), string(args.get("phase")), string(args.get("outcome")));
             case "list_jobs" -> args.get("status") == null ? "全部" : string(args.get("status"));
+            case "read_resume" -> string(args.get("key"));
+            case "choose_resume" -> join(string(args.get("job")), string(args.get("asset")));
             case "read_skill" -> string(args.get("name"));
             case "ask_user" -> "交给用户";
             case "update_plan" -> "更新计划";

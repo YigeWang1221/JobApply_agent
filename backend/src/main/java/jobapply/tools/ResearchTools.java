@@ -22,6 +22,9 @@ public final class ResearchTools {
     public static final String START_APPLICATION = "start_application";
     public static final String MARK_SUBMITTED = "mark_submitted";
     public static final String RECORD_STATUS = "record_status";
+    public static final String LIST_RESUMES = "list_resumes";
+    public static final String READ_RESUME = "read_resume";
+    public static final String CHOOSE_RESUME = "choose_resume";
     public static final String ASK_USER = ControlTools.ASK_USER;
     public static final String READ_SKILL = ControlTools.READ_SKILL;
 
@@ -92,10 +95,39 @@ public final class ResearchTools {
                     "Turn a lead into an application and hand it to the application agent, which opens the job page in "
                             + "Chrome and fills the form up to (not including) the final submit. Only for jobs the user "
                             + "asked to apply to. One application runs at a time. If the job already has an application thread it "
-                            + "is not restarted; the result says so (with its status).",
+                            + "is not restarted; the result says so (with its status). Rank the resumes for this job "
+                            + "with choose_resume first; if there is no ranking since the latest upload the result asks "
+                            + "you to do that. Only when the user explicitly said to skip ranking, pass skip_ranking "
+                            + "with their words.",
                     """
-                    {"type":"object","properties":{"job":{"type":"string","description":"Job id"}},\
-                    "required":["job"]}"""),
+                    {"type":"object","properties":{"job":{"type":"string","description":"Job id"},\
+                    "skip_ranking":{"type":"string","description":"only when the user said not to rank resumes: \
+                    their words"}},"required":["job"]}"""),
+            definition(LIST_RESUMES,
+                    "List the user's uploaded originals (key, file name, type, description, upload time). Decide "
+                            + "from the file name and description which ones are resumes / CVs.",
+                    """
+                    {"type":"object","properties":{}}"""),
+            definition(READ_RESUME,
+                    "Read one original as text (class C values removed; long files are cut and say so). Use it on "
+                            + "each resume before ranking them for a job.",
+                    """
+                    {"type":"object","properties":{"key":{"type":"string","description":"original key, \
+                    a-YYYY-MM-DD-NNN"}},"required":["key"]}"""),
+            definition(CHOOSE_RESUME,
+                    "Record the resume ranking for a job in its job.md (replaces the previous one): every resume "
+                            + "you compared with its rank, a one-line reason and what it lacks for this JD; asset is the "
+                            + "one to upload (when the user picks another, call again with the new asset). suggestions: "
+                            + "edits for this JD, each as \"which section, how to change it, why\", only from facts the "
+                            + "user confirmed. The application workbench preselects asset at the upload field.",
+                    """
+                    {"type":"object","properties":{"job":{"type":"string","description":"Job id"},\
+                    "asset":{"type":"string","description":"key of the chosen resume"},\
+                    "ranking":{"type":"array","items":{"type":"object","properties":{\
+                    "key":{"type":"string"},"rank":{"type":"integer","minimum":1},\
+                    "reason":{"type":"string"},"gap":{"type":"string"}},"required":["key","rank","reason"]}},\
+                    "suggestions":{"type":"array","items":{"type":"string"}}},\
+                    "required":["job","asset","ranking"]}"""),
             definition(MARK_SUBMITTED,
                     "Record that the user has submitted this application themselves in Chrome (they said so in the "
                             + "chat). The user's word is the evidence; the job moves to applied and the next status check "
@@ -134,7 +166,8 @@ public final class ResearchTools {
                     {"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}"""));
 
     private static final Set<String> NAMES = Set.of(WEB_SEARCH, WEB_FETCH, LIST_JOBS, ADD_LEAD, UPDATE_LEAD,
-            START_APPLICATION, MARK_SUBMITTED, RECORD_STATUS, ASK_USER, READ_SKILL);
+            START_APPLICATION, MARK_SUBMITTED, RECORD_STATUS, LIST_RESUMES, READ_RESUME, CHOOSE_RESUME, ASK_USER,
+            READ_SKILL);
 
     private ResearchTools() {
     }

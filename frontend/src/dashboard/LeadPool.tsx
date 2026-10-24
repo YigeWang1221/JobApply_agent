@@ -74,7 +74,8 @@ export function LeadPool({ leads, applications, showProject, sessionTitle, onMar
                     </div>
                     <small>
                       {[job.city.join("、"), job.type, showProject ? job.project : null,
-                        from ? `发现于「${from}」` : null].filter(Boolean).join(" · ")}
+                        from ? `发现于「${from}」` : null,
+                        job.resumeChoice?.file ? `拟用简历：${job.resumeChoice.file}` : null].filter(Boolean).join(" · ")}
                       {job.officialUrl && <> · <a href={job.officialUrl} target="_blank" rel="noreferrer">官方链接</a></>}
                       {job.skipReason && ` · 不投：${job.skipReason}`}
                       {job.note && ` · ${job.note}`}
