@@ -90,3 +90,30 @@
 | 没有结果的工具调用 | deepagents `middleware/patch_tool_calls.py` `PatchToolCallsMiddleware.before_agent`：运行前给每个没有结果的工具调用补一条结果 | 读回对话时补「中断了」，不让下一次请求出错 |
 | 重放有副作用的调用 | OpenMAIC `lib/server/agent-runtime/curriculum-tools.ts`、`import-pptx.ts`：写操作按工具调用 id 幂等，回执存在被改的对象上，重放复用上次结果 | 有副作用的工具按业务键幂等、返回回执；重新生成不靠「不要重复」这类提示 |
 | 运行和读者分开 | OpenMAIC `lib/server/agent-runtime/config.ts`：后台 runner 用租约 + 心跳，过期的会话可以被接着跑；SSE 断开只关读者，runner 照跑 | 本机单进程不需要租约；但「断开不影响运行」「重启后标中断」要保留 |
+
+## 浏览器点击与上传控件（2026-10-23）
+
+起因：C006-fix-real-run 第 10 条，小米校招（飞书招聘）页面点「选择文件」报 `Timeout 5000ms exceeded`，之后 `browser_file_upload` 报没有文件选择框，模型编成「浏览器安全限制」。
+
+看的版本：@playwright/mcp 0.0.83（`~/.npm/_npx/381cec31605a419a/node_modules/playwright-core/lib/coreBundle.js` 和 `@playwright/mcp/README.md`）；Hermes `e5dad4ac5`（`tools/browser_tool.py`、`browser_cdp_tool.py`、`browser_dialog_tool.py`）；deepagents `3e7d5fa`；deep-agents-ui `f6a4f34`；OpenMAIC `dff201b`。
+
+**Playwright MCP 自己**
+
+- `browser_click` = `locator.click({timeout: --timeout-action})`，默认 5000ms。超时花在可操作性检查上：可见、稳定、可用、**命中检查**（点的位置最上层的元素必须是目标或它的子元素）。透明遮罩、加载层、盖在按钮上的 `opacity:0` 的 `<input type=file>` 都会让它一直重试到超时，点击没有发生。错误前缀是 `browserBackend.callTool:`（API 名按调用栈推出来的），没有调用日志，看不出原因。
+- 文件选择框是拦截的：`filechooser` 事件 → 标签页上记一个 `fileChooser` modal state。`browser_file_upload` 只能在这个状态下用（否则 `can only be used when there is related modal state present`）；状态存在时别的工具都报 `does not handle the modal state`。
+- `browser_drop`：在元素上派发 dragenter / dragover / drop（带 DataTransfer）。走的也是指针动作的可操作性检查（`_retryPointerAction`），按钮被盖住时一样超时；目标还必须有接受拖放的 dragover 处理。**解决不了遮罩问题**。
+- Playwright 处理隐藏文件输入框的正路是 `setInputFiles`：只要求元素是 `<input type=file>`（或关联它的 `<label>`），**不查可见性、不点击、不需要文件选择框**，设完派发 input / change 事件。MCP 没有单独的工具暴露它，只能经 `browser_run_code_unsafe`（core 能力，默认就有；RCE 等价）。`target` 参数也接受选择器，但 `aria-ref=eN` 才能对上快照里的 ref。
+- 命令行有 `--timeout-action <ms>`（环境变量 `PLAYWRIGHT_MCP_TIMEOUT_ACTION`）。
+
+**参考仓库**
+
+- Hermes：浏览器工具走 agent-browser CLI，每条命令默认 30 秒超时（`browser.command_timeout`），没有上传工具；原生对话框交给 CDP supervisor 记成 `pending_dialogs`，模型用单独的 `browser_dialog` 回应；兜底是原样转发任意 CDP 命令的 `browser_cdp`（理论上能 `DOM.setFileInputFiles`，没有专门写）。
+- deepagents、deep-agents-ui、OpenMAIC：没有浏览器自动化，没有上传控件的处理（只搜到测试里的无关文件）。
+
+**结论（JobApply 怎么做）**
+
+1. 上传不靠点按钮：`browser_file_upload` 加可选 `target`（上传按钮 / 上传区域的 ref）。带 target 时，系统在过完白名单（ref 在最新快照里、文件都在 `storage/uploads/<job>/`）之后，用**固定模板**经 `browser_run_code_unsafe` 调 `setInputFiles`：从 ref 指的元素往外找最近的 `input[type=file]`。模型不能提交代码，模板只嵌 ref 和路径两个 JSON 字符串。不带 target 时照旧交给已经打开的文件选择框。
+2. 不开 `browser_drop`：和点击一样会被遮罩挡住，多一个工具没用。
+3. 动作超时从 5 秒放到 15 秒（`--timeout-action 15000`），给加载遮罩留时间；比 Hermes 的 30 秒短，点不到时不至于每次等太久。
+4. MCP 的错误补一句实情（`PlaywrightMcpClient.hint`）：动作超时 = 元素点不到、操作没发生、不是安全限制；没有文件选择框 / 文件选择框挡着别的操作时下一步做什么。模型照错误里的说明做，不再自己编原因。
+5. 本机验证：用 MCP 同版本的 playwright-core 在无头 Chrome 里打开夹具 `file-slots.html`（作品集按钮上盖了透明层），点击 2 秒超时；模板 `setInputFiles` 设上文件，页面的 change 处理写出了文件名。

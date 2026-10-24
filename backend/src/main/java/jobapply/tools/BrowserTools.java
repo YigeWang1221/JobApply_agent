@@ -25,7 +25,7 @@ import tools.jackson.databind.json.JsonMapper;
  * 比 MCP 多出来的参数：{@code browser_fill_form} 的每个字段、{@code browser_type}、{@code browser_select_option}
  * 可以带 {@code fact}、{@code confidence}、{@code language}（都可选，写了就进报告）（{@link FieldIntent}）；{@code browser_click} 可以带
  * {@code purpose}、{@code final_step_suspected}、{@code evidence}（{@code final_step_suspected} 决定软边界按钮放不放行）（{@link SubmitGuard.ClickIntent}）；
- * {@code browser_file_upload} 只收文件编号（{@code files}，从 1 开始），系统换成 {@code storage/uploads/<job-id>/}
+ * {@code browser_file_upload} 只收文件编号（{@code files}，从 1 开始；可带上传位置的 {@code target}），系统换成 {@code storage/uploads/<job-id>/}
  * 下的路径，模型看不到路径。{@link #translate} 先取出这些参数并去掉，再交给白名单和守卫。
  */
 public final class BrowserTools {
@@ -110,10 +110,13 @@ public final class BrowserTools {
                     {"type":"object","properties":{%s,"values":{"type":"array","items":{"type":"string"}},%s},\
                     "required":["target","values"]}""".formatted(TARGET, FIELD_EXTRA)),
             definition(BrowserToolPolicy.FILE_UPLOAD,
-                    "Upload files into the open file chooser (click the upload control first). Pass file numbers from "
-                            + "the available files; the user picks the files via ask_user. Omit files to cancel the chooser.",
+                    "Upload files. Pass file numbers from the available files. With target (the ref of the upload "
+                            + "button or upload area, e.g. 选择文件 / 上传简历): the system sets the files directly on that "
+                            + "control's file input, no click and no file chooser needed; this works even when the button "
+                            + "is covered or clicking it times out. Prefer this. Without target: answers a file chooser "
+                            + "that a click already opened (the snapshot shows [File chooser]); omit files to cancel it.",
                     """
-                    {"type":"object","properties":{"files":{"type":"array","items":{"type":"integer","minimum":1}}}}"""),
+                    {"type":"object","properties":{%s,"files":{"type":"array","items":{"type":"integer","minimum":1}}}}""".formatted(TARGET)),
             definition(BrowserToolPolicy.PRESS_KEY,
                     "Press a navigation key (Tab, arrows, Escape, Backspace, Delete, Home, End, PageUp, PageDown).",
                     """

@@ -26,10 +26,11 @@ jobapply:
       # npx 不在 PATH 里时（例如从 IDE 启动），改成绝对路径
       command: npx
       # 写操作的返回不附带快照、不写快照文件；console 只留错误；不返回图片；不收集页面注册的 WebMCP 工具。
+      # 动作超时（等元素可见、稳定、能接收点击）从默认 5 秒放到 15 秒：真实招聘站点有加载遮罩，5 秒常常还没消失。
       # --output-dir（storage/cache/playwright-mcp）由程序按 storage 追加；不加 --caps
       # 远程调试模式（--cdp-endpoint chrome）：在 chrome://inspect/#remote-debugging 打开开关，只有第一次连接要确认，不用装扩展
       args: ["-y", "@playwright/mcp@0.0.83", "--cdp-endpoint", "chrome", "--snapshot-mode", "none", "--console-level", "error",
-             "--image-responses", "omit", "--no-webmcp"]
+             "--image-responses", "omit", "--no-webmcp", "--timeout-action", "15000"]
       # 要长于 Chrome 等待用户同意第一次连接的时间
       call-timeout: 60s
   search:

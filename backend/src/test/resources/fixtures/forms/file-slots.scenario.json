@@ -21,7 +21,8 @@
           "fileChooser": "e4"
         },
         "e6": {
-          "fileChooser": "e7"
+          "fileChooser": "e7",
+          "blocked": true
         },
         "e8": "review"
       }

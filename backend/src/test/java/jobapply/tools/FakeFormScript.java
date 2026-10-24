@@ -34,6 +34,8 @@ import tools.jackson.databind.json.JsonMapper;
  *           "to": "step2",               //   可选：转到另一页
  *           "modal": "…",                //   可选：之后出现的 Modal state（例如安全验证、确认框）
  *           "fileChooser": "e7",         //   可选：打开文件选择框；上传后文件名写到 ref e7 这一行的行尾
+ *           "blocked": true,             //   可选：点不到（被遮罩盖住），返回动作超时，什么都不发生；
+ *                                        //   browser_run_code_unsafe 的 setInputFiles 仍能把文件设到 fileChooser 那一行
  *           "set": {"e3": "值"}           //   可选：（转到的）页面上这些 ref 的值
  *         }
  *       },
@@ -106,6 +108,7 @@ final class FakeFormScript {
                 yield fill(form, fields);
             }
             case "browser_file_upload" -> upload(form, args);
+            case "browser_run_code_unsafe" -> setInputFiles(form, String.valueOf(args.get("code")));
             default -> text("### Result\nok");
         };
     }
@@ -115,6 +118,9 @@ final class FakeFormScript {
             return missingRef(ref);
         }
         Object action = map(current(form).get("clicks")).get(ref);
+        if (action instanceof Map<?, ?> step && Boolean.TRUE.equals(step.get("blocked"))) {
+            return error("TimeoutError: browserBackend.callTool: Timeout 15000ms exceeded.");
+        }
         if (action instanceof String to) {
             go(form, to);
         } else if (action instanceof Map<?, ?> step) {
@@ -147,6 +153,27 @@ final class FakeFormScript {
             valuesOf(page).put(String.valueOf(field.get("target")), String.valueOf(field.get("value")));
         }
         return ran(form);
+    }
+
+    /** 系统的固定模板（{@code PlaywrightMcpClient.setInputFiles}）：从代码里取 ref 和路径，文件名写到那个上传位置。 */
+    private McpSchema.CallToolResult setInputFiles(Map<String, Object> form, String code) {
+        if (!modal.isEmpty()) {
+            return error("Error: Tool \"browser_run_code_unsafe\" does not handle the modal state.\n### Modal state\n"
+                    + modal);
+        }
+        Matcher ref = Pattern.compile("aria-ref=([a-z0-9]+)").matcher(code);
+        Matcher files = Pattern.compile("setInputFiles\\((\\[.*?])\\)").matcher(code);
+        if (!ref.find() || !files.find() || !hasRef(form, ref.group(1))) {
+            return error("Error: 这个上传位置附近没有文件输入框（input type=file）");
+        }
+        Object slot = map(map(current(form).get("clicks")).get(ref.group(1))).get("fileChooser");
+        if (!(slot instanceof String target)) {
+            return error("Error: 这个上传位置附近没有文件输入框（input type=file）");
+        }
+        List<?> paths = JSON.readValue(files.group(1), List.class);
+        valuesOf(page).put(target, String.join(", ", paths.stream()
+                .map(path -> Path.of(String.valueOf(path)).getFileName().toString()).toList()));
+        return text("### Result\n\"files set on the file input\"");
     }
 
     private McpSchema.CallToolResult upload(Map<String, Object> form, Map<String, Object> args) {

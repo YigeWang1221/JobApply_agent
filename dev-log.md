@@ -701,3 +701,13 @@
 - 报告：`fact: resume` 的字段来源写「简历原文」（`FillReportWriter.RESUME_SOURCE`，用 `Recorded` 行）；`BrowserTools` 字段说明加 `resume`。
 - 新计划 C009（敏感信息占位符），待用户确认，没有改代码和 `dev-limit.md`。
 - 验证：`mvn -B -q clean verify` 退出码 0（surefire 621、failsafe 1，没有改测试）。前端没改，`npm run build` 未运行。真实 Chrome、真实模型：未运行。本机已有的预置 skill 不会被覆盖（PlaybookSeeder 只补缺）。
+
+## 2026-10-23 · 上传不靠点按钮（C006-fix-real-run 第 10、13 条）
+
+- 调研写进 `plan/reference/research-agent-design.md`「浏览器点击与上传控件」：点击超时是 Playwright 的可操作性检查（遮罩、透明层挡住命中检查），点击没发生；`browser_drop` 同样被挡；`setInputFiles` 不需要点击和文件选择框。
+- `browser_file_upload` 加可选 `target`：`BrowserToolPolicy` 检查 ref 在最新快照里、带 target 时必须有文件；`PlaywrightMcpClient` 过完白名单后换成固定模板的 `browser_run_code_unsafe`（`setInputFiles`，从 ref 往外找最近的 `input[type=file]`）。`browser_run_code_unsafe`、`browser_drop` 仍不在白名单里。工作区里半成品的 `browser_drop` 方案撤掉。
+- `PlaywrightMcpClient.hint`：动作超时、没有文件选择框、文件选择框挡着别的操作时，错误后面补一句实情和下一步。
+- `application.yml`：`--timeout-action 15000`。
+- 提示词 `ApplyAgent`「上传」加一句（带 target、照错误说明做、不推测成安全限制）；skill file-upload 流程改写；`storage/playbook` 的副本同步覆盖（覆盖前 = git 里的种子 + 主会话加的一行，没有用户改动）。
+- 夹具：`file-slots` 的作品集按钮改成被遮罩挡住（场景脚本 `blocked`，HTML 加透明层）；`FakeFormScript` 认固定模板的 run_code；`BrowserSessionActTest` 上传用例加几行（点击超时 → 带 target 上传成功）。
+- 验证：`mvn -B -q clean verify` 退出码 0（surefire 621、failsafe 1）。用 MCP 同版本的 playwright-core 在无头 Chrome 里打开 `file-slots.html`：点被盖住的按钮超时，模板设上文件、页面显示文件名。真实小米页面、真实模型：未运行。
