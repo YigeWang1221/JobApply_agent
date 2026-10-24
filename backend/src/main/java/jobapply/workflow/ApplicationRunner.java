@@ -9,20 +9,18 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 import java.util.function.Supplier;
 import jobapply.config.HarnessProperties;
@@ -34,6 +32,7 @@ import jobapply.domain.LeadStatus;
 import jobapply.domain.LiveRuns;
 import jobapply.domain.PrepState;
 import jobapply.domain.Transition;
+import jobapply.harness.policies.BrowserToolPolicy;
 import jobapply.harness.policies.SubmitWords;
 import jobapply.harness.runtime.HarnessLoop;
 import jobapply.persistence.AgentRunStore;
@@ -56,12 +55,18 @@ import org.springframework.ai.chat.model.ChatModel;
 
 /**
  * 申请线程的入口（agent-runtime.md 7.1）：开始、回复、停止、查状态、读报告。流程由 {@link HarnessLoop} 里的模型决定；
- * 这里负责排队（一个单线程执行器就是「浏览器串行队列」）、存取 {@link AgentRun}、把用户的回复变成下一条消息、
- * 准备上传的文件、更新台账的 {@code prep_state}，以及模型结束时把报告定稿。
+ * 这里负责调度（一个 Worker 池）、存取 {@link AgentRun}、把用户的回复变成下一条消息、准备上传的文件、更新台账的
+ * {@code prep_state}，以及模型结束时把报告定稿。
  * <p>
- * 同一时间只有一条线程在跑；别的开始和回复排队（{@code queued}），按顺序轮到（C006-fix-2 第 1 条，langgraph 的
- * {@code enqueue}）。每个 Job 用自己的标签页，在等用户回复的不挡别人。「在跑 / 排队」只看内存，文件写着在跑、内存里没有的
- * 读出来是中断（{@link LiveRuns}）。所有校验都在第一次写文件之前完成，被拒绝的请求不写任何东西。
+ * 同时最多 {@link HarnessProperties#applicationWorkers()} 个申请线程在跑（C011，默认 3），同一个网站上最多
+ * {@link HarnessProperties#applicationsPerSite()} 个（礼貌限速，默认 2）；多出来的开始和回复排队（{@code queued}），
+ * 按顺序轮到，只有网站已满时排在后面的别的网站可以先走（C006-fix-2 第 1 条，langgraph 的 {@code enqueue}）。同一个 Job
+ * 同时只有一个申请线程。每个 Job 用自己的标签页，在等用户回复的不挡别人；浏览器动作之间的互斥由 {@link BrowserSession}
+ * 自己负责。「在跑 / 排队」只看内存，文件写着在跑、内存里没有的读出来是中断（{@link LiveRuns}）。所有校验都在第一次写文件
+ * 之前完成，被拒绝的请求不写任何东西。
+ * <p>
+ * 锁（C011 第 3 节）：实例锁只保护运行表（{@code queued} / {@code running}）、排队和结束时的存盘；每一步的停止检查用
+ * 并发集合，不拿这把锁；{@code status} 只在锁里读运行记录和运行表，台账、报告、附件这些文件在锁外读。
  */
 public final class ApplicationRunner implements AutoCloseable {
 
@@ -113,27 +118,23 @@ public final class ApplicationRunner implements AutoCloseable {
     private final UploadArea uploads;
     private final FillReportWriter reports;
     private final RunLog runLog;
-    private final ExecutorService queue = Executors.newSingleThreadExecutor(runnable -> {
-        Thread thread = new Thread(runnable, "browser-queue");
-        thread.setDaemon(true);
-        return thread;
-    });
-    private final Set<String> stopRequested = new HashSet<>();
+    /** N 个 Worker（{@link HarnessProperties#applicationWorkers()}）：只收 {@link #dispatch()} 放行的运行。 */
+    private final ExecutorService workers;
+    /** 用户要求停下的 Job：每一步都查，用并发集合，不拿实例锁（C011 第 3 节）。 */
+    private final Set<String> stopRequested = ConcurrentHashMap.newKeySet();
     private final RuntimeEvents events;
     /** 运行中（或排队时）用户插的话（C010）：循环下一次调模型之前取走；跑完还剩的写进对话并接着跑。 */
     private final Inbox inbox = new Inbox();
 
-    /** 交给执行器、还没跑完的 Job（排队的和正在跑的）。 */
+    /** 还没跑完的 Job（排队的和正在跑的）。 */
     private final LiveRuns live = new LiveRuns();
     /**
-     * 排着队的 Job → 这次排队的凭证，按交给执行器的顺序。任务开头凭证不在了（排队时被停止移出、或者之后又重新排了一次），
-     * 这个任务就不跑（C006-fix-2 最终审查第 3 条：{@code cancel(false)} 挡不住已经被执行器取走、在等锁的任务）。
+     * 排着队的 Job → 轮到时要跑的那一次，按排队的顺序。还没交给 Worker：排队时停止直接移出，不会有已经被取走、在等锁的
+     * 任务（所以 C006-fix-2 最终审查第 3 条的排队凭证不再需要）。只在锁里改。
      */
-    private final Map<String, Object> queued = new LinkedHashMap<>();
-    /** 排着队的 Job 交给执行器的任务（排队时停止要取消它）。 */
-    private final Map<String, Future<?>> waitingInLine = new HashMap<>();
-    private String runningJob;
-    private Future<?> current;
+    private final Map<String, AgentRun> queued = new LinkedHashMap<>();
+    /** 正在跑的 Job → 它的网站和任务。只在锁里改。 */
+    private final Map<String, Worker> running = new LinkedHashMap<>();
     private volatile Reporter reporter = (project, session, job, text) -> {
     };
 
@@ -143,6 +144,10 @@ public final class ApplicationRunner implements AutoCloseable {
      */
     public interface Reporter {
         void report(String projectId, String sessionId, String jobId, String text);
+    }
+
+    /** 一个正在跑的申请：网站（同站点限速用，认不出时为 null）和交给 Worker 的任务。 */
+    private record Worker(String site, Future<?> task) {
     }
 
     public ApplicationRunner(StorageLayout layout, Clock clock, BrowserSession browser, Supplier<ChatModel> mainModel,
@@ -174,6 +179,12 @@ public final class ApplicationRunner implements AutoCloseable {
         this.uploads = new UploadArea(layout, assets);
         this.reports = new FillReportWriter(layout, clock);
         this.runLog = new RunLog(layout, clock);
+        AtomicInteger number = new AtomicInteger();
+        this.workers = Executors.newFixedThreadPool(this.limits.applicationWorkers(), runnable -> {
+            Thread thread = new Thread(runnable, "application-worker-" + number.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        });
     }
 
     /** 事件日志：每个 Job 的申请线程现在在做什么、推送（C006-fix）。 */
@@ -409,11 +420,8 @@ public final class ApplicationRunner implements AutoCloseable {
         if (!live.contains(jobId)) {
             return status(jobId);
         }
-        Future<?> waiting = waitingInLine.remove(jobId);
-        if (queued.containsKey(jobId) && waiting != null && waiting.cancel(false)) {
-            // 排着队：立刻移出队列，记成等你（C006-fix-2 回归第 8 条）。用户按的停止，不回报。执行器已经取走、在等锁的
-            // 任务看到凭证没了，自己不跑
-            queued.remove(jobId);
+        if (queued.remove(jobId) != null) {
+            // 排着队：立刻移出队列，记成等你（C006-fix-2 回归第 8 条）。用户按的停止，不回报。还没交给 Worker，不会再跑
             AgentRun result = run.waiting(STOPPED_IN_QUEUE, List.of(), List.of());
             try {
                 settle(result);
@@ -430,27 +438,39 @@ public final class ApplicationRunner implements AutoCloseable {
             if (!resumeWithInserted(result)) {
                 events.finished(result.session(), jobId, result.status());
             }
+            notifyAll();
             return status(jobId);
         }
-        // 在跑（排着队但取消没成功的，轮到时不跑）
+        // 在跑：当前这一次工具调用之后停下
         stopRequested.add(jobId);
         return status(jobId);
     }
 
     /** 这个 Job 有申请线程时返回它的状态；没有时为空（界面上的 Job 列表用）。 */
-    public synchronized Optional<ApplicationStatus> statusIfAny(String jobId) {
+    public Optional<ApplicationStatus> statusIfAny(String jobId) {
         return runs.find(jobId).isPresent() ? Optional.of(status(jobId)) : Optional.empty();
     }
 
     /** 申请线程的对话（工作台显示每一步）；没有申请线程时为空。 */
-    public synchronized Optional<AgentRun> run(String jobId) {
+    public Optional<AgentRun> run(String jobId) {
         return runs.find(jobId);
     }
 
-    public synchronized ApplicationStatus status(String jobId) {
-        AgentRun run = find(jobId);
+    public ApplicationStatus status(String jobId) {
+        // 运行记录和运行表一起在锁里读（结束时的存盘和移出运行表也在锁里，读不到「文件写着在跑、内存里已经没了」的中间态）；
+        // 别的文件在锁外读（C011 第 3 节）
+        AgentRun run;
+        boolean isRunning;
+        boolean isQueued;
+        boolean isLive;
+        synchronized (this) {
+            run = find(jobId);
+            isRunning = running.containsKey(jobId);
+            isQueued = queued.containsKey(jobId);
+            isLive = live.contains(jobId);
+        }
         // 在跑、排队只看内存；文件写着在跑、内存里没有的是中断（C006-fix-2 第 3 条）
-        boolean interrupted = live.interrupted(jobId, AgentRun.RUNNING.equals(run.status()));
+        boolean interrupted = AgentRun.RUNNING.equals(run.status()) && !isLive;
         String prepState = null;
         boolean decided = false;
         try {
@@ -461,10 +481,10 @@ public final class ApplicationRunner implements AutoCloseable {
             // job.md 读不出来时只是不显示
         }
         // 用户已经定下了（已提交、结束了）、也不在跑：这个申请线程结束了，不能再回复（C006-fix-2 回归第 1 条）
-        String status = jobId.equals(runningJob) ? AgentRun.RUNNING
-                : queued.containsKey(jobId) ? AgentRun.QUEUED
+        String status = isRunning ? AgentRun.RUNNING
+                : isQueued ? AgentRun.QUEUED
                 : interrupted && !decided ? AgentRun.INTERRUPTED
-                : decided && !live.contains(jobId) ? AgentRun.DONE : run.status();
+                : decided && !isLive ? AgentRun.DONE : run.status();
         interrupted = AgentRun.INTERRUPTED.equals(status);
         // 浏览器断开从全局的连接状态推出来（C006-fix-browser 第 1 节）：在等你、中断了，而浏览器现在断着
         boolean disconnected = browser.state().disconnected()
@@ -487,111 +507,120 @@ public final class ApplicationRunner implements AutoCloseable {
     }
 
     /** 这个 Job 的填写报告（Markdown，草稿或定稿）；还没有报告时为空。 */
-    public synchronized Optional<String> report(String jobId) {
+    public Optional<String> report(String jobId) {
         return reports.read(find(jobId).project(), jobId);
     }
 
-    /** 等当前这次执行结束（手动试跑用）。超时返回 false。 */
-    public boolean awaitIdle(Duration timeout) {
-        Future<?> running;
-        synchronized (this) {
-            running = current;
+    /** 等所有申请线程（在跑的和排队的）都结束（手动试跑、测试用）。超时返回 false。 */
+    public synchronized boolean awaitIdle(Duration timeout) {
+        return awaitUntil(() -> running.isEmpty() && queued.isEmpty(), timeout);
+    }
+
+    /** 等这个 Job 的申请线程结束（不在跑也不在排队）。超时返回 false。 */
+    public synchronized boolean awaitIdle(String jobId, Duration timeout) {
+        return awaitUntil(() -> !live.contains(jobId), timeout);
+    }
+
+    /** 调用方持有锁；运行结束、排队时停下都会 {@code notifyAll}。 */
+    private boolean awaitUntil(BooleanSupplier done, Duration timeout) {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (!done.getAsBoolean()) {
+            long left = deadline - System.nanoTime();
+            if (left <= 0) {
+                return false;
+            }
+            try {
+                wait(Math.max(1, left / 1_000_000));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
         }
-        if (running == null) {
-            return true;
-        }
-        try {
-            running.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
-            return true;
-        } catch (TimeoutException e) {
-            return false;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return false;
-        } catch (ExecutionException | CancellationException e) {
-            // 被取消的是排队时停下的那个
-            return true;
-        }
+        return true;
     }
 
     @Override
     public void close() {
-        queue.shutdownNow();
+        workers.shutdownNow();
     }
 
     // ---- 运行 ----
 
     /**
-     * 交给执行器（一个线程，就是浏览器的队列）。浏览器空着时直接算在跑；有别的在跑或在排队时排在最后（{@code queued}），
-     * 轮到时再发 {@code running}。调用方持有锁。
+     * 排进队列，再让 {@link #dispatch()} 看能不能马上开始：Worker 和这个网站都有空位时直接算在跑，否则排在最后
+     * （{@code queued}），轮到时再发 {@code running}。调用方持有锁。
      */
     private void submit(AgentRun run) {
         String jobId = run.job();
         live.add(jobId);
         stopRequested.remove(jobId);
-        boolean waitInLine = runningJob != null || !queued.isEmpty();
-        Object ticket = new Object();
-        if (waitInLine) {
-            queued.put(jobId, ticket);
-        } else {
-            runningJob = jobId;
+        queued.put(jobId, run);
+        dispatch();
+        if (queued.containsKey(jobId)) {
+            events.started(run.session(), jobId, AgentRun.QUEUED);
         }
-        events.started(run.session(), jobId, waitInLine ? AgentRun.QUEUED : AgentRun.RUNNING);
-        current = queue.submit(() -> {
-            boolean stoppedInQueue;
-            synchronized (this) {
-                boolean wasQueued = waitInLine && queued.remove(jobId, ticket);
-                if (waitInLine && !wasQueued) {
-                    // 排队时已经被停止移出（stop 存好了状态、发过了 finished），或者之后又排了一次（那是新的任务）：不跑
-                    return;
-                }
-                waitingInLine.remove(jobId);
-                runningJob = jobId;
-                stoppedInQueue = wasQueued && stopRequested.contains(jobId);
-                if (wasQueued && !stoppedInQueue) {
-                    events.started(run.session(), jobId, AgentRun.RUNNING);
-                }
+    }
+
+    /**
+     * 按排队的顺序把能开始的交给 Worker：在跑的少于 Worker 数，并且同一个网站在跑的少于每站上限。网站满了的跳过，
+     * 后面别的网站的可以先走。调用方持有锁；排队、运行结束时调用。
+     */
+    private void dispatch() {
+        Iterator<AgentRun> waiting = queued.values().iterator();
+        while (running.size() < limits.applicationWorkers() && waiting.hasNext()) {
+            AgentRun run = waiting.next();
+            String site = BrowserToolPolicy.siteOf(run.url());
+            if (site != null && running.values().stream().filter(worker -> site.equals(worker.site())).count()
+                    >= limits.applicationsPerSite()) {
+                continue;
             }
-            AgentRun result;
+            waiting.remove();
+            events.started(run.session(), run.job(), AgentRun.RUNNING);
+            // 任务结束时要拿这把锁才移出运行表，所以这里先放进去的一定在它移出之前
+            running.put(run.job(), new Worker(site, workers.submit(() -> work(run))));
+        }
+    }
+
+    /** 一个 Worker 跑一次申请：执行、更新台账、存盘，空出位置后放行排队的下一个。 */
+    private void work(AgentRun run) {
+        String jobId = run.job();
+        AgentRun result;
+        try {
+            result = execute(run);
+        } catch (RuntimeException e) {
+            String message = rootMessage(e);
+            log.warn("Job {} 的申请线程出错：{}", jobId, message);
+            result = runs.find(jobId).orElse(run).failed(message);
+        }
+        try {
+            settle(result);
+        } catch (RuntimeException e) {
+            log.warn("Job {} 结束时更新台账出错：{}", jobId, rootMessage(e));
+            result = result.failed(rootMessage(e));
+        }
+        // 用户按停止停下的：用户自己知道，不回报（C006-fix-2 回归第 6 条）
+        boolean stoppedByUser;
+        boolean again;
+        synchronized (this) {
+            stoppedByUser = stopRequested.contains(jobId) && AgentRun.WAITING_USER.equals(result.status());
             try {
-                result = stoppedInQueue ? run.waiting(STOPPED_IN_QUEUE, List.of(), List.of())
-                        : execute(run);
-            } catch (RuntimeException e) {
-                String message = rootMessage(e);
-                log.warn("Job {} 的申请线程出错：{}", jobId, message);
-                result = runs.find(jobId).orElse(run).failed(message);
+                runs.save(result);
+            } finally {
+                running.remove(jobId);
+                live.remove(jobId);
+                stopRequested.remove(jobId);
             }
-            try {
-                settle(result);
-            } catch (RuntimeException e) {
-                log.warn("Job {} 结束时更新台账出错：{}", jobId, rootMessage(e));
-                result = result.failed(rootMessage(e));
-            }
-            // 用户按停止停下的（在跑时停、排队时停）：用户自己知道，不回报（C006-fix-2 回归第 6 条）
-            boolean stoppedByUser;
-            boolean again;
-            synchronized (this) {
-                stoppedByUser = stopRequested.contains(jobId) && AgentRun.WAITING_USER.equals(result.status());
-                try {
-                    runs.save(result);
-                } finally {
-                    runningJob = null;
-                    live.remove(jobId);
-                    stopRequested.remove(jobId);
-                }
-                // 跑完时还没被看到的插话（最后一步正好到的、或者「打断并发送」）：接着跑，不回报（C010）
-                again = resumeWithInserted(result);
-            }
-            if (again) {
-                return;
-            }
-            events.finished(result.session(), jobId, result.status());
-            if (!stoppedByUser) {
-                reportToSession(result);
-            }
-        });
-        if (waitInLine) {
-            waitingInLine.put(jobId, current);
+            // 跑完时还没被看到的插话（最后一步正好到的、或者「打断并发送」）：接着跑，不回报（C010）
+            again = resumeWithInserted(result);
+            dispatch();
+            notifyAll();
+        }
+        if (again) {
+            return;
+        }
+        events.finished(result.session(), jobId, result.status());
+        if (!stoppedByUser) {
+            reportToSession(result);
         }
     }
 
@@ -662,7 +691,7 @@ public final class ApplicationRunner implements AutoCloseable {
         }
     }
 
-    private synchronized boolean stopRequested(String jobId) {
+    private boolean stopRequested(String jobId) {
         return stopRequested.contains(jobId);
     }
 
@@ -778,9 +807,9 @@ public final class ApplicationRunner implements AutoCloseable {
         }
     }
 
-    /** 交给了执行器的 Job 现在是「正在运行」还是「在排队」（409 的文案用）。 */
+    /** 还没跑完的 Job 现在是「正在运行」还是「在排队」（409 的文案用）。调用方持有锁。 */
     private String busy(String jobId) {
-        return jobId.equals(runningJob) ? "正在运行" : "正在排队";
+        return running.containsKey(jobId) ? "正在运行" : "正在排队";
     }
 
     private AgentRun find(String jobId) {

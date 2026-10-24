@@ -151,3 +151,27 @@
 | 下载在每个会话各存一份 | 申请流程不下载文件（已有规则）；输出目录按会话分开或不清空 |
 | 同一网站 / 账号并发请求过多、出验证码 | 同站点限速（每站同时最多 1–2 个）；验证码交给用户 |
 | token 和模型限流成倍增加 | Worker 数可配；记录总用量 |
+
+## 实际结果 · Worker 池（2026-10-24）
+
+只做了调度这一半；浏览器层（每个使用者一个 MCP 会话、焦点模拟）由另一个施工代理并行做，这里没碰 `BrowserSession` / `PlaywrightMcpClient` / MCP 参数。
+
+- `workflow/ApplicationRunner.java`：单线程执行器换成 N 个 Worker 的固定线程池（线程名 `application-worker-N`）。`runningJob` / `current` 换成 `running`（Job → 网站 + 任务）；`queued` 改成 Job → 轮到时要跑的那次 `AgentRun`，**排队的不再提前交给执行器**，只有 `dispatch()` 放行的才交给 Worker。`dispatch()` 在排队、运行结束、排队时停下又接着跑时调用：按排队顺序，在跑的少于 Worker 数、并且同一网站在跑的少于每站上限时开始；网站满了的跳过，后面别的网站可以先走。
+- 排队凭证和 `cancel(false)` 去掉了：它们是为了「执行器已经取走、在等锁的任务」，现在排队的任务还没交给执行器，排队时停止直接从 `queued` 移出（`STOPPED_IN_QUEUE`，存盘、不回报，有插话就接着排队）。
+- 插话（C010）不变：在跑或排队时进 `Inbox`；跑完还剩的由 `resumeWithInserted` 接着排（在空出位置、`dispatch()` 之前）。
+- 锁（第 3 节）：实例锁只保护 `queued` / `running`、排队和结束时的存盘；`stopRequested` 换成并发集合，每一步的停止检查不拿锁；`status()` 只在锁里读运行记录和运行表（结束时的存盘和移出运行表也在锁里，读不到「文件在跑、内存已经没了」的中间态），台账、报告、原件、附件、浏览器状态在锁外读。`run()`、`report()`、`statusIfAny()` 不再拿实例锁（`AgentRunStore` 自己同步）。`StorageLock.WRITES` 没动。
+- `awaitIdle(Duration)` 等所有在跑和排队的结束；新增 `awaitIdle(jobId, Duration)` 等一个 Job。用 `wait/notifyAll`，运行结束和排队时停下都会通知。
+- 防重复：同一个 Job 还在跑或在排队时开始返回 409（`live`），和以前一样。
+- 同站点礼貌限速：`BrowserToolPolicy.siteOf(岗位链接)`，默认每站同时 2 个；认不出网站的不限。
+- `config/HarnessProperties.java`、`application.yml`：`jobapply.harness.application-workers`（默认 3）、`applications-per-site`（默认 2）。
+- `workflow/SessionRunner.java`：`start_application` 只在真的排上队时说「排上队」，文案改成「同时在跑的申请已经满了（或者同一个网站上的申请够多了）」。`tools/ResearchTools.java` 的工具说明「One application runs at a time」改成可以同时跑、多出来的排队。两个 Agent 的提示词里没有串行的说法，没改。
+- 前端：`status.tsx`、`JobPage.tsx` 都按单个 Job 显示，没有假设只有一个在跑，没改。
+- 测试：`ApplicationRunnerPoolTest`（假模型按公司名认出申请、卡在门闩上直到测试放行；假浏览器服务端）。第一个用例：3 个 Worker，A/B/C 都进了模型调用而谁都没出来（门闩证明同时在跑，另外断言最晚开始早于最早结束）；D、E 排队；排队时停 E → 等你 + `STOPPED_IN_QUEUE`，模型从没见过 E；放行 A（抛不可重试的错）→ A 失败，D 开始，B/C 仍在跑；最后 B/C/D 等你。第二个用例：每站 2 个，同站点第三个排队，后面别的网站的直接开始，前面的放行后第三个开始。
+- 验证：`mvn -B -q clean verify` 通过；新测试单独连跑 3 次都通过。没有在用户的 Chrome 上跑（浏览器层还没换）。
+
+给浏览器层合并时要知道的：
+
+- 现在申请线程真的会并发调用 `BrowserSession`（open / snapshot / act / select / takeHandover / ownsTab / retryOnNextUse / state）；在新浏览器层落地之前靠它现有的全局锁保持正确，只是浏览器动作仍是一个接一个。
+- 拆成「每个使用者一个会话」时，使用者就是 Job 编号（申请）和 Session 编号（调研），`HarnessLoop.startPage()` 用的接口（`takeHandover`、`ownsTab`、`snapshot`、`open`、`select`）保持不变就不用改这里。
+- `execute()` 每次运行前调 `browser.retryOnNextUse()`（全局）；并发下一个 Job 的重连会影响共享连接，新层要决定它按会话还是全局。
+- Worker 数和每站上限都在 `HarnessProperties`，浏览器层不用再加限速。

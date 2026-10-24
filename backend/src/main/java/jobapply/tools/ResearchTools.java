@@ -94,7 +94,8 @@ public final class ResearchTools {
             definition(START_APPLICATION,
                     "Turn a lead into an application and hand it to the application agent, which opens the job page in "
                             + "Chrome and fills the form up to (not including) the final submit. Only for jobs the user "
-                            + "asked to apply to. One application runs at a time. If the job already has an application thread it "
+                            + "asked to apply to. Several applications run at the same time; extra ones wait in a queue and start "
+                            + "automatically. If the job already has an application thread it "
                             + "is not restarted; the result says so (with its status). Rank the resumes for this job "
                             + "with choose_resume first; if there is no ranking since the latest upload the result asks "
                             + "you to do that. Only when the user explicitly said to skip ranking, pass skip_ranking "

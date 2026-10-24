@@ -742,3 +742,11 @@
 - 改动：`BrowserSession.act` 在 `browser_click` / `browser_type` / `browser_select_option` 动作超时时调 `afterTimeout`：系统用固定模板（`PlaywrightMcpClient.DIAGNOSE`，经 `browser_run_code_unsafe`，只读，只滚动）检查同一个 ref 可不可见、在不在屏幕里、被哪个元素 / fixed 层盖住、还有哪些浮层开着，写进错误；点击目标可见、只是被盖住时，用 `CLICK_THROUGH` 在元素上直接派发一次点击，成功就取新快照并留说明，失败照实报。连接记账抽成 `BrowserSession.system`。`ApplyAgent` 提示词加「点不动（动作超时）」；skill apply-form、components/repeatable-entries 各加一两条。夹具 `file-slots`（场景 + HTML）加被盖住的「添加」，`FakeFormScript` 认得两个新模板，`BrowserSessionActTest` 加几行。
 - 验证：`mvn -B -q clean verify` 退出码 0（surefire 621、failsafe 1）。MCP 同版本 playwright-core + 无头 Chrome 打开 `file-slots.html`：普通点击超时；检查报出盖住它的遮罩；直接点击后页面变成「项目 1（待填写）」；注入的 fixed 底栏和 listbox 浮层都被报出。真实小米页面、真实模型：未运行。
 - 预置 skill 改了 `apply-form/SKILL.md`、`components/repeatable-entries/SKILL.md`；`storage/playbook/skills/` 里已有的副本不会被覆盖（本步没碰 `storage/`）。
+
+## 2026-10-24 · C011 Worker 池
+
+- 日期：2026-10-24
+- 指令：按已批准的 C011 方案 A 做调度这一半：`ApplicationRunner` 单线程执行器换成 N 个 Worker（默认 3），超出的排队；保留排队时停止、插话；停止检查和 `status()` 读文件移出实例锁；同站点限速（默认 2）；`start_application` 的排队文案只在真的排队时出现；加一个并发测试。不碰浏览器层。
+- 结果：`ApplicationRunner` 改成固定线程池 + `queued`（Job → 待跑的运行）/ `running`（Job → 网站 + 任务）+ `dispatch()`；排队凭证去掉（排队的不再提前交给执行器）；`stopRequested` 换成并发集合；`status()` 锁里只读运行记录和运行表；`awaitIdle` 改成 `wait/notifyAll`，新增按 Job 等。`HarnessProperties` / `application.yml` 加 `application-workers: 3`、`applications-per-site: 2`。`SessionRunner` 排队回执文案、`ResearchTools` 的 `start_application` 说明改掉「一次一个」。新增 `backend/src/test/java/jobapply/workflow/ApplicationRunnerPoolTest.java`。前端、提示词没改。细节见 C011「实际结果 · Worker 池」。
+- 验证：`backend/` 下 `mvn -B -q clean verify` 退出码 0；`ApplicationRunnerPoolTest` 单独连跑 3 次都通过（3 个同时在模型调用里、第 4 个排队并在一个结束后开始、排队时停止不跑、一个出错不影响别的、同站点上限）。真实 Chrome 冒烟：未运行（浏览器层还在另一个分支改）。前端没改，`npm run build` 未运行。
+- 偏差：C011 原文说「保留排队凭证」，实际去掉了，原因见 `dev-recoding.md`；行为（排队时停止、重新排队不跑旧的）不变。

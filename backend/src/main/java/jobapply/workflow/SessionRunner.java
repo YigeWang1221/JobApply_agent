@@ -368,8 +368,9 @@ public final class SessionRunner implements AutoCloseable {
                 }
                 ApplicationStatus status = applications.start(job, project, session);
                 if (AgentRun.QUEUED.equals(status.status())) {
-                    // 排队（C006-fix-2 第 1 条）：浏览器一次只给一个申请用，排上了就是开始了，不用再调用
-                    return "已经排上队：" + job + "。浏览器现在在做别的申请，轮到它时自动开始，不用再调用 start_application。"
+                    // 排队（C011）：同时在跑的申请满了、或者同一个网站上的申请已经够多，排上了就是开始了，不用再调用
+                    return "已经排上队：" + job + "。同时在跑的申请已经满了（或者同一个网站上的申请够多了），轮到它时自动开始，"
+                            + "不用再调用 start_application。"
                             + "之后在申请工作台里看进度。";
                 }
                 return "已经开始申请 " + job + "（申请线程：" + status.status() + "）。之后在申请工作台里进行。";
