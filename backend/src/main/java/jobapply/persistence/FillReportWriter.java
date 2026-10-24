@@ -30,6 +30,8 @@ public final class FillReportWriter {
     static final String INFERRED = "模型推断";
     /** 申请 Agent 从简历原文取的值（{@code fact: resume}）。 */
     public static final String RESUME_SOURCE = "简历原文";
+    /** 申请 Agent 起草的 Cover Letter（{@code fact: cover_letter}，C014）。 */
+    public static final String COVER_LETTER_SOURCE = "Cover Letter：Agent 起草";
     static final String USER_FILLED_VALUE = "（用户已填）";
     static final String USER_FILLED_SOURCE = "用户亲填";
     private static final String NONE = "—";

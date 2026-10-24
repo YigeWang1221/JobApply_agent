@@ -18,6 +18,7 @@ import jobapply.domain.Ids;
 public record StorageLayout(Path root) {
 
     private static final Pattern HOST = Pattern.compile("[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:[0-9]{1,5})?");
+    private static final Pattern COMPANY = Pattern.compile("[\\p{L}\\p{N}][\\p{L}\\p{N}._&()（）-]*");
 
     public StorageLayout {
         root = root.toAbsolutePath().normalize();
@@ -156,6 +157,28 @@ public record StorageLayout(Path root) {
             throw new IllegalArgumentException("主机名不合法：" + host);
         }
         return playbookDir().resolve("sites").resolve(host + ".md");
+    }
+
+    /**
+     * 公司记忆（跨 Project 共享，C014）：{@code companies/<company>.md}。公司名里的空白换成 {@code -}；
+     * 只允许文字、数字和 {@code . _ & - ( ) （ ）}，不能越出 {@code companies/}。
+     */
+    public Path companyFile(String company) {
+        String name = company == null ? "" : company.strip().replaceAll("\\s+", "-");
+        if (name.isEmpty() || name.length() > 100 || !COMPANY.matcher(name).matches() || name.contains("..")) {
+            throw new IllegalArgumentException("公司名不能当文件名：" + company);
+        }
+        return root.resolve("companies").resolve(name + ".md");
+    }
+
+    /** 经验总结（跨 Project，C014：Agent 直接追加）。 */
+    public Path reviewLessons() {
+        return root.resolve("review").resolve("lessons.md");
+    }
+
+    /** 通用写作偏好（Cover Letter、开放问题按它写）。 */
+    public Path baseWriting() {
+        return baseDir().resolve("writing.md");
     }
 
     /** 可以随时删除的缓存。 */

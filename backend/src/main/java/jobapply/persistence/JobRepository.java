@@ -46,6 +46,23 @@ public final class JobRepository {
         return fromFrontmatter(FrontmatterFile.read(file).frontmatter(), file.toString());
     }
 
+    /** {@code job.md} 正文里「## JD 快照」一节（加候选时存的详情页）；没有或是空的时为空字符串（C014 Cover Letter）。 */
+    public String jdSnapshot(String projectId, String jobId) {
+        Path file = layout.jobFile(projectId, jobId);
+        if (!Files.exists(file)) {
+            return "";
+        }
+        String body = FrontmatterFile.read(file).body();
+        int start = body.indexOf("## JD 快照\n");
+        if (start < 0) {
+            return "";
+        }
+        start += "## JD 快照\n".length();
+        // 快照本身可能有 ## 标题：到下一节「资格映射」为止
+        int end = body.indexOf("\n## 资格映射", start);
+        return (end < 0 ? body.substring(start) : body.substring(start, end)).strip();
+    }
+
     /** 本 Project 的全部 Job，按 id 排序。 */
     public List<Job> list(String projectId) {
         List<Job> jobs = new ArrayList<>();

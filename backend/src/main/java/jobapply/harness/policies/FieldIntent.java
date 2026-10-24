@@ -22,6 +22,8 @@ public record FieldIntent(String ref, String label, String fact, String confiden
     public static final String NONE = "none";
     /** {@code fact: resume}：值取自简历原文（read_resume），报告里来源写「简历原文」。 */
     public static final String RESUME = "resume";
+    /** {@code fact: cover_letter}：Agent 按 JD、简历和资料起草的 Cover Letter（C014），报告里来源写「Cover Letter：Agent 起草」。 */
+    public static final String COVER_LETTER = "cover_letter";
     static final Set<String> KEYS = Set.of(FACT, CONFIDENCE, LANGUAGE);
     public static final Set<String> CONFIDENCES = Set.of("high", "medium", "low");
     public static final Set<String> LANGUAGES = Set.of("zh", "en");
