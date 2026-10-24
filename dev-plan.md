@@ -43,11 +43,12 @@
 | [C008](plan/coding/C008-resume-match.md) | 按岗位给简历排名、给修改建议，选定的简历申请时默认上传（里程碑第 5 段的一部分） | 已施工，等用户试（2026-10-23） |
 | [C006-fix 真实跑通](plan/coding/C006-fix-real-run.md) | 第一次、第二次真实跑通（小米 Agent工程师）发现的问题和状态 | 1–4、6、8、10、14、15 已修（10、14、15 真实页面未跑）；7、18 待用户决定；9 结构修正、12、16、17 待修；5、11、19 token 记录（2026-10-23） |
 | [C008-fix](plan/coding/C008-fix-resume-confirm.md) | 简历在对话里和用户定好；申请开始时放进上传区成为文件 1，直接上传 | 已施工，真实跑未运行（2026-10-23） |
-| [C009](plan/coding/C009-sensitive-placeholders.md) | 敏感信息用占位符记在资料里，真实值在本地密钥文件，填表时替换 | **待用户确认**（动 dev-limit 和 master 的 C 级规则） |
+| [C009](plan/coding/C009-sensitive-placeholders.md) | 敏感信息用占位符记在资料里，真实值在本地密钥文件，填表时替换 | 并入 C014（2026-10-24） |
 | [C010](plan/coding/C010-steer.md) | 运行中插话（steer）：Agent 跑着时也能发消息，下一步看到；「打断并发送」 | 已施工，等用户试（2026-10-24；master 回写已完成） |
 | [C011](plan/coding/C011-concurrent-workers.md) | 多个申请 Worker 并发：共享一个 Chrome、各自的标签页，Worker 池 | 完成（用户真实 Chrome 冒烟通过，2026-10-24；同站点对话框卡住 K1 仍是已知问题） |
 | [C012](plan/coding/C012-worker-settings.md) | 设置页改 Worker 数量（同时申请数、每站上限），保存后马上生效、存进 settings/workers.yaml | 已施工，等用户试（2026-10-24） |
 | [C013](plan/coding/C013-delete-session-project.md) | 删除 Session / Project：挪进 storage/.trash/（软删、可手动恢复），侧栏一个确认框；删 Session 时 Job 留在 Project 里 | 已施工，等用户试（2026-10-24；memory.md 加 `.trash/` 待确认） |
+| [C014](plan/coding/C014-move-forward.md) | Move forward：面试轮次与复盘、Agent 自己更新 memory、Cover Letter、敏感信息占位符（原 C009） | 施工中（2026-10-24，三个 agent 并行） |
 
 ## 参考（不是施工步骤）
 
