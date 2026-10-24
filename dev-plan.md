@@ -45,6 +45,7 @@
 | [C008-fix](plan/coding/C008-fix-resume-confirm.md) | 简历在对话里和用户定好；申请开始时放进上传区成为文件 1，直接上传 | 已施工，真实跑未运行（2026-10-23） |
 | [C009](plan/coding/C009-sensitive-placeholders.md) | 敏感信息用占位符记在资料里，真实值在本地密钥文件，填表时替换 | **待用户确认**（动 dev-limit 和 master 的 C 级规则） |
 | [C010](plan/coding/C010-steer.md) | 运行中插话（steer）：Agent 跑着时也能发消息，下一步看到；「打断并发送」 | 已施工，等用户试（2026-10-24；master 回写待确认） |
+| [C011](plan/coding/C011-concurrent-workers.md) | 多个申请 Worker 并发：共享一个 Chrome、各自的标签页，Worker 池 | 调研中，**等用户批准架构后才施工**（2026-10-24） |
 
 ## 参考（不是施工步骤）
 
