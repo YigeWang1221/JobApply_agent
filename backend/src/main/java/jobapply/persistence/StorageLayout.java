@@ -126,6 +126,11 @@ public record StorageLayout(Path root) {
         return settingsDir().resolve(".env");
     }
 
+    /** C 级资料的真实值（C014-D）：用户在设置页「敏感信息」里写，格式同 {@code .env}，权限 600。 */
+    public Path personalEnvFile() {
+        return settingsDir().resolve("personal.env");
+    }
+
     /** 浏览器 MCP 允许读取的上传暂存区（MCP root）。 */
     public Path uploadsDir() {
         return root.resolve("uploads");

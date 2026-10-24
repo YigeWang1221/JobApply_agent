@@ -5,7 +5,7 @@ import java.util.Set;
 /**
  * 一条事实条目（{@code facts.md} / {@code overrides.md} 中的一个 {@code ## key}）。
  * {@code unset} 为 true 时表示屏蔽继承来的同名条目，此时不需要值和分级。
- * C 级字段不允许构造，因而不可能被写进任何文件。
+ * C 级字段的值只能是占位符 {@code {KEY}}（{@link Placeholder}，C014-D），真实值不可能被写进资料文件。
  * <p>
  * 值有两种写法，二选一：与语言无关的 {@code value}（日期、数字、链接等），或者成对的文字 {@code zh} / {@code en}
  * （可以只有一种，另一种以后起草）。{@code reviewed} 是已经审阅过的语言；模型起草、还没审阅的不在里面。
@@ -31,8 +31,8 @@ public record Fact(
         if (key == null || key.isBlank()) {
             throw new IllegalArgumentException("事实条目必须有 key");
         }
-        if (factClass == FactClass.C) {
-            throw new IllegalArgumentException("C 级字段不允许存储：" + key);
+        if (factClass == FactClass.C && (!Placeholder.is(value) || zh != null || en != null)) {
+            throw new IllegalArgumentException("C 级字段只能存占位符 {KEY}，不存明文：" + key);
         }
         if (value != null && (zh != null || en != null)) {
             throw new IllegalArgumentException("value 和 zh / en 只能二选一：" + key);

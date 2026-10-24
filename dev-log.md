@@ -802,3 +802,11 @@
 - 指令：用户说明已在本机真实测试，都正常投递；记录里不再写「用户口述、非本会话证据」这类话。
 - 结果：C011「验收」表里的只弹一次允许、运行中插话、填表阶段后台点击改为通过（用户本机测试），结论改为用户真实 Chrome 冒烟通过；C011 状态和 `dev-plan.md` 索引行改为完成。K1 照旧记为已知问题。
 - 验证：只改文档。
+
+## 2026-10-24 · C014-D 敏感信息占位符
+
+- 日期：2026-10-24
+- 指令：按 C014 D 包施工：C 级资料写成占位符 `{KEY}`，真实值在 `storage/settings/personal.env`，只在填表调用发给 Playwright MCP 的那一刻替换；施工中用户补充：用户不手写文件、不猜键名，设置页「敏感信息」填值，预设键表加自定义键，保存时自动登记占位符事实。
+- 结果：新增 `domain/Placeholder`、`domain/PersonalKey`（15 个预设键）、`persistence/PersonalEnv`、`config/PersonalSettingsService`、`api/PersonalSettingsController`（`GET /api/settings/personal`，`PUT` / `DELETE /api/settings/personal/{KEY}`，不返回值）、前端 `pages/PersonalSettings.tsx`、`backend/src/main/resources/personal.env.example`（只有说明文字）。`Fact` / `FactsFile` / `FillReportWriter` 允许值是占位符的 C 级，明文仍拒绝；`FieldClassGuard` 认登记过且有值的占位符，没值时原因写「`{KEY}` 在 personal.env 里没有值」；`HarnessLoop` 只在 `browser.act` 那一刻替换；`BrowserSession` 交出快照、查找结果和报错前用 `SnapshotRedactor.withoutValues` 把真实值换回占位符；`FillContext`、`ApplyAgent` 提示词改成「有占位符就原样填」。`plan/master/workflow.md`、`agent-runtime.md` 里「C 级一律亲填」的句子补上占位符例外。`SecretFileRules` 把 `*.env` 也当秘密文件（扫描目录、附件时按名字跳过）。代理没有读、建、改任何真实的 `personal.env` 或 `.env`。
+- 验证：`backend/` 下 `JAVA_HOME=… mvn -B -q clean verify` 退出码 0（617 个测试，0 失败），新增 `PersonalPlaceholderTest`（真实值只出现在发给假 MCP 的请求里，模型请求、对话、报告、run log、storage 其它文件都没有；明文 C 级和没值的占位符被拒绝）、`PersonalSettingsControllerTest`（响应不含值、权限 600、自动登记事实）、`FactsFileTest` 占位符读写。`frontend/` 下 `npm ci && npm run build` 通过。真实浏览器手动试用：未运行。
+- 偏差：资料导入（候选抽取 / 合并）没有改成放行占位符，占位符只由设置页登记；`remember` 的占位符入口归 B 包。

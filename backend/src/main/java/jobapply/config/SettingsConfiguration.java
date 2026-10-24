@@ -40,6 +40,12 @@ public class SettingsConfiguration {
                 clock);
     }
 
+    /** 设置页「敏感信息」（C014-D）。 */
+    @Bean
+    PersonalSettingsService personalSettingsService(StorageLayout layout, Clock clock) {
+        return new PersonalSettingsService(layout, clock);
+    }
+
     @Bean
     AssetRegistry assetRegistry(StorageLayout layout, Clock clock) {
         return new AssetRegistry(layout, clock);

@@ -581,7 +581,18 @@ export interface WorkerSettings {
   queued: number;
 }
 
+// 敏感信息（C014-D）：一个键的名字和「已设置 / 未设置」，从不带值
+export interface PersonalKey {
+  key: string;
+  zh: string;
+  en: string;
+  fields: string;
+  preset: boolean;
+  set: boolean;
+}
+
 const MODELS = "/api/settings/models";
+const PERSONAL = "/api/settings/personal";
 const enc = encodeURIComponent;
 const jobPath = (jobId: string) => `/api/jobs/${encodeURIComponent(jobId)}/application`;
 
@@ -601,6 +612,11 @@ export const api = {
   workerSettings: () => request<WorkerSettings>("GET", "/api/settings/workers"),
   saveWorkerSettings: (workers: number, perSite: number) =>
     request<WorkerSettings>("PUT", "/api/settings/workers", { workers, perSite }),
+
+  personalKeys: () => request<{ keys: PersonalKey[] }>("GET", PERSONAL),
+  savePersonal: (key: string, value: string, label?: string) =>
+    request<PersonalKey>("PUT", `${PERSONAL}/${enc(key)}`, { value, label }),
+  clearPersonal: (key: string) => request<PersonalKey>("DELETE", `${PERSONAL}/${enc(key)}`),
 
   assets: () => request<{ assets: Asset[] }>("GET", "/api/assets"),
   upload: (file: File) => uploadFile<UploadResult>("/api/assets", file),
