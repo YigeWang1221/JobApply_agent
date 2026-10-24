@@ -742,3 +742,11 @@
 - 改动：`BrowserSession.act` 在 `browser_click` / `browser_type` / `browser_select_option` 动作超时时调 `afterTimeout`：系统用固定模板（`PlaywrightMcpClient.DIAGNOSE`，经 `browser_run_code_unsafe`，只读，只滚动）检查同一个 ref 可不可见、在不在屏幕里、被哪个元素 / fixed 层盖住、还有哪些浮层开着，写进错误；点击目标可见、只是被盖住时，用 `CLICK_THROUGH` 在元素上直接派发一次点击，成功就取新快照并留说明，失败照实报。连接记账抽成 `BrowserSession.system`。`ApplyAgent` 提示词加「点不动（动作超时）」；skill apply-form、components/repeatable-entries 各加一两条。夹具 `file-slots`（场景 + HTML）加被盖住的「添加」，`FakeFormScript` 认得两个新模板，`BrowserSessionActTest` 加几行。
 - 验证：`mvn -B -q clean verify` 退出码 0（surefire 621、failsafe 1）。MCP 同版本 playwright-core + 无头 Chrome 打开 `file-slots.html`：普通点击超时；检查报出盖住它的遮罩；直接点击后页面变成「项目 1（待填写）」；注入的 fixed 底栏和 listbox 浮层都被报出。真实小米页面、真实模型：未运行。
 - 预置 skill 改了 `apply-form/SKILL.md`、`components/repeatable-entries/SKILL.md`；`storage/playbook/skills/` 里已有的副本不会被覆盖（本步没碰 `storage/`）。
+
+## 2026-10-24 · C011 方案 A 浏览器层：一条共享连接、每个使用者一个 MCP 会话
+
+- 日期：2026-10-24
+- 指令：用户批准 C011 方案 A，施工浏览器层：一个 `@playwright/mcp@0.0.83 --port --host 127.0.0.1 --shared-browser-context` 进程、Streamable HTTP、保活会话、每个使用者（Job / Session）一个会话和一把锁、焦点模拟模板、同站对话框卡住的兜底、测试和真实浏览器手动检查。不动 `ApplicationRunner` 的调度。
+- 结果：`PlaywrightMcpClient` 换成 HTTP 传输并新增 `Server`（随机端口、只听 127.0.0.1）和三个系统模板（焦点模拟、弹窗 opener 检查、切前台）；`BrowserSession` 只管共享连接（状态、服务进程、保活会话、重连），新 `OwnerBrowser` 管每个使用者的会话、标签页、弹窗、说明、转交，锁按使用者，动作前不再 select；给模型的标签页列表只列自己的页。`HarnessLoop` 两句话、`ApplyAgent` 提示词两条、skill apply-form 一句、`application.yml` 注释、`plan/master/workflow.md` 一句。假 MCP 服务端改成本机回环地址上的 HTTP（Tomcat），新增 `BrowserSessionConcurrencyTest`、手动检查 `ConcurrentBrowserManualCheck`。细节和矩阵见 [C011「实际结果 · 浏览器层」](plan/coding/C011-concurrent-workers.md)。
+- 验证：`JAVA_HOME=… mvn -B -q clean verify` 退出码 0（surefire 609、failsafe 1）；并发测试里两次填写的时间区间重叠约 308 ms、各落在自己的页。手动检查（自己启动的 Chrome for Testing，有头，非 9222，本机夹具页）跑了一次完整矩阵：同时开页 / 填写 / 快照 / 点击区间重叠，重定向、弹窗（含 noopener）、后台页点击、文件选择框和对话框隔离、抛异常、关页、新 Worker、CDP 连接 1 条且连接代数一直是 1，都通过；同站弹窗开着时的 alert 卡住复现，切前台兜底无效（不通过）。用户自己的 Chrome 上冒烟：未运行。
+- 偏差：弹窗只按 opener 认（第一次手动跑发现「多出一页就收」会收走别人的弹窗，已去掉）；每次动作前仍在自己会话里列一次标签页（不切换）用来发现自己的页被关；切前台兜底保留但对复现出来的卡住无效。
