@@ -115,19 +115,26 @@ public final class ResearchTools {
                     {"type":"object","properties":{"key":{"type":"string","description":"original key, \
                     a-YYYY-MM-DD-NNN"}},"required":["key"]}"""),
             definition(CHOOSE_RESUME,
-                    "Record the resume ranking for a job in its job.md (replaces the previous one): every resume "
-                            + "you compared with its rank, a one-line reason and what it lacks for this JD; asset is the "
-                            + "one to upload (when the user picks another, call again with the new asset). suggestions: "
-                            + "edits for this JD, each as \"which section, how to change it, why\", only from facts the "
-                            + "user confirmed. The application workbench preselects asset at the upload field.",
+                    "Record which resume the user agreed to use for a job, with the ranking, in its job.md (replaces "
+                            + "the previous one). Call it only after you showed the ranking and suggestions in the chat "
+                            + "and the user said which one to use (or sent a revised file). ranking: every resume you "
+                            + "compared with its rank, a one-line reason and what it lacks for this JD. asset: the one "
+                            + "the user chose (when they change their mind, call again). attachment: when the user sent "
+                            + "a revised resume in this chat, its attachment id (#...); it is registered as a new "
+                            + "original and becomes the chosen one, and ranking may be omitted. suggestions: edits for "
+                            + "this JD, each as \"which section, how to change it, why\", only from facts the user "
+                            + "confirmed. When the application starts, the chosen file is put in its upload list as "
+                            + "file 1 and uploaded without asking again.",
                     """
                     {"type":"object","properties":{"job":{"type":"string","description":"Job id"},\
                     "asset":{"type":"string","description":"key of the chosen resume"},\
+                    "attachment":{"type":"string","description":"attachment id of a revised resume the user sent \
+                    in this chat; use instead of asset"},\
                     "ranking":{"type":"array","items":{"type":"object","properties":{\
                     "key":{"type":"string"},"rank":{"type":"integer","minimum":1},\
                     "reason":{"type":"string"},"gap":{"type":"string"}},"required":["key","rank","reason"]}},\
                     "suggestions":{"type":"array","items":{"type":"string"}}},\
-                    "required":["job","asset","ranking"]}"""),
+                    "required":["job"]}"""),
             definition(MARK_SUBMITTED,
                     "Record that the user has submitted this application themselves in Chrome (they said so in the "
                             + "chat). The user's word is the evidence; the job moves to applied and the next status check "

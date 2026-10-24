@@ -28,6 +28,8 @@ public final class FillReportWriter {
 
     static final String DRAFT = "草稿";
     static final String INFERRED = "模型推断";
+    /** 申请 Agent 从简历原文取的值（{@code fact: resume}）。 */
+    public static final String RESUME_SOURCE = "简历原文";
     static final String USER_FILLED_VALUE = "（用户已填）";
     static final String USER_FILLED_SOURCE = "用户亲填";
     private static final String NONE = "—";
@@ -133,7 +135,7 @@ public final class FillReportWriter {
 
     /**
      * 从已经写出的报告里读回的一行 A / B 级字段：单元格原样保留（值、来源层、语言、置信度、分级），再写出时不变。
-     * 只由 {@link #load} / {@link #parse} 构造。
+     * 由 {@link #load} / {@link #parse} 构造；申请 Agent 从简历原文取的值也用它（来源层写 {@link #RESUME_SOURCE}）。
      */
     public record Recorded(String page, String label, String value, String source, String language,
                            String confidence, String grade) implements Field {

@@ -408,8 +408,8 @@ final class Views {
             case "start_application", "mark_submitted" -> string(args.get("job"));
             case "record_status" -> join(string(args.get("job")), string(args.get("phase")), string(args.get("outcome")));
             case "list_jobs" -> args.get("status") == null ? "全部" : string(args.get("status"));
-            case "read_resume" -> string(args.get("key"));
-            case "choose_resume" -> join(string(args.get("job")), string(args.get("asset")));
+            case "read_resume" -> args.get("file") != null ? "文件 " + args.get("file") : string(args.get("key"));
+            case "choose_resume" -> join(string(args.get("job")), string(args.get("asset")), string(args.get("attachment")));
             case "read_skill" -> string(args.get("name"));
             case "ask_user" -> "交给用户";
             case "update_plan" -> "更新计划";

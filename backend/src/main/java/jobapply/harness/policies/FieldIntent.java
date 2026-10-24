@@ -20,6 +20,8 @@ public record FieldIntent(String ref, String label, String fact, String confiden
     public static final String CONFIDENCE = "confidence";
     public static final String LANGUAGE = "language";
     public static final String NONE = "none";
+    /** {@code fact: resume}：值取自简历原文（read_resume），报告里来源写「简历原文」。 */
+    public static final String RESUME = "resume";
     static final Set<String> KEYS = Set.of(FACT, CONFIDENCE, LANGUAGE);
     public static final Set<String> CONFIDENCES = Set.of("high", "medium", "low");
     public static final Set<String> LANGUAGES = Set.of("zh", "en");

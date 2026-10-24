@@ -287,7 +287,7 @@ public final class SessionLoop {
                     case ResearchTools.LIST_RESUMES -> result(call, resumes.list());
                     case ResearchTools.READ_RESUME -> result(call, resumes.read(text(args.get("key"))));
                     case ResearchTools.CHOOSE_RESUME -> result(call, resumes.choose(job(text(args.get("job"))), session,
-                            args));
+                            args, new AttachmentStore(layout.sessionAttachmentsDir(project, session))));
                     case ResearchTools.MARK_SUBMITTED -> result(call, markSubmitted(args));
                     case ResearchTools.RECORD_STATUS -> result(call, recordStatus(args));
                     case ResearchTools.ASK_USER -> askUser(call, text(args.get("message")));
@@ -684,8 +684,8 @@ public final class SessionLoop {
             if (applications.status(jobId) == null && !resumes.current(job)) {
                 if (skipRanking == null) {
                     return result(call, "还没有开始：" + jobId + " 这次还没有排过简历（或者排过之后上传了新原件）。"
-                            + "先 list_resumes、read_resume，再 choose_resume 记下排名，在对话里把排名和修改建议告诉用户，"
-                            + "然后再调用 start_application。用户明确说不用排时，带 skip_ranking（用户的原话）再调用。");
+                            + "先 list_resumes、read_resume，在对话里把排名和修改建议告诉用户、问用哪一份；用户定了以后 "
+                            + "choose_resume，然后再调用 start_application。用户明确说不用排时，带 skip_ranking（用户的原话）再调用。");
                 }
                 resumes.skip(job, session, skipRanking);
             }

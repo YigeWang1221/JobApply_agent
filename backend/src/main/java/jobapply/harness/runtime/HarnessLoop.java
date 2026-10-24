@@ -4,6 +4,7 @@ import static jobapply.harness.runtime.ToolArgs.parse;
 import static jobapply.harness.runtime.ToolArgs.text;
 
 import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -606,6 +607,7 @@ public final class HarnessLoop {
                 case ControlTools.ASK_USER -> askUser(call, args);
                 case ControlTools.UPDATE_PLAN -> updatePlan(call, args);
                 case ControlTools.READ_SKILL -> readSkill(call, text(args.get("name")));
+                case ControlTools.READ_RESUME -> readResume(call, args.get("file"));
                 case ControlTools.FINISH -> finish(call, args);
                 default -> failedResult(call, "失败：没有这个工具：" + call.name());
             };
@@ -670,6 +672,26 @@ public final class HarnessLoop {
             return result(call, "skill「" + skill.name() + "」：\n\n" + skill.body());
         }
 
+        /** 「可上传的文件」里一份的文字（C006-fix-real-run 第 8 条：申请 Agent 要能读到简历原文）。 */
+        private Step<AgentRun> readResume(AgentRun.ToolCall call, Object file) {
+            int number = file instanceof Number n ? n.intValue() : -1;
+            if (number < 1 || number > run.files().size()) {
+                return failedResult(call, run.files().isEmpty()
+                        ? "失败：可上传的文件里还没有文件。没有简历时用 ask_user 的 files 请用户选一份。"
+                        : "失败：file 写可上传的文件里的编号（1 到 " + run.files().size() + "）");
+            }
+            Path path = stagedPaths().get(number - 1);
+            if (!Files.isRegularFile(path)) {
+                return failedResult(call, "失败：文件 " + number + " 不见了：" + run.files().get(number - 1).uploadName());
+            }
+            try {
+                return result(call, ResumeMatch.fileText(path, "文件 " + number + " "
+                        + run.files().get(number - 1).uploadName()));
+            } catch (IllegalArgumentException e) {
+                return failedResult(call, "失败：" + e.getMessage());
+            }
+        }
+
         private Step<AgentRun> finish(AgentRun.ToolCall call, Map<String, Object> args) {
             draft.unresolved.addAll(strings(args.get("unresolved")));
             writeDraft();
@@ -706,13 +728,21 @@ public final class HarnessLoop {
                 }
                 Language language = field.language() == null ? null : Language.of(field.language());
                 FillReportWriter.Confidence confidence = confidence(field.confidence());
+                String replaced = replacedValue(shown, field.ref(), value);
+                if (FieldIntent.RESUME.equals(field.fact())) {
+                    // 取自简历原文：来源写「简历原文」（C006-fix-real-run 第 3 条，报告写明每个值的来源）
+                    draft.field(new FillReportWriter.Recorded(before.title(), label,
+                            replaced == null ? value : value + "（页面原值：" + replaced + "，已改正）",
+                            FillReportWriter.RESUME_SOURCE, language == null ? null : language.code(),
+                            confidence == null ? null : confidence.code(), FactClass.A.name()));
+                    continue;
+                }
                 ResolvedFact fact = field.inferred() ? null : fact(field.fact(), language, value);
                 FillReportWriter.Filled row = fact == null
                         ? FillReportWriter.Filled.inferred(before.title(), label, value, confidence, FactClass.A,
                         language)
                         : FillReportWriter.Filled.fromFact(before.title(), label, value, fact, confidence,
                         fact.language() != null ? fact.language() : language);
-                String replaced = replacedValue(shown, field.ref(), value);
                 draft.field(replaced == null ? row : row.replacing(replaced));
             }
             writeDraft();

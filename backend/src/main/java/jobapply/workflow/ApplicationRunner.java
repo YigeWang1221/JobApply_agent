@@ -209,15 +209,22 @@ public final class ApplicationRunner implements AutoCloseable {
 
         String opening = "开始申请：" + job.posting().company() + " · " + job.posting().title()
                 + "。先看页面：判断要不要登录、怎么进入申请表，然后按工作方法填写，停在最终提交之前。";
-        // C008：对话 Agent 按这个岗位选的简历；上传位置用 ask_user 的 files 请用户确认，工作台默认选中它
-        if (job.extra().get("resume_choice") instanceof Map<?, ?> choice && choice.get("file") instanceof String file) {
-            opening += "\n拟用简历：" + file + "（" + choice.get("asset") + "）。到简历上传位置时用 ask_user 的 files 请用户"
-                    + "确认（工作台已默认选中它）。";
+        // C008-fix：用户在对话里定好的简历，开始时就放进上传区成为文件 1（上传只能用上传区的编号），模型直接上传
+        String resume = job.extra().get("resume_choice") instanceof Map<?, ?> choice
+                && choice.get("asset") instanceof String key && assets.find(key).isPresent() ? key : null;
+        if (resume != null) {
+            opening += "\n简历：用户在对话里定了用 " + assets.find(resume).get().fileName() + "（" + resume
+                    + "），已经是文件 1，到简历上传位置直接 browser_file_upload 文件 1，不用再问。填项目、实习、教育和描述"
+                    + "之前先 read_resume 读文件 1 的原文。";
         }
         AgentRun run = AgentRun.start(projectId, jobId, sessionId, job.posting().company(), job.posting().title(), url,
                 opening);
-        moveTo(run, PrepState.PREPARING, Actor.USER, "开始申请线程");
         uploads.reset(jobId);
+        if (resume != null) {
+            run = run.withFiles(stage(run, List.of(new Choice(
+                    new AgentRun.FileSlot("resume", "简历", null, true, null), resume, null))));
+        }
+        moveTo(run, PrepState.PREPARING, Actor.USER, "开始申请线程");
         runs.save(run);
         submit(run);
         return status(jobId);

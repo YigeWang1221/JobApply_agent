@@ -692,3 +692,12 @@
 
 - 对话 Agent 新工具 `list_resumes` / `read_resume` / `choose_resume`（`ResumeMatch`）；`job.md` 新字段 `resume_choice`，事件 `resume_chosen`；`start_application` 没有本次排名时提示先排（`skip_ranking` 放行并记下）；申请开场写「拟用简历」；`JobView.resumeChoice`；候选池和 Job 页的「开始申请」改为给 Session 发消息；Job 页右栏「简历排名」、头部和候选卡「拟用简历」、上传位置默认选中。细节见 C008「实际结果」。
 - 验证：`mvn -B -q clean verify` 退出码 0（surefire 612，没有改测试）；`npm run build` 通过。真实模型、真实 Chrome：未运行。
+
+## 2026-10-23 · 第一次真实跑通的修复（C006-fix-real-run 1–4、6、8；C008-fix）
+
+- 申请 Agent 新控制工具 `read_resume(file)`：读「可上传的文件」里一份的文字（`ResumeMatch.fileText`，和对话 Agent 的 `read_resume` 共用，C 级的值已去掉）。`HarnessLoop.control` 分发；`Views.summary` 显示「文件 N」。
+- `ApplicationRunner.start`：`resume_choice` 的原件在开始时放进上传区成为文件 1，开场写明直接上传、填经历前先 `read_resume`。`choose_resume` 加可选 `attachment`（Session 附件 → `AssetRegistry.register` 登记成新原件并选中，`ranking` 可省）；结果文字和工具说明改为「用户定了才调用」。
+- 提示词：`ResearchAgent` 简历排名改为「排名 → 表和建议 → 问用哪份 → 用户确认后 choose_resume → start_application」；`ApplyAgent` 新增折叠区域、简历原文、经历逐条填全、原文措辞不翻译、拿不准用 ask_user、值的来源几条，上传改为已有合适文件直接上传、自动解析值逐个核对，「项目和经历：不改写、不扩写」改为「资料 / 简历原文优先，只裁剪，不编造」。skill apply-form 新增两节，resume-parse 加两条。
+- 报告：`fact: resume` 的字段来源写「简历原文」（`FillReportWriter.RESUME_SOURCE`，用 `Recorded` 行）；`BrowserTools` 字段说明加 `resume`。
+- 新计划 C009（敏感信息占位符），待用户确认，没有改代码和 `dev-limit.md`。
+- 验证：`mvn -B -q clean verify` 退出码 0（surefire 621、failsafe 1，没有改测试）。前端没改，`npm run build` 未运行。真实 Chrome、真实模型：未运行。本机已有的预置 skill 不会被覆盖（PlaybookSeeder 只补缺）。
