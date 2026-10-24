@@ -45,7 +45,8 @@
 - `FieldClassGuard`：C 级字段的值正好是已登记的占位符 `{KEY}`，并且 `personal.env` 里有这个键时放行；其它情况照旧交给用户亲填。占位符没有值时，结果写「`{KEY}` 在 personal.env 里没有值」。
 - 替换只发生在发给 Playwright MCP 的那一刻（`browser_fill_form` / `browser_type` / `browser_select_option` 的值）。工具结果、发给模型的消息、run log、事件、填写报告里只有占位符。快照继续由 `SnapshotRedactor` 遮值，遮的时候也认 `personal.env` 里的值，页面回显出真实值时也遮掉。
 - 因为泄露会造成实际损失，这一包写测试：用临时 storage 和虚构的值，确认替换后的真实值只出现在发给假 MCP 的请求里，不出现在模型请求、run log、报告里；没登记的明文 C 级值仍被拒绝。
-- 设置页（模型设置下面）加一行说明：在 `storage/settings/personal.env` 里写真实值，资料里写 `{KEY}`。不在页面上编辑或显示值。
+- **在前端填，不手写文件**（用户补充，2026-10-24）：设置页加「敏感信息」。表里列出预设的键（中文名 / English / KEY，例如 ID_TYPE 证件类型、ID_NUMBER 身份证号、PASSPORT_NUMBER 护照号、PASSPORT_EXPIRY 护照有效期、ETHNICITY 民族、RELIGION 宗教信仰、WORK_AUTHORIZATION 工作授权、VISA_STATUS 签证状态、NEEDS_SPONSORSHIP 是否需要签证担保、EXPECTED_SALARY 期望薪资、CURRENT_SALARY 当前薪资、HEALTH_STATUS 健康状况、DISABILITY_STATUS 残障状态、VETERAN_STATUS 退伍军人身份、CRIMINAL_RECORD 犯罪记录），每行一个只能写入的输入框，页面只显示「已设置 / 未设置」，从不把值发回浏览器；也可以加自定义的键。保存时由程序写进 `personal.env`，并在全局资料里自动登记对应的 C 级事实，值为 `{KEY}`，用户不用改资料文件。声明 / 承诺类照旧由用户亲填。
+- 接口：`GET /api/settings/personal`（只返回键、名称、是否已设置）、`PUT` / `DELETE /api/settings/personal/{KEY}`。另附 `backend/src/main/resources/personal.env.example`，只有键名和 `<你的身份证号>` 这类说明，没有真实值。
 
 ## 怎么确认能用
 
