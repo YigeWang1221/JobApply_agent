@@ -118,6 +118,15 @@ final class FakeFormScript {
 
     /** 系统的固定模板：按代码里的标记认出是哪一个（setInputFiles、超时后的检查、直接点击）。 */
     private McpSchema.CallToolResult runCode(Map<String, Object> form, String code) {
+        if (code.contains("setFocusEmulationEnabled")) {
+            return text("### Result\n\"focus emulation on\"");
+        }
+        if (code.contains("opener()")) {
+            return text("### Result\n[]");
+        }
+        if (code.contains("bringToFront")) {
+            return text("### Result\n\"brought to front\"");
+        }
         Matcher ref = Pattern.compile("aria-ref=([a-z0-9]+)").matcher(code);
         if (code.contains("elementFromPoint") && ref.find()) {
             return diagnose(form, ref.group(1));
