@@ -144,6 +144,7 @@ C004-B 做出来的是「Java 写死的流程，中间加了 LLM」：
 - **不再用 LangGraph4j 做申请流程**：要存的只有对话和几个数字，一个文件就够；固定的图正是要去掉的东西。需要改 `dev-limit.md`「范围边界」里 LangGraph4j 那条，**要用户同意**。
 - 主模型网络失败：最多等 2 分钟重试，期间用户可以停止；还不行就失败并给出原因（用户确认过，2026-10-23）。
 - ~~一个后台线程跑循环（浏览器串行）~~（用户 2026-10-24 改，C011 方案 A）：申请线程由一个 Worker 池跑（默认 3 个同时），每个 Worker 一个浏览器会话、自己的标签页，超出的排队；用户随时可以「停止」，停在当前工具调用之后。
+- 运行中插话（C010，用户批准 2026-10-24）：Session 对话、申请线程在跑时（申请线程排队时也一样）用户发的消息不拒绝，放进这个 Session / Job 的收件箱；循环每次调模型之前先查停止、再把收件箱全部取走，作为用户消息加进对话，不打断正在执行的工具。运行结束时（包括排队时被停下）还没被看到的写进对话，接着开始下一次运行；申请线程停在提交前时这算一轮修改，用户已经定下的（已提交、结束了）不再跑，只记日志。Session 里插的话可以带附件；申请工作台只收文字（见 7.7 `ApplicationRunner`）。「打断并发送」是界面先「停止」再「发送」，没有单独的后端接口。
 
 ### 7.2 给模型的工具
 
@@ -210,7 +211,7 @@ C004-B 做出来的是「Java 写死的流程，中间加了 LLM」：
 | `HarnessLoop`、`FillContext`、`ControlTools`、`FillAgent` | 改造 | 合成新的 Agent 循环、上下文和工具（7.1–7.3）；对话存盘 |
 | `LoopDetector` | 改造 | 只产出给模型的一句话 |
 | `Budget`、`LoopOutcome`、`LoopState`、`HarnessProperties` | 改造 | 只剩迭代上限和用量数字；结束原因只剩几种 |
-| `ApplicationRunner`、`ApplicationController`、`ApplicationStatus`、`ApplicationSignal`、`ApplicationConfiguration` | 改造 | 接口变成：开始、回复（文字 / 答案 / 文件 / 重连 / 要求修改）、停止、状态、报告；状态只剩 running / waiting_user / ready / failed + 给用户的话 |
+| `ApplicationRunner`、`ApplicationController`、`ApplicationStatus`、`ApplicationSignal`、`ApplicationConfiguration` | 改造 | 接口变成：开始、回复（文字 / 答案 / 文件 / 重连 / 要求修改；在跑或排队时是插话，只收文字，带答案、文件或附件时 409）、停止、状态、报告；状态只剩 running / waiting_user / ready / failed + 给用户的话 |
 | `ApplicationGraph`、`ApplicationState`、`CheckpointStore`、`workflow/nodes/*`（含 `OpenPageNode`、`FillNode`、`ResumeNode`、`StageFilesNode`、`ReviewNode`、`ReconnectNode`、`FillHarness`、`PrepStateSync`、`Nodes`、`NodeIds`） | 删 | 打开页面、复制文件、报告定稿、更新 prep 状态这几件事搬进新的循环 / 运行器 |
 | `LoginCheckAgent`、`CheckPageNode`、`WaitIdentityNode`、`FinishNode`、`PageLanguage`、`LoginPageDetector` | 删 | 登录、语言交给模型 |
 | LangGraph4j 三个依赖（core、spring-ai、sqlite-saver） | 删 | 申请流程是唯一用到它的地方；**要用户同意改 `dev-limit.md`** |

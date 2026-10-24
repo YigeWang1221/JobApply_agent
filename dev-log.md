@@ -766,3 +766,7 @@
 - 结果：根因在测试：`FakePlaywrightMcpServer` 单页模式只有一个全局当前网址，三个会话同时 `browser_tabs new` 时互相覆盖，别人的页面进了提示词；`GatedModel` 按固定顺序取第一个公司名，于是认错申请、等在别人的门闩上。改成单页模式按会话记当前网址；假模型提示词里公司名不是正好一个时直接报错。产品代码只改 `BrowserSession.close()` 的顺序（先关使用者会话、再关服务进程），去掉收尾时的 `Error during asynchronous close` 警告。锁顺序、并发 `retryOnNextUse`、第一次并发连接都检查过，没有问题。原因、证据见 [C011「合并后的竞争问题」](plan/coding/C011-concurrent-workers.md)。
 - 验证：修改前池测试单独连跑 20 次失败 17 次；改了假模型、保留旧假服务端时 3 次全失败，报错列出提示词里的两个公司名；卡住时 `jstack` 看到 Worker 停在 `GatedModel.call` 的门闩上，没有 BLOCKED 线程、没有死锁。修改后池测试连跑 20 次全部通过；`JAVA_HOME=… mvn -B -q clean verify` 连跑 3 次退出码都是 0。完整测试里剩下的 8 条异步关闭警告来自故意杀掉服务端 / 超时的断开测试，属预期。真实浏览器：未运行（真的 Playwright MCP 每个会话自己的当前页，不受影响）。
 - 偏差：无。
+
+## 2026-10-24 · C010 回写 master（用户批准）
+
+- 按代码（`Inbox`、`AgentLoop.heard`、`SessionRunner.send`、`ApplicationRunner.reply/insert/resumeWithInserted/stop`、前端「打断并发送」）在 `plan/master/agent-runtime.md` 7.1 加一条「运行中插话」、7.7 `ApplicationRunner` 的「回复」补「在跑或排队时只收文字，带答案、文件或附件时 409」；和 C010 原拟文字的差别（排队时也收、排队时停下也接着跑、用户已定下不再跑）记在 C010；只改文档，未运行构建。
