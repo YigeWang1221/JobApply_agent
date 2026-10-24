@@ -115,6 +115,11 @@ public record StorageLayout(Path root) {
         return settingsDir().resolve("models.yaml");
     }
 
+    /** 申请并发数（C012，设置页写入）。 */
+    public Path workersYaml() {
+        return settingsDir().resolve("workers.yaml");
+    }
+
     /** API key（开发代理不读）。 */
     public Path envFile() {
         return settingsDir().resolve(".env");
