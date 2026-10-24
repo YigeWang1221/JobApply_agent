@@ -118,7 +118,7 @@ export default function JobPage({ id }: { id: string }) {
     ? "还没有开始申请"
     : job.phase !== "prep" || USER_DECIDED.has(job.prepState ?? "")
       ? `这个申请现在是「${job.label}」，你已经定下了，不用再回复申请 Agent；之后的进展在 Session 对话里告诉 Agent`
-    : running ? "Agent 正在做；它要你做什么时可以在这里回复" : waiting ? null : "现在不需要回复";
+    : running || waiting ? null : "现在不需要回复";
   // 挡住发送的只有这一条；必填问题没答、上传位置空着都不挡，Agent 会再问（C006-fix 第 5 节、第 6 节）
   const hints = [
     ready && !text.trim() && "要求修改时写明要改什么",
@@ -136,6 +136,13 @@ export default function JobPage({ id }: { id: string }) {
     const filled = Object.fromEntries(
       answerable.filter((q) => current.answers[q.id]?.trim()).map((q) => [q.id, current.answers[q.id].trim()]),
     );
+    if (running) {
+      // 运行中插话（C010）：只发这一句，附件留在输入框里等它停下再发
+      if (await call(() => api.reply(job.id, { session, text: text.trim() }))) {
+        setText("");
+      }
+      return;
+    }
     const files = attach.ready.map((file) => file.id);
     const body: ReplyBody = {
       session,
@@ -193,7 +200,7 @@ export default function JobPage({ id }: { id: string }) {
           </div>
         </header>
         {pollError && <p className="error small pad">刷新失败：{pollError}</p>}
-        <MessageList messages={steps} running={running} jobs={[job]}
+        <MessageList messages={steps} running={running} jobs={[job]} inserted={status?.inserted ?? []}
           activity={sse.activity !== undefined ? sse.activity : detail.activity}
           onStop={() => void call(() => api.stop(job.id))}
           empty={
@@ -209,11 +216,16 @@ export default function JobPage({ id }: { id: string }) {
             <p className="composerhint">{[...hints, ...softHints].join(" · ")}</p>
           )}
           <Composer value={text} onChange={setText} running={running} disabled={busy}
-            attach={attach} allowEmpty={!ready} blocked={hints.length > 0} lockedReason={lockedReason}
+            attach={attach} allowEmpty={!ready && !running} blocked={hints.length > 0} lockedReason={lockedReason}
             sendLabel={ready ? "要求修改" : status?.status === "failed" ? "重试" : "回复，继续"}
             onSend={() => void send()}
             onStop={() => void call(() => api.stop(job.id))}
-            placeholder={ready ? "要修改时写明要改什么" : "回复 Agent（可选，例如「登录好了」），可以附文件和截图"} />
+            onInterrupt={session ? () => void call(async () => {
+              await api.stop(job.id);
+              await api.reply(job.id, { session, text: text.trim() });
+              setText("");
+            }) : undefined}
+            placeholder={running ? "Agent 正在做，可以随时插话（例如「先别填这个，改成…」），它下一步会看到" : ready ? "要修改时写明要改什么" : "回复 Agent（可选，例如「登录好了」），可以附文件和截图"} />
           {ready && <p className="privacy composerhint">修改说明原文会记进过程日志（run-log.jsonl），不要写个人信息。</p>}
         </div>
       </div>

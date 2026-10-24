@@ -728,3 +728,11 @@
   1. 启动后端（`backend/` 下 `java -jar target/jobapply-0.0.1-SNAPSHOT.jar`）和前端（`frontend/` 下 `npm run dev`），刷新工作台页面；点「重新连接」并在 Chrome 30 秒内点允许；在工作台回复让申请 Agent 接着做，看上传（target）、3 个项目（保存 → 添加 → 快照确认）、超链接、时间（NEU 2026 Spring 起每学期一个、各 3 个月）。
   2. 用户决定第 18 条（卡片内「确定 / 完成」）和 C009。
   3. 修第 9 条结构（上传时才复制原件）、12、16、17；token（5、11、19）。
+
+## 2026-10-24 · 运行中插话（C010）
+
+- 日期：2026-10-24
+- 指令：参考 deep agents / OpenMAIC，Agent 运行中用户可以打字插话、改变流程（steer）。
+- 结果：调研写进 `plan/reference/research-agent-design.md`「运行中插话（steer）」。新增 `domain/Inbox`；共用循环 `AgentLoop` 每次调模型之前取走插话、作为用户消息加进对话（不打断正在执行的工具）。`SessionRunner.send`、`ApplicationRunner.reply` 在跑时不再 409，放进收件箱返回 202（申请工作台运行中只收文字）；跑完还有的写进对话并接着跑。`SessionView`、`ApplicationStatus` 多 `inserted`。ResearchAgent、ApplyAgent 提示词各加一句「插话优先」。前端两个输入框运行中可发，显示「已插入，Agent 下一步会看到」，保留停止，加「打断并发送」（= 停止 + 发送）。细节见 [C010](plan/coding/C010-steer.md)。
+- 验证：`mvn -B -q clean verify` 退出码 0（没改测试、没新增测试）；`npm run build` 通过。真实模型、真实 Chrome：未运行。
+- 待用户确认：C010「待用户确认回写 master」那两句（`plan/master/agent-runtime.md` 未改）。

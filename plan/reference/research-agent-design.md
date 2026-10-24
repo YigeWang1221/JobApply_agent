@@ -117,3 +117,25 @@
 3. 动作超时从 5 秒放到 15 秒（`--timeout-action 15000`），给加载遮罩留时间；比 Hermes 的 30 秒短，点不到时不至于每次等太久。
 4. MCP 的错误补一句实情（`PlaywrightMcpClient.hint`）：动作超时 = 元素点不到、操作没发生、不是安全限制；没有文件选择框 / 文件选择框挡着别的操作时下一步做什么。模型照错误里的说明做，不再自己编原因。
 5. 本机验证：用 MCP 同版本的 playwright-core 在无头 Chrome 里打开夹具 `file-slots.html`（作品集按钮上盖了透明层），点击 2 秒超时；模板 `setInputFiles` 设上文件，页面的 change 处理写出了文件名。
+
+## 运行中插话（steer）（2026-10-24）
+
+起因：用户要求「参考 deep agents / OpenMAIC：Agent 执行输出时，用户可以打字打断或改变流程」。当时两个 Agent 运行中发消息都返回 409，只能先停止。
+
+看的版本：langgraphjs `c6675bf`；deepagents `3e7d5fa`；deep-agents-ui `f6a4f34`；OpenMAIC `dff201b`；Hermes `e5dad4ac5`（只读源码，没读配置、密钥、memories、日志）。
+
+| 项目 | 做法 | 模型什么时候看到 | 前端 |
+| --- | --- | --- | --- |
+| langgraphjs | 每次运行带 `multitask_strategy`：reject（409）/ enqueue（排队等这次跑完）/ interrupt / rollback（用 AbortSignal 中止当前运行再开新运行，rollback 丢掉旧运行）。`libs/langgraph-api/src/api/runs.mts`、`storage/ops.mts` `cancel()`；客户端 `libs/sdk/src/stream/submit-coordinator.ts`（默认 rollback） | 不往正在跑的循环里插；要么等跑完，要么中止后作为新一轮 | SDK 有 `useSubmissionQueue` 显示排队的消息 |
+| deep-agents-ui | 运行中发送键变成停止，`handleSubmit` 直接返回（`ChatInterface.tsx`），等于在界面上拒绝 | — | 输入框能打字，不能发 |
+| deepagents CLI | 运行中消息进 `_pending_messages` 队列，跑完按顺序发（`libs/code/deepagents_code/app.py`）；Esc 先撤回最后一条排队的，没有排队的才中止 | 跑完以后作为新一轮 | 「N messages queued」 |
+| OpenMAIC | `POST /api/agent/sessions/[id]/messages` 先落库、返回 202；空闲时开新运行，在跑时 `runner.ts` `drainMessages()` 把新消息经 `agent.steer()` 插进正在跑的循环；`ask_user` 发出后不再插；停止是单独的 `/cancel` | 下一轮调模型之前（pi-agent-core 的 steer；依赖没装，具体时机按其惯例推断，未确认） | 输入框一直可用，运行中 Enter 就是插话，旁边有停止 |
+| Hermes | `busy_input_mode` 三选一：interrupt（默认，打断正在执行的工具，剩下的写「被用户打断跳过」，新消息作为下一轮）/ queue（跑完再发）/ steer（`run_agent.py` `steer()` 存进 `_pending_steer`，一批工具执行完后附在最后一条工具结果后面，或者每次调模型之前取走；不打断工具；带图片时退回 queue） | steer：下一次调模型之前 | 输入框从不禁用，状态写「queued for next turn」 |
+
+**结论（JobApply 怎么做）**
+
+1. 默认用 OpenMAIC / Hermes 的 steer：运行中的消息放进这次运行的收件箱，共用循环 `AgentLoop` 每次调模型之前（也就是上一批工具都执行完之后）取走，作为用户消息加进对话。不中止正在执行的工具：浏览器写操作做一半最难收拾，Hermes 的 steer 和 OpenMAIC 都不打断工具。不做 langgraph 的 rollback（要回滚浏览器里已经填的东西，做不到）。
+2. 跑完时收件箱里还有的（最后一步正好到的），写进对话、接着开一次运行（等于 deepagents 的队列兜底），不丢。
+3. 「打断并发送」= 现有的停止 + 发送（Hermes 的 interrupt 模式），不另造中止机制：循环先查停止再取收件箱，这条留给下一次运行。
+4. 前端照 OpenMAIC：输入框一直可用，运行中发送就是插话，停止按钮保留。
+5. 插话只收文字（Session 可带附件，因为它本来就是对话里的一条用户消息）；申请工作台的回答问题、选上传文件要改上传区和文件编号，运行中不收，和 Hermes「带图片退回 queue」同理。

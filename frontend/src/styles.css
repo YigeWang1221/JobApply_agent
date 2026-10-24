@@ -1163,6 +1163,10 @@ pre.report {
   overflow-wrap: anywhere;
 }
 
+.umsg.inserted .bubble {
+  opacity: 0.75;
+}
+
 .umsg.failed .bubble {
   background: color-mix(in srgb, var(--crit) 12%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--crit) 45%, transparent);

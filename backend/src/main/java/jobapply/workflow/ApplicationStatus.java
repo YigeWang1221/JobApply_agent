@@ -20,6 +20,7 @@ import jobapply.persistence.AssetRegistry;
  * @param plan         模型的计划和进度
  * @param report       填写报告：{@code draft | final}；还没有时为 null（正文用 {@code GET .../report}）
  * @param error        失败的原因
+ * @param inserted     运行中插了、Agent 还没看到的话（C010）
  */
 public record ApplicationStatus(
         String job,
@@ -37,7 +38,8 @@ public record ApplicationStatus(
         String prepState,
         String report,
         int round,
-        String error) {
+        String error,
+        List<String> inserted) {
 
     /** 一个附件；{@code url} 读文件（图片可以直接显示）。 */
     public record Attachment(String id, String name, String contentType, boolean image, String url) {

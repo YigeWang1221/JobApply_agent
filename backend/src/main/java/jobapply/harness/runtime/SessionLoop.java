@@ -16,6 +16,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import jobapply.agents.ResearchAgent;
 import jobapply.domain.Actor;
 import jobapply.domain.AgentRun;
@@ -149,11 +150,17 @@ public final class SessionLoop {
     /** 同上；{@code observer} 收到「正在做什么」（调模型、执行工具）和每一步的结果。 */
     public void run(String projectId, String sessionId, List<AgentRun.Turn> history, BooleanSupplier stop,
                     Consumer<AgentRun.Turn> append, LoopObserver observer) {
+        run(projectId, sessionId, history, stop, append, observer, null);
+    }
+
+    /** 同上；{@code inbox} 取走运行中用户插的话（C010），每次调模型之前取一次。 */
+    public void run(String projectId, String sessionId, List<AgentRun.Turn> history, BooleanSupplier stop,
+                    Consumer<AgentRun.Turn> append, LoopObserver observer, Supplier<List<AgentRun.Turn>> inbox) {
         new PlaybookSeeder(layout, clock).seed();
         // 用户发了消息：浏览器断着的话再留一次重连，真要用浏览器时才连（C006-fix-browser 第 1 节）
         browser.retryOnNextUse();
         new Round(projectId, sessionId, history, stop == null ? () -> false : stop, append,
-                observer == null ? LoopObserver.NONE : observer).go();
+                observer == null ? LoopObserver.NONE : observer, inbox).go();
     }
 
     /** 这个 Agent 在共用循环（{@link AgentLoop}）里的那一份：工具、上下文和结束条件。 */
@@ -170,12 +177,12 @@ public final class SessionLoop {
         private PageSnapshot latest;
 
         Round(String project, String session, List<AgentRun.Turn> history, BooleanSupplier stop,
-              Consumer<AgentRun.Turn> append, LoopObserver observer) {
+              Consumer<AgentRun.Turn> append, LoopObserver observer, Supplier<List<AgentRun.Turn>> inbox) {
             this.project = project;
             this.session = session;
             // 调模型回来时已经要求停止：照常记下回复，它的工具写「没有执行」，下一轮再停（和申请 Agent 不同，见 AgentLoop）
             this.loop = new AgentLoop<>(model, ResearchAgent.tools(), clock, TOOL_CALLS_PER_MESSAGE, false, stop,
-                    observer, history, append);
+                    observer, history, append, inbox);
             this.firstNew = Math.max(0, history.size() - 1);
             this.pages = new SessionPages(layout.sessionPagesDir(project, session));
         }

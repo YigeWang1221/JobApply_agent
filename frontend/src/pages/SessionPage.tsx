@@ -72,6 +72,17 @@ export default function SessionPage({ id }: { id: string }) {
     }
   }
 
+  // 打断并发送（C010）：先请这次运行停下，再发；后端跑完时把还没看到的这条接着跑
+  async function interrupt() {
+    try {
+      await api.stopSession(id);
+    } catch (e) {
+      toast(describe(e), "error");
+      return;
+    }
+    await send(text, attach.ready.map(sent), true);
+  }
+
   const sent = (file: Attachment): SentAttachment => ({
     id: file.id, name: file.name, contentType: file.contentType, image: file.image,
     url: api.sessionAttachmentUrl(id, file.id),
@@ -114,6 +125,7 @@ export default function SessionPage({ id }: { id: string }) {
         <MessageList messages={view.messages} running={running} jobs={view.jobs}
           activity={sse.activity !== undefined ? sse.activity : view.activity}
           pending={pending}
+          inserted={view.inserted ?? []}
           onResend={pending ? () => void send(pending.text, pending.attachments, false) : undefined}
           error={failure}
           onRetry={lastUser ? () => void send(lastUser.text, lastUser.attachments ?? [], false) : undefined}
@@ -132,6 +144,7 @@ export default function SessionPage({ id }: { id: string }) {
             attach={attach}
             onSend={() => void send(text, attach.ready.map(sent), true)}
             onStop={() => void act(() => api.stopSession(id))}
+            onInterrupt={() => void interrupt()}
             placeholder="例如：按我的简历找上海的后端校招 / 核验一下第一个 / 投这两个" />
         </div>
       </div>

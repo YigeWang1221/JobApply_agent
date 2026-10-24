@@ -1,5 +1,6 @@
 package jobapply.harness.runtime;
 
+import java.util.List;
 import jobapply.domain.AgentRun;
 
 /**
@@ -21,6 +22,10 @@ public interface LoopObserver {
 
     /** 马上要执行这个工具。 */
     default void tool(AgentRun.ToolCall call) {
+    }
+
+    /** 用户插的话加进了对话（C010）。 */
+    default void heard(List<AgentRun.Turn> said) {
     }
 
     /** 这个工具执行完了（结果带状态和用时）。 */

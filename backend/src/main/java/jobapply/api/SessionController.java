@@ -5,6 +5,7 @@ import java.io.UncheckedIOException;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
+import jobapply.domain.AgentRun;
 import jobapply.domain.SessionRecord;
 import jobapply.persistence.JobRepository;
 import jobapply.persistence.SessionRepository;
@@ -40,8 +41,10 @@ public class SessionController {
      * @param jobs     这个 Session 涉及的 Job
      * @param activity 现在在做什么；没在跑时为 null
      */
+    /** @param inserted 运行中插了、Agent 还没看到的消息原文（C010） */
     public record SessionView(Views.SessionSummary session, String status, String error,
-                              List<Views.ChatMessage> messages, List<Views.JobView> jobs, Views.Activity activity) {
+                              List<Views.ChatMessage> messages, List<Views.JobView> jobs, Views.Activity activity,
+                              List<String> inserted) {
     }
 
     /** @param attachments 先上传的附件编号（C006 附件）；有附件时 {@code text} 可以为空 */
@@ -128,6 +131,16 @@ public class SessionController {
         return new SessionView(Views.session(session, runner), status.status(), status.error(),
                 Views.timed(sessions.readTurns(project, sessionId), runner.events().sessionInFlight(sessionId),
                         "/api/sessions/" + sessionId + "/attachments"), touched,
-                Views.activity(runner.events().sessionActivity(sessionId)));
+                Views.activity(runner.events().sessionActivity(sessionId)),
+                runner.inserted(sessionId).stream().map(SessionController::insertedText).toList());
+    }
+
+    /** 插话的原文；只有附件时写附件名。 */
+    private static String insertedText(AgentRun.Turn turn) {
+        if (turn.text() != null && !turn.text().isBlank()) {
+            return turn.text();
+        }
+        return turn.attachments().stream().map(AgentRun.Attachment::name)
+                .collect(java.util.stream.Collectors.joining("、", "（附件：", "）"));
     }
 }

@@ -354,6 +354,8 @@ export interface ApplicationStatus {
   error?: string | null;
   // 这个申请已经存下的附件（C006-fix）：上传位置也可以选它们（attachment:<id>）
   attachments?: SentAttachment[] | null;
+  // 运行中插了、Agent 还没看到的话（C010）
+  inserted?: string[] | null;
 }
 
 export interface ReplyBody {
@@ -544,6 +546,8 @@ export interface SessionView {
   messages: ChatMessage[];
   jobs: JobView[];
   activity?: Activity | null;
+  // 运行中插了、Agent 还没看到的消息（C010）
+  inserted?: string[] | null;
 }
 
 export interface JobEventView {

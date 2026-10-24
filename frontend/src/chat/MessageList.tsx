@@ -15,6 +15,8 @@ export interface MessageListProps {
   jobs?: JobView[];
   // 刚发出、后端还没确认的那条用户消息
   pending?: { text: string; failed: boolean; attachments?: SentAttachment[] } | null;
+  // 运行中插了、Agent 还没看到的话（C010）
+  inserted?: string[];
   onResend?: () => void;
   error?: string | null;
   onRetry?: () => void;
@@ -24,7 +26,7 @@ export interface MessageListProps {
 }
 
 export function MessageList(props: MessageListProps) {
-  const { messages, running, activity, jobs = [], pending, error, empty } = props;
+  const { messages, running, activity, jobs = [], pending, error, empty, inserted = [] } = props;
   const turns = toTurns(messages, running);
   const scroller = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
@@ -33,7 +35,7 @@ export function MessageList(props: MessageListProps) {
 
   // 内容变了（新消息、新步骤、状态）时，如果原本在底部就滚到底
   const signature = [messages.length, last?.entries.length ?? 0, last?.reply?.length ?? 0, pending?.text ?? "",
-    pending?.failed ?? "", running, error ?? "", activityText(live)].join("|");
+    pending?.failed ?? "", inserted.length, running, error ?? "", activityText(live)].join("|");
   useLayoutEffect(() => {
     const el = scroller.current;
     if (el && stick) {
@@ -63,6 +65,12 @@ export function MessageList(props: MessageListProps) {
           <TurnView key={turn.key} turn={turn} jobs={jobs} live={running && i === turns.length - 1}
             last={i === turns.length - 1 && !pending}
             onRegenerate={!running && i === turns.length - 1 && !pending && turn.user ? props.onRegenerate : undefined} />
+        ))}
+        {inserted.map((text, i) => (
+          <div key={`inserted-${i}`} className="umsg inserted">
+            <div className="bubble">{text}</div>
+            <div className="muted small">已插入，Agent 下一步会看到</div>
+          </div>
         ))}
         {pending && (
           <div className={`umsg${pending.failed ? " failed" : ""}`}>
