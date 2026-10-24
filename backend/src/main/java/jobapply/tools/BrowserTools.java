@@ -47,7 +47,7 @@ public final class BrowserTools {
     public static final Set<String> READ_ONLY = Set.of(BrowserToolPolicy.SNAPSHOT, BrowserToolPolicy.FIND);
 
     private static final String FIELD_EXTRA = """
-            "fact":{"type":"string","description":"Optional: the profile key or answer id (ans-NNN) the value comes from; resume if taken from the resume text (read_resume); none if you inferred it"},\
+            "fact":{"type":"string","description":"Optional: the profile key or answer id (ans-NNN) the value comes from; resume if taken from the resume text (read_resume); cover_letter for a cover letter you wrote; none if you inferred it"},\
             "confidence":{"type":"string","enum":["high","medium","low"],"description":"Optional"},\
             "language":{"type":"string","enum":["zh","en"],\
             "description":"Optional: use the value in this language instead of the page language"}""";

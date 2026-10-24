@@ -77,3 +77,18 @@
 - unknown 阈值固定 7 天（`HiringRound.UNKNOWN_AFTER_DAYS`），没有做「在 Project 偏好里改」：视图层拿不到 Project 偏好，先不加。
 - 公司流程模板（空心圆的预计轮次）没做，计划里也没点名；圆点只画已经发生的轮次。
 - 看板卡片上的进度点没加（计划只点名了申请总表）。
+
+### 实际结果 · B
+
+- 施工中用户改了设计（2026-10-24，经协调代理转达）：`remember` 已有的就更新、新的才加，照 Hermes（`~/.hermes/hermes-agent` `e5dad4ac5`）的 memory / skill_manage 写法。对照写在 `plan/reference/research-agent-design.md`「Hermes 的 memory 写法」。
+- **`remember` 工具**（定义一份在 `ControlTools.REMEMBER_DEFINITION`，`ResearchTools` 也用它）：`action: add | replace | remove`，`kind: fact | site | company | lesson | skill`。执行在新的 `memory/MemoryWriter`（分派、C 级检查、事实按键写）和 `persistence/MemoryNotes`（md 条目文件和 skill 局部修改），对话 Agent 在 `SessionLoop`、申请 Agent 在 `HarnessLoop` 各加一个分支。不经过用户确认。
+  - `fact`：按键 upsert 到当前 Project 的 `overrides.md`（键已有就更新、结果里给原来的值；没有才加），remove 删 overrides 里的这个键。A / B 级；C 级明文（键名或值命中 C 级词表）拒绝，结果里叫模型改成登记 `{KEY}` 占位符、告诉用户写 personal.env。值正好是 `{KEY}` 时按 C 级写入——**要等 D 合并后才能真正写进去**：现在 `Fact` 不允许构造 C 级，本分支里这一步返回「C 级字段不允许存储」，不写文件。
+  - `site` / `company` / `lesson`：`playbook/sites/<host>.md`（新文件带 SiteNotes 的 frontmatter）、`companies/<company>.md`、`review/lessons.md` 里一行 `- ...` 一条；add 一模一样的不重复加；replace / remove 用 `old_text` 找唯一的一条（没对上、对上几条都报错）；每个文件条目合计 4000 字上限，满了报「先合并或删掉旧条目」；结果里列出现在的条目。申请 Agent 不写 host / company 时默认当前页面、这个岗位的公司。note 里有 C 级的值拒绝。
+  - `skill`：old_string（正文里正好一次）换成 new_string，不动 frontmatter，改完不超过 8000 字；不做整篇重写。
+  - 对话 Agent 的上下文新加一行「已有的资料键」（只有键和分级）；申请 Agent 本来就在「有效资料」里看到键。
+  - `StorageLayout` 加 `companyFile`、`reviewLessons`、`baseWriting`。
+- **新 skill**：`components/cover-letter`、`memory-update`（什么值得记、先看已有的、同一件事 replace、条目要短、满了先合并、改 skill 只改一段），都放进 `PlaybookSeeder.BUNDLED`。
+- **Cover Letter**：申请 Agent 原来读不到 JD 快照，加了控制工具 `read_jd`（`job.md` 的「JD 快照」一节、候选备注、公司记忆、`base/writing.md`；没有写作偏好时给默认字数）。提示词新段「Cover Letter 和 memory」：文本框由 Agent 起草，读 JD / 简历 / 资料 / skill，只写真实的事，fact 写 `cover_letter`；`FieldIntent.COVER_LETTER` 让报告里这一行的来源写「Cover Letter：Agent 起草」。只能上传文件时照旧问用户。
+- **提示词**：申请 Agent 在用户回答了问题、发现站点规律、停在提交前时 remember；对话 Agent 在用户说了新事实或纠正、投递后有反馈时 remember；都说已有的 replace、新的才 add，写了什么在回复里提一句，并指向 skill memory-update。
+- 验证：`JAVA_HOME=… mvn -B -q clean verify` 退出码 0。用 jshell 在临时 storage 上手动调了一遍 `MemoryWriter`（虚构数据）：事实新加、按键更新（给出原值）、C 级明文被拒、站点条目 add / 重复 add / replace / 对不上的 remove、公司记忆、经验超过 4000 字被拒、skill 对不上 old_string 报错，结果都和上面一致。没写测试。真实应用、真实浏览器：未运行。
+- 没做：经验文件（`review/lessons.md`）还没有放进任何 Agent 的上下文，只有写入；对话 Agent 看不到公司记忆（申请 Agent 通过 `read_jd` 看得到）。

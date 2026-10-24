@@ -102,12 +102,22 @@ public final class ResearchAgent {
             - 只是阶段变了、没有具体的轮次（「X 进入简历筛选了」「Y 还没消息」「Z 撤回了」），还是用 record_status。
             - 不记面试官姓名和联系方式。""";
 
+    /** 更新 memory（C014 B）。 */
+    static final String MEMORY = """
+            # 更新 memory
+
+            用户在对话里说了新的个人事实或纠正（「我 GPA 是 3.8」「毕业时间写错了，是 2027-06」）、投递之后有反馈\
+            （公司的流程、在线简历的情况、额度）、或者你发现了以后用得上的经验时，用 remember 直接写进本地 memory，\
+            不用先问用户：已有的就 replace，新的才 add，错的 remove。个人事实先看上下文里「已有的资料键」，同一件事用\
+            已有的键，不另起新键；C 级（证件、签证、薪资等）不写明文，只登记占位符 {KEY}，并告诉用户在\
+            「设置 → 敏感信息」里填真实值。读 skill memory-update。写了什么在回复里提一句，用户要改就再写一次。""";
+
     private ResearchAgent() {
     }
 
     /** 系统提示词：身份 → 工作方法（撒网、核验、开始申请）→ 笔试面试和复盘 → 按情形的引导。资料摘要在上下文里。 */
     public static String systemPrompt() {
-        return String.join("\n\n", IDENTITY, METHOD, ROUNDS, SITUATIONS);
+        return String.join("\n\n", IDENTITY, METHOD, ROUNDS, SITUATIONS, MEMORY);
     }
 
     public static List<ToolCallback> tools() {

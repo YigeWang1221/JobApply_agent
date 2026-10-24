@@ -37,6 +37,8 @@ import jobapply.harness.policies.SnapshotRedactor;
 import jobapply.harness.policies.SubmitGuard;
 import jobapply.harness.policies.ToolNotAllowedException;
 import jobapply.harness.runtime.AgentLoop.Step;
+import jobapply.memory.MemoryWriter;
+import jobapply.memory.ProfileResolver;
 import jobapply.persistence.AgentRunStore;
 import jobapply.persistence.AssetRegistry;
 import jobapply.persistence.AttachmentStore;
@@ -114,6 +116,9 @@ public final class SessionLoop {
     private final AgentRunStore runs;
     /** 简历排名（C008）。 */
     private final ResumeMatch resumes;
+    /** 直接写本地 memory（C014 B）。 */
+    private final MemoryWriter memory;
+    private final ProfileResolver profile;
 
     public SessionLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock, WebSearch search,
                        WebFetch fetch, Applications applications) {
@@ -134,6 +139,8 @@ public final class SessionLoop {
         this.ledger = new JobLedger(layout, clock, ledgerEvents);
         this.runs = new AgentRunStore(layout);
         this.resumes = new ResumeMatch(new AssetRegistry(layout, clock), ledger, clock);
+        this.memory = new MemoryWriter(layout, clock);
+        this.profile = new ProfileResolver(layout, clock);
     }
 
     /**
@@ -258,6 +265,8 @@ public final class SessionLoop {
             out.append("- Project：").append(project).append("（Session ").append(session).append("）\n");
             out.append("\n# 用户画像（profile.md）\n\n").append(body(layout.baseProfile(), "还没有画像。"));
             out.append("\n\n# 偏好（preferences.md）\n\n").append(body(layout.preferences(project), "还没有写偏好。"));
+            out.append("\n\n# 已有的资料键（remember fact 之前先看：同一件事用已有的键 replace，不另起新键）\n\n")
+                    .append(factKeys());
             out.append("\n\n# skill 目录（用 read_skill 读全文）\n\n");
             for (SkillCatalog.Skill skill : catalog.skills()) {
                 if ("research".equals(skill.group())) {
@@ -265,6 +274,17 @@ public final class SessionLoop {
                 }
             }
             return out.toString();
+        }
+
+        /** 资料键一行列完（只有键和分级，不带值；C 级的值只会是占位符）。读不出时说原因，不挡住这次对话。 */
+        private String factKeys() {
+            try {
+                List<String> keys = profile.resolve(project, List.of()).values().stream()
+                        .map(fact -> fact.key() + "（" + fact.factClass().name() + "）").toList();
+                return keys.isEmpty() ? "（还没有）" : String.join("、", keys);
+            } catch (RuntimeException e) {
+                return "（读不出：" + e.getMessage() + "）";
+            }
         }
 
         // ---- 工具 ----
@@ -303,6 +323,8 @@ public final class SessionLoop {
                     case ResearchTools.SAVE_REVIEW -> result(call, saveReview(args));
                     case ResearchTools.ASK_USER -> askUser(call, text(args.get("message")));
                     case ResearchTools.READ_SKILL -> readSkill(call, text(args.get("name")));
+                    case ResearchTools.REMEMBER -> result(call, memory.remember(project, MemoryWriter.Item.from(args),
+                            null, null));
                     default -> failed(call, "失败：没有这个工具：" + name);
                 };
             } catch (ToolNotAllowedException e) {

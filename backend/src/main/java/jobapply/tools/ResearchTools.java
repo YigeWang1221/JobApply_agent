@@ -29,6 +29,8 @@ public final class ResearchTools {
     public static final String SAVE_REVIEW = "save_review";
     public static final String ASK_USER = ControlTools.ASK_USER;
     public static final String READ_SKILL = ControlTools.READ_SKILL;
+    /** 直接写本地 memory（C014），定义和申请 Agent 共用一份。 */
+    public static final String REMEMBER = ControlTools.REMEMBER;
 
     /** 调研时可以用的浏览器工具（导航另有说明）。 */
     static final Set<String> BROWSER = Set.of(BrowserToolPolicy.SNAPSHOT, BrowserToolPolicy.FIND,
@@ -214,11 +216,12 @@ public final class ResearchTools {
                     "Read the full text of a skill from the catalog (how to come up with search queries, how to verify "
                             + "jobs on official campus sites).",
                     """
-                    {"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}"""));
+                    {"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}"""),
+            ControlTools.REMEMBER_DEFINITION);
 
     private static final Set<String> NAMES = Set.of(WEB_SEARCH, WEB_FETCH, LIST_JOBS, ADD_LEAD, UPDATE_LEAD,
             START_APPLICATION, MARK_SUBMITTED, RECORD_STATUS, LIST_RESUMES, READ_RESUME, CHOOSE_RESUME, ASK_USER,
-            READ_SKILL, RECORD_ROUND, SAVE_REVIEW);
+            READ_SKILL, RECORD_ROUND, SAVE_REVIEW, REMEMBER);
 
     private ResearchTools() {
     }

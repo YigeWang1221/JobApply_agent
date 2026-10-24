@@ -810,3 +810,11 @@
 - 结果：新增 `domain/HiringRound`、`persistence/RoundReviews`、`persistence/ReviewWriter`、`dashboard/Reviews.tsx`；`JobLedger` 加 `recordRound`、`saveReview`；`TrackerWriter` 写 `tracker/rounds.md` / `rounds.csv`，申请总表「进度」「同步」两列填上；全局生成时写 `review/questions.md`、`review/companies/<company>.md`；事件加 `round_recorded`、`review_saved`，Session 标签加 `review`；`ResearchTools` / `SessionLoop` 加两个工具，`ResearchAgent` 加一段提示词；`JobView` 加 `rounds`，新接口 `GET /api/jobs/{id}/rounds/{seq}/review`；工作台右栏「轮次」、申请总表「进度」列、Dashboard「复盘概览」。细节见 C014「实际结果 · A」。
 - 验证：`backend/` 下 `mvn -B -q clean verify` 退出码 0；`frontend/` 下 `npm run build` 通过。临时场景（临时 storage、虚构公司，跑完删除，未提交）：一面 → 重复调用不多记 → 写复盘 → 二面 → 一面 passed → 12 天后二面 failed，阶段 applied → interview → closed:rejected，轮次表、进度圆点、⚠ unknown、题库、按公司汇总、Session 标签都和预期一致。真实对话里模型调用这两个工具：未运行。
 - 偏差：unknown 阈值固定 7 天，没有做 Project 偏好里可改；公司流程模板的空心圆、看板卡片进度点没做（计划没点名）。
+
+## 2026-10-24 · C014-B Agent 自己更新 memory + Cover Letter
+
+- 日期：2026-10-24
+- 指令：按 C014 工作包 B 施工：两个 Agent 都有 `remember`，直接写本地 memory（个人事实、站点、公司、经验），C 级明文拒绝、只收 `{KEY}` 占位符；申请 Agent 遇到 Cover Letter 文本框时按 JD、简历、资料起草填进去。施工中用户改设计：`remember` 已有的更新、新的才加，照 Hermes 的 memory / skill_manage；再加改 skill 的入口和预置 skill `memory-update`。
+- 结果：新增 `memory/MemoryWriter.java`、`persistence/MemoryNotes.java`、skill `components/cover-letter`、`memory-update`（进 `PlaybookSeeder.BUNDLED`）。`ControlTools` 加 `read_jd`、`remember`（定义两个 Agent 共用），`ResearchTools` 加 `remember`；`SessionLoop`、`HarnessLoop` 各加执行分支，对话 Agent 上下文加「已有的资料键」。`remember`：`action add / replace / remove`；fact 按键 upsert 到 Project 的 `overrides.md`；site / company / lesson 是 md 里的一行条目，`old_text` 定位、去重、每文件 4000 字上限；skill 只做唯一匹配的局部替换。`JobRepository.jdSnapshot`、`StorageLayout.companyFile / reviewLessons / baseWriting`、`FieldIntent.COVER_LETTER` + `FillReportWriter.COVER_LETTER_SOURCE`（报告来源写「Cover Letter：Agent 起草」）。两个 Agent 的提示词各加一段。`plan/reference/research-agent-design.md` 加「Hermes 的 memory 写法」，C014 写「实际结果 · B」。
+- 验证：`backend/` 下 `JAVA_HOME=… mvn -B -q clean verify` 退出码 0。jshell 在临时 storage 上用虚构数据手动调 `MemoryWriter`：新加 / 按键更新 / C 级明文拒绝 / 条目去重、替换、对不上报错 / 超上限拒绝 / skill old_string 对不上报错，都符合预期。前端没改。真实应用、真实浏览器：未运行。
+- 偏差：`{KEY}` 占位符在本分支写不进去（`Fact` 还不允许 C 级），等 D 合并。经验文件只写不读，还没放进 Agent 上下文。没写测试。

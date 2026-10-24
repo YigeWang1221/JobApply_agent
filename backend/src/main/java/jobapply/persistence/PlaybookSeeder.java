@@ -29,6 +29,8 @@ public final class PlaybookSeeder {
             "components/file-upload/SKILL.md",
             "components/resume-parse/SKILL.md",
             "components/repeatable-entries/SKILL.md",
+            "components/cover-letter/SKILL.md",
+            "memory-update/SKILL.md",
             "research/broad-search/SKILL.md",
             "research/verify-official/SKILL.md");
 
