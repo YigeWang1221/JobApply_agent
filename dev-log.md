@@ -770,3 +770,9 @@
 ## 2026-10-24 · C010 回写 master（用户批准）
 
 - 按代码（`Inbox`、`AgentLoop.heard`、`SessionRunner.send`、`ApplicationRunner.reply/insert/resumeWithInserted/stop`、前端「打断并发送」）在 `plan/master/agent-runtime.md` 7.1 加一条「运行中插话」、7.7 `ApplicationRunner` 的「回复」补「在跑或排队时只收文字，带答案、文件或附件时 409」；和 C010 原拟文字的差别（排队时也收、排队时停下也接着跑、用户已定下不再跑）记在 C010；只改文档，未运行构建。
+
+## 2026-10-24 · C011 冒烟清单和观察脚本
+
+- 指令：写用户自己 Chrome 上的 C011 冒烟清单（严格不提交；证明两个 Worker 重叠动作、各在自己的标签页；只弹一次允许、MCP 会话隔离；排队中和运行中插话；K1 同站点卡住单独列为已知问题，出现即记失败）和一个只读观察脚本。
+- 结果：新增 `plan/coding/C011-smoke-test.md`（推荐 `--jobapply.harness.application-workers=2` + 3 个不同网站的岗位让第三个排队）和 `plan/coding/c011_smoke_observe.py`（`watch` 记事件流和状态轮询的结构字段，`report` 打印重叠、页面地址、连接代数、插话、状态五张表；不打印填写的值）；C011 加一行指向清单。
+- 验证：脚本 `report` 对现有 3 个 Job 的文件跑通（应用没开，接口部分按读不到处理；输出只核对了结构，没看内容）；`watch` 和应用日志解析用 scratchpad 里的合成数据跑通。对真实运行中的应用订阅事件流：未运行。冒烟本身：未运行。
