@@ -225,6 +225,11 @@ public record StorageLayout(Path root) {
         return sessionDir(projectId, sessionId).resolve("attachments");
     }
 
+    /** 对话 Agent 在这个 Session 里读过的网页（开头部分，{@link SessionPages}）。 */
+    public Path sessionPagesDir(String projectId, String sessionId) {
+        return sessionDir(projectId, sessionId).resolve("pages");
+    }
+
     public Path transcript(String projectId, String sessionId) {
         return sessionDir(projectId, sessionId).resolve("transcript.jsonl");
     }

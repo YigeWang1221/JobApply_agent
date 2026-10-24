@@ -336,6 +336,12 @@ public final class BrowserToolPolicy {
         return uri == null ? null : uri.getHost();
     }
 
+    /** 网址所在的站点（{@link #site(String)}）；不是 http / https 地址时为 null。 */
+    public static String siteOf(String url) {
+        String host = hostOf(url);
+        return host == null ? null : site(host);
+    }
+
     /** registrable domain 的近似：最后两段；公共后缀是两段时取最后三段。IP 和单段主机名原样比较。 */
     static String site(String host) {
         String h = host.toLowerCase(Locale.ROOT);

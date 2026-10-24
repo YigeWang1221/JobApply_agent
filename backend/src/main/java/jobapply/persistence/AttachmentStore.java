@@ -5,7 +5,9 @@ import java.io.UncheckedIOException;
 import java.net.URLConnection;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.security.SecureRandom;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
@@ -102,6 +104,27 @@ public final class AttachmentStore {
             return Optional.of(new Stored(id, name, Files.size(file), contentType(name), file));
         } catch (IOException e) {
             throw new UncheckedIOException("读取附件失败：" + id, e);
+        }
+    }
+
+    /** 存着的全部附件，先存的在前；目录不存在时为空。 */
+    public List<Stored> list() {
+        if (!Files.isDirectory(dir)) {
+            return List.of();
+        }
+        try (Stream<Path> folders = Files.list(dir)) {
+            return folders.map(folder -> find(folder.getFileName().toString())).flatMap(Optional::stream)
+                    .sorted(Comparator.comparing(stored -> modified(stored.path()))).toList();
+        } catch (IOException e) {
+            throw new UncheckedIOException("读取附件目录失败：" + dir, e);
+        }
+    }
+
+    private static FileTime modified(Path file) {
+        try {
+            return Files.getLastModifiedTime(file);
+        } catch (IOException e) {
+            throw new UncheckedIOException("读不到附件：" + file, e);
         }
     }
 

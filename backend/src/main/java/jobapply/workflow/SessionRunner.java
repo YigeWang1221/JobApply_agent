@@ -14,8 +14,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Supplier;
 import jobapply.domain.AgentRun;
+import jobapply.domain.LiveRuns;
 import jobapply.domain.SessionRecord;
-import jobapply.harness.policies.ToolNotAllowedException;
 import jobapply.harness.runtime.SessionLoop;
 import jobapply.persistence.AttachmentStore;
 import jobapply.persistence.ProjectRepository;
@@ -31,7 +31,7 @@ import org.springframework.ai.chat.model.ChatModel;
 /**
  * Session 对话的入口（C005）：新建 Session（Agent 先给开场）、发消息、重新生成、停止、查状态。每条消息在后台跑一次
  * {@link SessionLoop}，对话一条一条写进 {@code transcript.jsonl}。在跑的 Session 在内存里；上一次运行的状态和错误
- * 记在 {@code session.md}（C006-agent），应用重启时还在跑的那次显示为「中断」。现在在做什么在 {@link #feed()} 里。
+ * 记在 {@code session.md}（C006-agent），应用重启时还在跑的那次显示为「中断」。现在在做什么在 {@link #events()} 里。
  * 同一个 Session 同一时间只跑一次；不同 Session 可以同时跑（浏览器按使用者切换标签页）。
  */
 public final class SessionRunner implements AutoCloseable {
@@ -48,9 +48,14 @@ public final class SessionRunner implements AutoCloseable {
     static final String UNTITLED = "新对话 · ";
     static final int TITLE_LENGTH = 30;
     static final String INTERRUPTED_ERROR = "应用重启了，上一次运行被中断。回复后接着做。";
-    /** 有副作用的工具：重新生成时不撤销、不重做，告诉模型已经做过了（C006-agent 第 5 节）。 */
-    private static final Set<String> SIDE_EFFECTS = Set.of("add_lead", "update_lead", "start_application",
-            "mark_submitted", "record_status");
+    /**
+     * 重新生成时追加的说明（C006-fix 第 4 节）。只说发生了什么，不替模型判断哪些生效了：结果原文在上面，
+     * 有副作用的工具都可重放（重复调用返回已有的结果）。
+     */
+    static final String REGENERATE = "系统：用户要求重新生成上一次的回答。上面保留了上一次已经执行的调用和结果"
+            + "（成功还是失败看结果原文）；有副作用的工具重复调用是安全的，会返回已有的结果。请重新回答用户最后一条消息。";
+    /** 申请线程回报的开头（只给模型看的 note；界面上把它显示成一条消息，去掉这个开头）。 */
+    public static final String REPORT = "系统通知（申请线程的回报，不是用户说的话）：";
     private static final Logger log = LoggerFactory.getLogger(SessionRunner.class);
 
     /** 一个 Session 现在的状态。{@code error} 是上一次运行的错误；没有时为 null。 */
@@ -76,10 +81,13 @@ public final class SessionRunner implements AutoCloseable {
         thread.setDaemon(true);
         return thread;
     });
-    private final Set<String> running = new HashSet<>();
+    private final LiveRuns running = new LiveRuns();
     private final Set<String> stopRequested = new HashSet<>();
-    private final LiveFeed feed;
+    private final RuntimeEvents events;
+    /** 申请线程的回报：Session 在跑时先放在这里，跑完再写进对话（不插进正在进行的工具调用中间）。 */
+    private final Map<String, List<AgentRun.Turn>> pendingReports = new HashMap<>();
 
+    /** 事件日志和 {@code applications} 共用；申请线程的回报写进发起它的 Session（{@link #report}）。 */
     public SessionRunner(StorageLayout layout, Clock clock, BrowserSession browser, Supplier<ChatModel> mainModel,
                          WebSearch search, WebFetch fetch, ApplicationRunner applications) {
         this.layout = layout;
@@ -91,7 +99,25 @@ public final class SessionRunner implements AutoCloseable {
         this.applications = applications;
         this.projects = new ProjectRepository(layout, clock);
         this.sessions = new SessionRepository(layout, clock);
-        this.feed = new LiveFeed(clock);
+        this.events = applications.events();
+        applications.reportTo(this::report);
+    }
+
+    /**
+     * 申请线程一次运行结束的回报（C006-fix 第 2 节）：在发起它的 Session 的对话里记一条 {@link #REPORT} 开头的 note，
+     * 发 {@code changed}。不唤醒模型；用户下一句话时对话 Agent 看得到。Session 正在跑时等它跑完再写。
+     */
+    synchronized void report(String projectId, String sessionId, String jobId, String text) {
+        if (projectId == null || sessionId == null || !sessions.exists(projectId, sessionId)) {
+            return;
+        }
+        AgentRun.Turn note = AgentRun.Turn.note(REPORT + text);
+        if (running.contains(sessionId)) {
+            pendingReports.computeIfAbsent(sessionId, key -> new ArrayList<>()).add(note);
+            return;
+        }
+        sessions.appendTurn(projectId, sessionId, note);
+        events.changed(sessionId, jobId);
     }
 
     /** 新建 Session，Agent 在后台读 Project 状态并写开场。{@code title} 为空时用「新对话 · 日期 时间」。 */
@@ -133,6 +159,7 @@ public final class SessionRunner implements AutoCloseable {
         sessions.appendTurn(projectId, sessionId, AgentRun.Turn.user(message, attached));
         if (first && sessions.load(projectId, sessionId).title().startsWith(UNTITLED)) {
             sessions.rename(projectId, sessionId, title(message.isEmpty() ? attached.getFirst().name() : message));
+            events.changed(sessionId, null);
         }
         submit(projectId, sessionId);
     }
@@ -144,8 +171,9 @@ public final class SessionRunner implements AutoCloseable {
     }
 
     /**
-     * 重新生成最后一条回复（C006-agent 第 5 节）。不撤销、不重放：去掉上一次回答的文字（连同 {@code ask_user}），
-     * 已经执行的工具调用和结果留在对话里；再告诉模型哪些有副作用的操作已经生效、不要重复，然后重新跑。
+     * 重新生成最后一条回复（C006-fix 第 4 节）。不撤销：去掉上一次回答的文字（连同 {@code ask_user}），已经执行的
+     * 工具调用和结果原样留在对话里，追加一句 {@link #REGENERATE}，然后重新跑。有副作用的工具都可重放，模型重复调用
+     * 得到「已经是这样了」的回执；上一次失败的，模型从结果原文里看得到，可以重试。
      * 正在跑、或者最后一条用户消息之后还没有回复时 409。
      */
     public synchronized void regenerate(String sessionId) {
@@ -170,15 +198,14 @@ public final class SessionRunner implements AutoCloseable {
         Set<String> answered = new HashSet<>();
         reply.forEach(timed -> timed.turn().results().forEach(result -> answered.add(result.id())));
         List<SessionRepository.TimedTurn> kept = new ArrayList<>(turns.subList(0, start));
-        Map<String, AgentRun.ToolCall> calls = new HashMap<>();
-        List<String> done = new ArrayList<>();
+        Set<String> calls = new HashSet<>();
         for (SessionRepository.TimedTurn timed : reply) {
             AgentRun.Turn turn = timed.turn();
             switch (turn.role()) {
                 case AgentRun.Turn.ASSISTANT -> {
                     List<AgentRun.ToolCall> executed = turn.calls().stream()
                             .filter(call -> !"ask_user".equals(call.name()) && answered.contains(call.id())).toList();
-                    executed.forEach(call -> calls.put(call.id(), call));
+                    executed.forEach(call -> calls.add(call.id()));
                     if (!executed.isEmpty()) {
                         kept.add(new SessionRepository.TimedTurn(timed.at(),
                                 AgentRun.Turn.assistant(null, executed)));
@@ -186,14 +213,7 @@ public final class SessionRunner implements AutoCloseable {
                 }
                 case AgentRun.Turn.TOOL -> {
                     List<AgentRun.ToolResult> results = turn.results().stream()
-                            .filter(result -> calls.containsKey(result.id())).toList();
-                    for (AgentRun.ToolResult result : results) {
-                        AgentRun.ToolCall call = calls.get(result.id());
-                        if (SIDE_EFFECTS.contains(call.name())) {
-                            done.add("- " + call.name() + " " + shorten(call.arguments(), 300) + " → "
-                                    + shorten(result.text(), 200));
-                        }
-                    }
+                            .filter(result -> calls.contains(result.id())).toList();
                     if (!results.isEmpty()) {
                         kept.add(new SessionRepository.TimedTurn(timed.at(), AgentRun.Turn.tool(results)));
                     }
@@ -202,10 +222,7 @@ public final class SessionRunner implements AutoCloseable {
             }
         }
         sessions.rewriteTurns(projectId, sessionId, kept);
-        sessions.appendTurn(projectId, sessionId, AgentRun.Turn.note("系统：用户要求重新生成上一次的回答。"
-                + (done.isEmpty() ? "上一次回答没有做有副作用的操作。"
-                : "上一次回答已经做了这些，已经生效，不要重复：\n" + String.join("\n", done))
-                + "\n上面留下的搜索、读网页结果可以直接用。请重新回答用户最后一条消息。"));
+        sessions.appendTurn(projectId, sessionId, AgentRun.Turn.note(REGENERATE));
         submit(projectId, sessionId);
     }
 
@@ -226,24 +243,25 @@ public final class SessionRunner implements AutoCloseable {
         if (running.contains(session.id())) {
             return new Status(Status.RUNNING, null);
         }
-        if (Status.RUNNING.equals(session.lastStatus())) {
+        if (running.interrupted(session.id(), Status.RUNNING.equals(session.lastStatus()))) {
             return new Status(Status.INTERRUPTED, INTERRUPTED_ERROR);
         }
         return new Status(Status.INTERRUPTED.equals(session.lastStatus()) ? Status.INTERRUPTED : Status.IDLE,
                 session.lastError());
     }
 
-    /** 每个 Session 现在在做什么、订阅推送。 */
-    public LiveFeed feed() {
-        return feed;
+    /** 事件日志：每个 Session 现在在做什么、推送（C006-fix）。 */
+    public RuntimeEvents events() {
+        return events;
     }
 
-    /** Session 所在的 Project（Session id 全局唯一）。没有这个 Session 时 404。 */
     /** 用户改对话名。运行中也可以改：只动 session.md 的标题，不碰对话。 */
     public void rename(String sessionId, String title) {
         sessions.rename(project(sessionId), sessionId, SessionRepository.checkTitle(title));
+        events.changed(sessionId, null);
     }
 
+    /** Session 所在的 Project（Session id 全局唯一）。没有这个 Session 时 404。 */
     public String project(String sessionId) {
         return findProject(sessionId)
                 .orElseThrow(() -> new ApplicationException.NotFound("Session 不存在：" + sessionId));
@@ -267,26 +285,16 @@ public final class SessionRunner implements AutoCloseable {
         sessions.writeStatus(projectId, sessionId, Status.RUNNING, null);
         running.add(sessionId);
         stopRequested.remove(sessionId);
-        feed.started(sessionId, Status.RUNNING);
+        events.started(sessionId, null, Status.RUNNING);
         pool.submit(() -> {
             String error = null;
             try {
                 List<AgentRun.Turn> history = sessions.readTurns(projectId, sessionId).stream()
                         .map(SessionRepository.TimedTurn::turn).toList();
                 SessionLoop loop = new SessionLoop(mainModel.get(), browser, layout, clock, search, fetch,
-                        (job, project, session) -> {
-                            // 重新开始会丢掉上一次填了一半的申请（重新生成、模型重复调用时都可能发生）
-                            Optional<AgentRun> existing = applications.run(job);
-                            if (existing.isPresent()) {
-                                throw new ToolNotAllowedException("Job " + job + " 已经有申请线程（"
-                                        + applications.status(job).status() + "），不会重新开始。之后在申请工作台里继续；"
-                                        + "要重新开始请用户在工作台里操作。");
-                            }
-                            ApplicationStatus status = applications.start(job, project, session);
-                            return "已经开始申请 " + job + "（申请线程：" + status.status() + "）。之后在申请工作台里进行。";
-                        });
+                        applicationTools(), events::changed);
                 loop.run(projectId, sessionId, history, () -> stopRequested(sessionId),
-                        turn -> sessions.appendTurn(projectId, sessionId, turn), feed.observer(sessionId));
+                        turn -> sessions.appendTurn(projectId, sessionId, turn), events.observer(sessionId, null));
             } catch (RuntimeException e) {
                 error = rootMessage(e);
                 log.warn("Session {} 的对话 Agent 出错：{}", sessionId, error);
@@ -299,9 +307,50 @@ public final class SessionRunner implements AutoCloseable {
                 }
                 running.remove(sessionId);
                 stopRequested.remove(sessionId);
+                // 跑的时候到的申请线程回报，现在接在对话后面
+                for (AgentRun.Turn note : pendingReports.getOrDefault(sessionId, List.of())) {
+                    try {
+                        sessions.appendTurn(projectId, sessionId, note);
+                    } catch (RuntimeException e) {
+                        log.warn("Session {} 没有记下申请线程的回报：{}", sessionId, rootMessage(e));
+                    }
+                }
+                pendingReports.remove(sessionId);
             }
-            feed.finished(sessionId, Status.IDLE);
+            events.finished(sessionId, null, Status.IDLE);
+            events.changed(sessionId, null);
         });
+    }
+
+    /** 对话 Agent 的 {@code start_application}，以及记下用户说的事实之前停下申请线程。 */
+    private SessionLoop.Applications applicationTools() {
+        return new SessionLoop.Applications() {
+            @Override
+            public String start(String job, String project, String session) {
+                // 可重放（C006-fix 第 4 节）：已经有申请线程时不重新开始（会丢掉填了一半的申请），返回回执
+                if (applications.run(job).isPresent()) {
+                    return "已经在申请了：" + job + " 已经有申请线程（" + applications.status(job).status()
+                            + "），没有重新开始，填了一半的也还在。之后在申请工作台里继续；要从头重来请用户在工作台里操作。";
+                }
+                ApplicationStatus status = applications.start(job, project, session);
+                if (AgentRun.QUEUED.equals(status.status())) {
+                    // 排队（C006-fix-2 第 1 条）：浏览器一次只给一个申请用，排上了就是开始了，不用再调用
+                    return "已经排上队：" + job + "。浏览器现在在做别的申请，轮到它时自动开始，不用再调用 start_application。"
+                            + "之后在申请工作台里看进度。";
+                }
+                return "已经开始申请 " + job + "（申请线程：" + status.status() + "）。之后在申请工作台里进行。";
+            }
+
+            @Override
+            public void stop(String job) {
+                applications.statusIfAny(job).ifPresent(status -> applications.stop(job));
+            }
+
+            @Override
+            public String status(String job) {
+                return applications.statusIfAny(job).map(ApplicationStatus::status).orElse(null);
+            }
+        };
     }
 
     /** 第一条用户消息的前 {@link #TITLE_LENGTH} 个字（换行换成空格）。 */
@@ -309,11 +358,6 @@ public final class SessionRunner implements AutoCloseable {
         String flat = message.strip().replaceAll("\\s+", " ");
         return flat.codePointCount(0, flat.length()) <= TITLE_LENGTH ? flat
                 : flat.substring(0, flat.offsetByCodePoints(0, TITLE_LENGTH));
-    }
-
-    private static String shorten(String text, int max) {
-        String flat = text == null ? "" : text.strip().replaceAll("\\s+", " ");
-        return flat.length() > max ? flat.substring(0, max) + "…" : flat;
     }
 
     private synchronized boolean stopRequested(String sessionId) {

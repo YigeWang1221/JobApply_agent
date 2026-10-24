@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, errorText, type ProjectSummary, type SessionSummary } from "./api";
+import BrowserBanner from "./BrowserBanner";
 import { Icon } from "./chat/icons";
+import { useGlobalChanges } from "./chat/useLiveUpdates";
 import Global from "./pages/Global";
 import JobPage from "./pages/JobPage";
 import ProjectPage from "./pages/ProjectPage";
@@ -9,8 +11,6 @@ import Settings from "./pages/Settings";
 import { RenameInput } from "./RenameTitle";
 import { go, href, useRoute, type Route } from "./route";
 import { toast, Toasts } from "./toast";
-
-const SIDEBAR_REFRESH_MS = 5000;
 
 // 应用外框（C005-ui.md）：左边 Project / Session 侧栏，右边按选中的内容切换
 export default function App() {
@@ -27,11 +27,11 @@ export default function App() {
     }
   }, []);
 
+  // 切换页面时读一次；之后跟着全局事件流（/api/events）刷新，不再每 5 秒轮询
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => void refresh(), SIDEBAR_REFRESH_MS);
-    return () => window.clearInterval(timer);
   }, [refresh, route]);
+  useGlobalChanges(refresh);
 
   const [collapsed, setCollapsed] = useState(() => readFlag(SIDEBAR_KEY));
   const toggle = () => {
@@ -45,6 +45,7 @@ export default function App() {
         ? <SidebarRail route={route} projects={projects} onExpand={toggle} onCreated={refresh} />
         : <Sidebar route={route} projects={projects} error={error} onCreated={refresh} onCollapse={toggle} />}
       <Toasts />
+      <BrowserBanner />
       <main className={route.kind === "session" || route.kind === "job" ? "main full" : "main"}>
         {route.kind === "global" && <Global projects={projects} />}
         {route.kind === "project" && <ProjectPage key={route.id} id={route.id} onChanged={refresh} />}

@@ -19,6 +19,7 @@ import jobapply.persistence.SourceRegistry;
 import jobapply.persistence.StorageLayout;
 import jobapply.tools.GitHubPublicReader;
 import jobapply.tools.LocalDirectoryScanner;
+import jobapply.workflow.RuntimeEvents;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -93,11 +94,15 @@ public class ImportConfiguration {
     @Bean
     ImportRunner importRunner(StorageLayout layout, ImportRunStore runs, SourceRegistry sources,
                               LocalDirectoryScanner scanner, GitHubPublicReader github, FactWriter writer,
-                              LedgerFile ledger, ProjectCardFile cards, ModelRegistry models, Clock clock) {
+                              LedgerFile ledger, ProjectCardFile cards, ModelRegistry models, Clock clock,
+                              RuntimeEvents events) {
         SourceInventory inventory = new SourceInventory(layout, sources, scanner, github,
                 new EvidenceCardFile(layout, clock), models::auxiliaryOrMain, clock);
-        return new ImportRunner(layout, runs, sources, inventory, new CandidateExtractor(models::main), writer, ledger,
-                cards, github, models::main, clock);
+        ImportRunner runner = new ImportRunner(layout, runs, sources, inventory, new CandidateExtractor(models::main),
+                writer, ledger, cards, github, models::main, clock);
+        // 导入记录写完就发 changed（全局事件），导入页据此重读进度
+        runner.onChange(() -> events.changed(null, null));
+        return runner;
     }
 
     @Bean

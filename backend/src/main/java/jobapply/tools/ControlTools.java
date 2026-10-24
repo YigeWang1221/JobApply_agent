@@ -69,12 +69,17 @@ public final class ControlTools {
     private static final ToolDefinition DONE = definition(FINISH,
             "Everything you can fill is filled, saved where the site has a save step, and read back. The form now "
                     + "stands just before the final submit. Ends the run; the user reviews the report and the page and "
-                    + "submits it themselves. summary is shown to the user.",
+                    + "submits it themselves. summary is shown to the user. Set page_shows_submitted from the latest "
+                    + "snapshot: true only if the page says the application was already submitted (e.g. a Next button "
+                    + "turned out to submit it).",
             """
             {"type":"object","properties":{\
             "summary":{"type":"string","description":"For the user: what was filled, what to check before submitting"},\
             "unresolved":{"type":"array","items":{"type":"string"},\
-            "description":"Open points with the reason, one per item"}},"required":["summary"]}""");
+            "description":"Open points with the reason, one per item"},\
+            "page_shows_submitted":{"type":"boolean",\
+            "description":"The latest page says the application has already been submitted"}},\
+            "required":["summary","page_shows_submitted"]}""");
 
     private ControlTools() {
     }

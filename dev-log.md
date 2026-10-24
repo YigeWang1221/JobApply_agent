@@ -625,3 +625,59 @@
 - 指令：用户「拉起一个 subagent 直接进行 UI 重构」。一个代理施工，只改全局页、Project 页、侧栏说明和两处后端（`GET /api/jobs`、JobView 加 `events`）；对话页、工作台、chat/* 没动。细节见 [C006-fix 版式](plan/coding/C006-fix-ui-mockup.md)「实际结果」。
 - 核对：`ProjectController` 的路径和原来一致；改名、新建 Session、已下线 / 重新开放、「我看了」都还在。
 - 验证：`npm run build` 通过；`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）。浏览器里和示意页对照：未运行。没有提交 git。
+
+## 2026-10-23 · 4 个问题核实；改成结构方案
+
+- 用户转来 4 个问题，逐条读代码核实，都属实。先做了补丁：用户能从任意准备状态登记提交（状态机按 Actor 放行，Agent 仍按边表）、申请线程结束时不覆盖用户定的状态、`/submitted` 先停线程；有附件时必填上传位置放行（后端）；重新生成按结果分成功 / 未生效。第 3 条的前端轮询没有做（用户否决）。`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）。
+- 用户要求参考 OpenMAIC、Deep Agents 从结构上解决：只读源码后写了 [C006-fix 运行时](plan/coding/C006-fix-runtime.md)，结论写进 research-agent-design.md「运行时」一节。等用户确认后施工；上面的补丁里，附件放行和重新生成的分类会被结构方案替换。
+- 参考仓库按用户要求放到 `/Users/yigewang/Documents/Personal_learning_2026/`：OpenMAIC、deepagents、deep-agents-ui、langgraphjs（浅克隆）；AGENTS.md、dev-limit.md 登记为只读参考。
+
+## 2026-10-23 · 只读审查之前的结构问题
+
+- 指令：用户「看看之前是不是也有这样的结构性问题；先 plan 再 multi-agent 修改」。一个代理只读审查（没改文件），对照 OpenMAIC、deepagents、deep-agents-ui、langgraphjs、hermes-agent，列出 13 条和查过没问题的地方。
+- 结果：JobLedger 多实例各锁各的（并发写丢更新）、工具结果状态从中文开头猜，这两条并进 C006-fix-runtime（追加给代理 B）。其余写成 [C006-fix 第二阶段](plan/coding/C006-fix-runtime-2.md)；对话压缩、资料导入改成 Agent 记为待决定。第 2 条（软按钮）没照审查原建议「每次点击都批准」，改成交给模型判断，只在模型怀疑是最后一步时问用户（避免增加用户点击）。
+
+## 2026-10-23 · C006-fix-runtime 施工完成（三个代理）
+
+- A：应用级事件日志 `RuntimeEvents`（环形缓冲、纪元:序号、按 Session 过滤含它的 Job）、`GET /api/events`（补发、caught_up、reset、25 秒心跳、不关流），删掉 LiveFeed / EventStream 和旧推送地址；申请线程结束回报 Session（note，不唤醒模型）；读回对话时补中断的调用。B：用户事实优先（`advancePrep` 原子操作）、有副作用工具可重放（回执）、重新生成只留中性说明、上传位置一张清单（`attachment:<id>`，不拦必填）、全局写锁 `StorageLock.WRITES`、工具结果状态在产生处设好。C：前端共享 EventSource、自动重连、去掉 4–5 秒轮询、上传位置可选附件、必填位置只提示。细节见 C006-fix-runtime「实际结果」。
+- 验证：合并后 `npm run build` 通过；`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）。B 有四处用 sed / python 做了精确替换（报告里写明，合并后核对过）。启动应用看推送、补发、重启后 reset，以及「先放着后说投了」「只附 PDF 交必填位置」「重新生成后不重复」：未运行。没有提交 git。
+
+## 2026-10-23 · C006-fix 第二阶段第一批（D、E、F）
+
+- 中断与重复：用户合上 MacBook 后，原会话没有退出，它的 D / E / F 和本会话恢复的 D / E / F 同时在改同一批文件；发现后先停本会话的 F、问原会话。原会话 17:54 退出后，本会话的 E、F 接着做，重读自己改过的文件，确认每件事只有一份实现。
+- D：申请排队（去掉 `requireBrowserFree` 和两条 409，`queued` 状态、按顺序跑）；「在跑」只看内存（`LiveRuns`，Session / 申请 / 导入共用），重启后的申请显示「中断」；每次运行重新取模型。推迟：`job.md` 里 Agent 写的 prep_state 仍由 `advancePrep` 写（理由见计划）。
+- E：软边界按钮交给模型判断（`final_step_suspected`；只在模型怀疑最后一步或页面有提交按钮 / 末步时问用户；批准只对这一页、这个 ref、这个按钮、一次；调研里软按钮放行，硬边界词照旧拦）；去掉 `askedButton`；标签页只按序号 + 网址认，模型有受限的 `tabs`（list / select），点击后新开的标签页自动交给这个 Job；`finish` 带 `page_shows_submitted`。workflow.md「提交保护」加注。改了 `SubmitGuardTest` 的软按钮用例（三条变五条），硬边界和最终提交的测试没动。
+- F：读过的页面存进 Session 的 `pages/`，`add_lead` 按网址或 `source` 取快照；`due` / `bucket` / `canStart` 在服务端算一次（`JobBucket`），list_jobs 和前端都读它；必填问题只提示；导入页改用事件。
+- 验证：所有代理停下后单独跑：`npm run build` 通过；`mvn -B clean verify` 连跑两次都退出码 0（surefire 614、failsafe 1）。之前 F 碰到的 `ImportRunControllerTest` 失败是几个代理同时在 `target/` 构建造成的，单独跑没有复现。真实 Chrome、真实模型：未运行。没有提交 git。
+
+## 2026-10-23 · 回归审查与修正（H、I）
+
+- 只读审查对照 182c7a6 找出 8 条回归（6 条确定），写进 C006-fix-runtime-2「回归审查后的修正」，H、I 两个代理先写施工细节和「必须保持不变」再改。
+- H：用户已定下状态后 `reply` 返回 409、界面锁输入框，线程状态显示 `done`（只推导不落盘）；台账写入在锁外发事件，`RuntimeEvents` 改成入队 + 虚拟线程逐个发送，慢连接不再卡住写入；`list_jobs` 读实时线程状态；回报 Session 不报停止和暂停，页面像已投递时换说法；旧记录的「页面像已投递」退回按消息判断；排队中停止立即出队。
+- I：同一标签页网址变了、还在同站点仍算这个岗位的（第三步认法）；接着做时只有一个候选就直接认回，不新开页；`open()` 先刷新所有人的序号再清旧记录。新增 `BrowserSessionTabsTest`（丢掉填了一半的标签页是实际损失）。
+- 验证：两个代理停下后单独跑：`npm run build` 通过；`mvn -B clean verify` 退出码 0（surefire 616 = 614 + I 新增 2、failsafe 1）。I 报告里的 603 是复制代码时 H 改到一半所致，单独跑核对过。真实 Chrome、真实模型：未运行。没有提交 git。
+
+## 2026-10-23 · 合并两个 Agent 循环（G，C006-fix-runtime-2 第 4 条）
+
+- 新 `AgentLoop<R>`：停止、上限和总结、调模型、工具计时、观察者事件、最新页面，两个 Agent 共用；`HarnessLoop`、`SessionLoop` 各自只留工具、上下文和结束条件（`AgentLoop.Agent`）。新 `ToolArgs`（`parse` / `text`）。浏览器工具分发、守卫、断开策略留在各自的 Agent，差别写进类说明；调模型时停止的不同写成参数 `dropReplyWhenStopped`。
+- 验证：scratchpad 里的临时新旧对照（假模型 + 假浏览器，14 个场景，发给模型的消息、事件、返回的 AgentRun、transcript、运行日志、报告全部记下）改前改后逐字节相同；`mvn -B clean verify` 退出码 0（surefire 616、failsafe 1）。测试没改。真实 Chrome、真实模型：未运行。没有提交 git。
+
+
+## 2026-10-23 · 合并循环（G）与最终审查修正（J、K）
+
+- G：两个 Agent 循环合成 `harness/runtime/AgentLoop`（+ `ToolArgs`），刻意保留的差异写成参数（停止时丢不丢回复、文案和上限、浏览器工具和守卫、断开策略）。用临时对照程序跑 14 个场景（申请 8、调研 6），改前改后逐字节一致；没有改测试。
+- 最终只读审查找出 4 条，写进 C006-fix-runtime-2「最终审查后的修正」：
+  - J：接着做时只有「这个岗位自己的记录 + 和岗位链接或上次网址同站点 + 唯一」才自动认回并快照，其余只列标题和网址给模型；标签页个数变少的那一轮只用「序号 + 网址」认，不再把同一 ATS 上别的申请的页认成自己的。`BrowserSessionTabsTest` 加 3 条（读到用户自己的页、在别的申请表上填答案都是实际损失）。
+  - K：排队时停止用一次性票据，已被停止的任务开头就退出，不会照跑；每个订阅的待发队列超过 2000 条就断开，浏览器带 Last-Event-ID 重连补发。新增 `RuntimeEventsTest`（不靠 sleep）。
+- 验证：所有代理停下后在工作区单独跑：`npm run build` 通过；`mvn -B clean verify` 退出码 0（surefire 620 = 616 + J 3 + K 1、failsafe 1）。真实 Chrome、真实模型：未运行。
+- 暂存区：有一份中途的快照（15 个文件和工作区不一致，`AgentLoop`、`ToolArgs`、两个新测试没有暂存）。提交前要 `git add -A`。没有提交 git。
+
+## 2026-10-23 · 收尾与交接（停止来回修）
+
+- 用户指出：一下午都在审查、补安全、来回修，没有一次真实跑通申请；标签页规则本该靠提示词和 skill，却做成了代码里的硬约束，违反 AGENTS.md「Agent 开发原则」。已停掉 N（整表对齐）、O（find 清洗等小项），两者都没做完；停下后单独跑：`mvn -B clean verify` 退出码 0（surefire 625、failsafe 1），前端 `tsc -b` 通过。本会话不再改代码。
+- 交接给下一个会话（按顺序）：
+  1. **标签页规则改回提示词 / skill 约束**：「只操作自己打开的、自己点出来的、用户明确交给你的标签页；用户之前开的不碰」写进 ApplyAgent / ResearchAgent 提示词和 apply-form skill；代码里只保留系统自己需要的记账（谁开的哪个标签页、转交），去掉 C006-fix-browser 第 2 节和「审查后的结构修正」里为安全加的判断（逐条猜归属的拒绝、整表对齐的半成品、find 清洗）。代码硬线只留：不点最终提交、密钥不外泄。
+  2. **真实跑通一次**：真实 Chrome（远程调试开关）+ 真实模型，打开岗位页 → 登录 → 填写 → 停在提交前 → 用户提交 → 记已投递；遇到什么修什么。
+  3. 然后做 C008（简历排名）。
+- 已知风险（只记下，不修，交用户决定）：C006-fix-browser 最后一次审查列出的 5 条标签页路径；对话压缩没做；资料导入还是固定流水线。
+- 没有提交 git。暂存区是中途快照，提交前要 `git add -A`。

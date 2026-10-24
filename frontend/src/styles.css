@@ -2407,3 +2407,47 @@ table.apps tr.grp td {
     transition: width 0.35s ease;
   }
 }
+
+/* 推送断开、正在自动重连（C006-fix）：只是一个淡淡的提示，连上就消失 */
+.reconnecting {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+/* 顶部的浏览器状态条（C006-fix-browser 第 1 节）：只在浏览器断开时出现，浮在页面上方，不挤占布局 */
+.browserbar {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(760px, calc(100vw - 32px));
+  padding: 8px 10px 8px 14px;
+  border: 1px solid color-mix(in srgb, var(--warn) 60%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 18%, var(--surface));
+  color: var(--warn-ink);
+  font-size: 13px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+}
+
+.browserbar > span {
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.browserbar .error {
+  margin-left: 6px;
+}
+
+.browserbar button {
+  flex: none;
+}

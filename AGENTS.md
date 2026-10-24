@@ -8,6 +8,8 @@
 
 可只读参考同级目录 `../Eco_Agent/`（同一套技术栈与流程）。不修改它的文件。密钥文件仍禁读。
 
+Agent 运行时设计的常用参考（用户放在同级目录，2026-10-23；只读，不改，`git pull` 更新由用户决定）：`../OpenMAIC/`（THU-MAIC）、`../deepagents/`、`../deep-agents-ui/`、`../langgraphjs/`（LangChain），以及本机 `~/.hermes/hermes-agent`（不读其中的配置、密钥、memories、日志）。改运行时结构前先看它们怎么做，结论写进 `plan/reference/research-agent-design.md`，写明看的是哪个提交。
+
 `storage/example.data/` 是用户以前投递时的真实个人数据，只能用于流程研究，规则见 `dev-limit.md`「信息边界」。
 
 ## 谁做决定

@@ -12,9 +12,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import jobapply.domain.Actor;
 import jobapply.domain.AgentRun;
 import jobapply.domain.Job;
+import jobapply.domain.JobBucket;
 import jobapply.domain.JobEvent;
+import jobapply.domain.JobStatus;
+import jobapply.domain.LeadStatus;
 import jobapply.domain.Phase;
 import jobapply.domain.PrepState;
 import jobapply.domain.ProjectSpec;
@@ -22,11 +26,12 @@ import jobapply.domain.SessionRecord;
 import jobapply.domain.Timestamps;
 import jobapply.harness.policies.SubmitWords;
 import jobapply.persistence.AttachmentStore;
+import jobapply.persistence.JobLedger;
 import jobapply.persistence.SessionRepository;
 import jobapply.workflow.ApplicationException;
 import jobapply.workflow.ApplicationRunner;
 import jobapply.workflow.ApplicationStatus;
-import jobapply.workflow.LiveFeed;
+import jobapply.workflow.RuntimeEvents;
 import jobapply.workflow.SessionRunner;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
@@ -58,7 +63,8 @@ final class Views {
                    String url, String site, String source, String discoveredIn, String leadStatus, String skipReason,
                    String phase, String prepState, String label, String verified, String officialUrl, String note,
                    String application, String appliedAt, String lastCheckedAt, String nextCheckAt,
-                   boolean pageLooksSubmitted, List<PhaseEvent> events) {
+                   boolean pageLooksSubmitted, List<PhaseEvent> events, boolean due, String bucket,
+                   boolean canStart) {
     }
 
     /**
@@ -144,22 +150,28 @@ final class Views {
 
     /**
      * {@code nextCheckAt} 是日期（{@code yyyy-MM-dd}），到了这一天就「该查看了」（C007）。{@code pageLooksSubmitted}：
-     * 申请 Agent 结束时页面已经像投递成功了（{@link SubmitWords#SUBMITTED_NOTICE}）。{@code events} 为 null（没读事件日志）。
+     * 申请 Agent 结束时模型判断页面已经像投递成功了（{@link AgentRun#pageShowsSubmitted()}）。{@code events} 为 null（没读事件日志）。
+     * 下面三个只在这里算（C006-fix 第 6 节），前端和 {@code list_jobs} 都读同一个判断：{@code due}「该查看了」
+     * （{@link Job#checkDue}，按服务器的 {@code today}）；{@code bucket} 分组（{@link JobBucket}）；{@code canStart}
+     * 可以开始申请线程：还没有申请线程、状态允许（{@link jobapply.domain.JobStatus#canStartApplication}）、有岗位链接。
      */
-    static JobView job(Job job, ApplicationRunner applications) {
-        return job(job, applications, null);
+    static JobView job(Job job, ApplicationRunner applications, LocalDate today) {
+        return job(job, applications, null, today);
     }
 
     /** 带阶段变化的 JobView（Project 主页、全局页的列表用）；{@code history} 是这个 Job 的全部事件。 */
-    static JobView job(Job job, ApplicationRunner applications, List<JobEvent> history) {
+    static JobView job(Job job, ApplicationRunner applications, List<JobEvent> history, LocalDate today) {
         List<PhaseEvent> events = history == null ? null : history.stream()
                 .filter(e -> PHASE_EVENTS.contains(e.type()))
                 .map(e -> new PhaseEvent(e.at(), e.type().value(), e.to()))
                 .toList();
         Optional<ApplicationStatus> status = applications.statusIfAny(job.id());
         String application = status.map(ApplicationStatus::status).orElse(null);
-        boolean looksSubmitted = status.map(ApplicationStatus::message)
-                .filter(message -> message.contains(SubmitWords.SUBMITTED_NOTICE)).isPresent();
+        // 模型 finish 时判断的（page_shows_submitted，存在 AgentRun 里），不再从给人看的文字里找（C006-fix-runtime-2）
+        // 旧记录没有 lastPage：退回原来按给人看的那句话判断
+        boolean looksSubmitted = applications.run(job.id()).map(run -> run.lastPage() != null ? run.pageShowsSubmitted()
+                : status.map(ApplicationStatus::message).filter(message -> message.contains(SubmitWords.SUBMITTED_NOTICE))
+                        .isPresent()).orElse(false);
         return new JobView(job.id(), job.project(), job.posting().company(), job.posting().title(),
                 job.posting().city(), job.posting().type(), job.posting().url(), job.posting().site(),
                 job.posting().source(), job.discoveredIn(), job.status().leadStatus().value(),
@@ -167,20 +179,18 @@ final class Views {
                 job.status().prepState() == null ? null : job.status().prepState().value(), job.status().label(),
                 job.extraString("verified"), job.extraString("official_url"), job.extraString("lead_note"),
                 application, job.extraString("applied_at"), job.extraString("last_checked_at"),
-                job.extraString("next_check_at"), looksSubmitted, events);
+                job.extraString("next_check_at"), looksSubmitted, events, job.checkDue(today),
+                JobBucket.of(job.status(), application).value(),
+                application == null && job.status().canStartApplication()
+                        && job.posting().url() != null && !job.posting().url().isBlank());
     }
 
-    /** 已投递、没结束、{@code next_check_at} 到了今天（含）的申请（C007）。 */
+    /**
+     * 已投递、没结束、{@code next_check_at} 到了今天（含）的申请（C007）：就是 {@link JobView#due}（建视图时按同一个
+     * {@code today} 算好的，{@link Job#checkDue}）；{@code today} 只为调用处不变而保留。
+     */
     static boolean checkDue(JobView job, LocalDate today) {
-        String next = job.nextCheckAt() == null ? "" : job.nextCheckAt().strip();
-        if (next.length() < 10 || job.phase() == null || !APPLIED.contains(Phase.of(job.phase()))) {
-            return false;
-        }
-        try {
-            return !LocalDate.parse(next.substring(0, 10)).isAfter(today);
-        } catch (DateTimeParseException e) {
-            return false;
-        }
+        return job.due();
     }
 
     static SessionSummary session(SessionRecord s, SessionRunner runner) {
@@ -188,7 +198,7 @@ final class Views {
                 runner.status(s).status());
     }
 
-    static Activity activity(LiveFeed.Activity activity) {
+    static Activity activity(RuntimeEvents.Activity activity) {
         if (activity == null) {
             return null;
         }
@@ -210,6 +220,20 @@ final class Views {
         return new ProcessStep("thinking", text, null, null, null, null, AgentRun.ToolResult.DONE, null, null);
     }
 
+    /** 申请线程停下来等用户的状态（计数「在等你」）。 */
+    private static final Set<String> AGENT_WAITS_FOR_USER = Set.of(AgentRun.WAITING_USER, AgentRun.FAILED,
+            AgentRun.INTERRUPTED);
+
+    /** 准备中、状态还没有被用户定下（{@link JobLedger#userDecided}）。 */
+    private static boolean agentsTurn(JobView job) {
+        if (!Phase.PREP.value().equals(job.phase()) || job.prepState() == null) {
+            return false;
+        }
+        JobStatus status = new JobStatus(LeadStatus.CONVERTED, null, Phase.PREP, PrepState.of(job.prepState()), null,
+                null);
+        return !JobLedger.userDecided(status, Actor.AGENT);
+    }
+
     static ProjectSummary project(ProjectSpec spec, List<SessionRecord> sessions, List<JobView> jobs,
                                   SessionRunner runner, LocalDate today) {
         int dueChecks = (int) jobs.stream().filter(job -> checkDue(job, today)).count();
@@ -229,11 +253,15 @@ final class Views {
             if (Phase.PREP.value().equals(job.phase())) {
                 preparing++;
             }
-            if (AgentRun.WAITING_USER.equals(job.application()) || AgentRun.FAILED.equals(job.application())) {
-                waiting++;
-            }
-            if (PrepState.AWAITING_REVIEW.value().equals(job.prepState())) {
-                ready++;
+            // Agent 的进度都读申请线程的状态（从 AgentRun 和内存推出来，含中断，C006-fix-2 第 3 条）；
+            // 用户已经定了的（你在提交、先放着……）不算在等你、停在提交前
+            if (job.application() != null && agentsTurn(job)) {
+                if (AGENT_WAITS_FOR_USER.contains(job.application())) {
+                    waiting++;
+                }
+                if (AgentRun.READY.equals(job.application())) {
+                    ready++;
+                }
             }
             if (job.phase() != null && APPLIED.contains(Phase.of(job.phase()))) {
                 applied++;
@@ -248,7 +276,7 @@ final class Views {
      * 申请线程的对话（没有时间）。{@code live} 是这一轮还没存盘的回复和结果，没有时为 null。
      * {@code attachmentUrl} 是读附件的路径前缀（后面接附件编号）。
      */
-    static List<ChatMessage> messages(List<AgentRun.Turn> turns, LiveFeed.InFlight live, String attachmentUrl) {
+    static List<ChatMessage> messages(List<AgentRun.Turn> turns, RuntimeEvents.InFlight live, String attachmentUrl) {
         return timed(turns.stream().map(turn -> new SessionRepository.TimedTurn(null, turn)).toList(), live,
                 attachmentUrl);
     }
@@ -256,7 +284,7 @@ final class Views {
     /**
      * 把对话折叠成消息流。{@code live}（这一轮还没写进对话的回复和已经执行完的结果）补在后面：回复已经在对话里时只补结果。
      */
-    static List<ChatMessage> timed(List<SessionRepository.TimedTurn> turns, LiveFeed.InFlight live,
+    static List<ChatMessage> timed(List<SessionRepository.TimedTurn> turns, RuntimeEvents.InFlight live,
                                    String attachmentUrl) {
         List<SessionRepository.TimedTurn> all = new ArrayList<>(turns);
         Map<String, AgentRun.ToolResult> liveResults = Map.of();
@@ -327,8 +355,18 @@ final class Views {
                         }
                     }
                 }
+                case AgentRun.Turn.NOTE -> {
+                    // 申请线程的回报（C006-fix 第 2 节）显示成一条 Agent 消息；别的 note 只给模型看
+                    if (turn.text() != null && turn.text().startsWith(SessionRunner.REPORT)) {
+                        out.add(new ChatMessage(AgentRun.Turn.ASSISTANT,
+                                turn.text().substring(SessionRunner.REPORT.length()), List.of(), List.of(), timed.at(),
+                                List.of()));
+                        tools = null;
+                        steps = null;
+                    }
+                }
                 default -> {
-                    // note、page：只给模型看
+                    // page：只给模型看
                 }
             }
         }

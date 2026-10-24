@@ -3,22 +3,20 @@ import { go } from "../route";
 import { PHASE, PREP } from "../status";
 import { addDays, applications, md } from "./metrics";
 
-const WAITING_PREP = new Set(["needs_input", "needs_login", "handoff_user", "awaiting_review", "failed"]);
-
 // 接下来 7 天：7 天内到「下次查看」的申请；下面是准备中、在等你的申请
 export function Upcoming({ jobs, showProject }: { jobs: JobView[]; showProject?: boolean }) {
   const today = localDay();
   const end = addDays(today, 7);
   const apps = applications(jobs);
   const soon = apps
-    .filter((j) => j.phase !== "closed" && j.phase !== "prep" && j.nextCheckAt)
+    .filter((j) => j.bucket === "applied" && j.nextCheckAt)
     .filter((j) => {
       const day = j.nextCheckAt!.slice(0, 10);
       return day > today && day <= end;
     })
     .sort((a, b) => a.nextCheckAt!.localeCompare(b.nextCheckAt!));
-  const waiting = apps.filter((j) => j.phase === "prep"
-    && (WAITING_PREP.has(j.prepState ?? "") || j.application === "waiting_user" || j.application === "failed"));
+  // 待你：准备中要你做事的，和停在提交前的（服务器的分组）
+  const waiting = apps.filter((j) => j.bucket === "waiting" || j.bucket === "ready");
   return (
     <div className="panel">
       <h2>接下来 7 天</h2>

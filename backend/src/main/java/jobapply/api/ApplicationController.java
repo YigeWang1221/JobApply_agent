@@ -73,8 +73,10 @@ public class ApplicationController {
     @PostMapping(path = "/attachments", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<Views.UploadedAttachment> attach(@PathVariable String jobId,
                                                            @RequestParam("file") MultipartFile file) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(Views.uploaded(
-                runner.attachments(jobId).save(file.getOriginalFilename(), SessionController.bytes(file))));
+        Views.UploadedAttachment uploaded = Views.uploaded(
+                runner.attachments(jobId).save(file.getOriginalFilename(), SessionController.bytes(file)));
+        runner.events().changed(null, jobId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(uploaded);
     }
 
     @GetMapping("/attachments/{attachmentId}")

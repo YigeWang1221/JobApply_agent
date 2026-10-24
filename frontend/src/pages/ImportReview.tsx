@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import {
   api, errorText, type ClaimUse, type DecisionKind, type ImportCandidate, type ImportRun, type ImportRunSummary,
 } from "../api";
+import { useGlobalChanges } from "../chat/useLiveUpdates";
+
+const RUNNING_SAFETY_MS = 15000;
 
 const NOTICE =
   "整理时，扫描出的文字会发给你配置的模型；秘密文件按名字跳过，不会被读取。证件号、签证、薪资这类 C 级内容不提取、不写入。";
@@ -55,14 +58,24 @@ export default function ImportReview({ initialRun }: { initialRun: string | null
   useEffect(() => { if (initialRun) { setSelected(initialRun); } }, [initialRun]);
   useEffect(() => { if (selected) { void reloadRun(selected); } }, [selected, reloadRun]);
 
-  // 整理在后台执行：running 时每 1.5 秒查一次进度
+  // 整理在后台执行：后端每写一次进度就发 changed 事件（/api/events），收到就重读当前记录和列表
+  const reloadSelected = useCallback(async () => {
+    if (selected) {
+      await reloadRun(selected);
+    }
+    await reloadRuns();
+  }, [selected, reloadRun, reloadRuns]);
+  useGlobalChanges(reloadSelected);
+
+  // 推送断了也不会一直停在旧进度：整理中每 15 秒保底重读一次
+  const runningId = run?.status === "running" ? run.id : null;
   useEffect(() => {
-    if (run?.status !== "running") {
+    if (!runningId) {
       return;
     }
-    const timer = window.setTimeout(() => { void reloadRun(run.id).then(reloadRuns); }, 1500);
-    return () => window.clearTimeout(timer);
-  }, [run, reloadRun, reloadRuns]);
+    const timer = window.setInterval(() => { void reloadRun(runningId).then(reloadRuns); }, RUNNING_SAFETY_MS);
+    return () => window.clearInterval(timer);
+  }, [runningId, reloadRun, reloadRuns]);
 
   async function start() {
     if (!run) {

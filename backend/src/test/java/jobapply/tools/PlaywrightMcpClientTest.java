@@ -183,10 +183,8 @@ class PlaywrightMcpClientTest {
             assertThat(session.isConnected()).isFalse();
             assertThat(session.ownsTab(JOB)).isFalse();
 
-            // 不自动重连（用户确认，2026-10-23）：用户发 reconnected 以后才重新连接（真实场景下要再同意一次），并且新开一个标签页
-            assertThatThrownBy(() -> session.open(JOB_URL, JOB)).isInstanceOf(BrowserException.Disconnected.class);
+            // 用过的连接断开后，下一次使用自动重连一次（C006-fix-browser 第 1 节，远程调试模式下不用再确认），并且新开一个标签页
             assertThat(fake.starts()).isEqualTo(1);
-            session.reconnect();
             assertThat(session.open(JOB_URL, JOB).url()).isEqualTo(JOB_URL);
             assertThat(fake.starts()).isEqualTo(2);
         }

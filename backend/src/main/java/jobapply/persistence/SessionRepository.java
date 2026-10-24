@@ -45,17 +45,19 @@ public final class SessionRepository {
         this.jobs = new JobRepository(layout);
     }
 
-    public synchronized SessionRecord create(String projectId, String title) {
+    public SessionRecord create(String projectId, String title) {
         if (!projects.exists(projectId)) {
             throw new IllegalArgumentException("Project 不存在：" + projectId);
         }
-        String id = IdSequence.next("s-" + LocalDate.now(clock) + "-", allSessionIds());
-        SessionRecord session = new SessionRecord(id, projectId, title, Timestamps.now(clock), List.of(), List.of(), "", null,
-                null);
-        Path file = layout.sessionFile(projectId, id);
-        FrontmatterFile.write(file, new FrontmatterFile.Document(
-                toFrontmatter(session, Map.of()), "\n# " + title + "\n\n" + HANDOFF_HEADING + "\n"));
-        return session;
+        synchronized (StorageLock.WRITES) {
+            String id = IdSequence.next("s-" + LocalDate.now(clock) + "-", allSessionIds());
+            SessionRecord session = new SessionRecord(id, projectId, title, Timestamps.now(clock), List.of(), List.of(),
+                    "", null, null);
+            Path file = layout.sessionFile(projectId, id);
+            FrontmatterFile.write(file, new FrontmatterFile.Document(
+                    toFrontmatter(session, Map.of()), "\n# " + title + "\n\n" + HANDOFF_HEADING + "\n"));
+            return session;
+        }
     }
 
     public boolean exists(String projectId, String sessionId) {
@@ -111,29 +113,35 @@ public final class SessionRepository {
      * 带 {@code at}、{@code role}、{@code text}，以及工具调用 {@code calls} 和结果 {@code results}。
      */
     public void appendTurn(String projectId, String sessionId, AgentRun.Turn turn) {
-        requireFile(projectId, sessionId);
-        eventLog.append(layout.transcript(projectId, sessionId), line(Timestamps.now(clock), turn));
+        synchronized (StorageLock.WRITES) {
+            requireFile(projectId, sessionId);
+            eventLog.append(layout.transcript(projectId, sessionId), line(Timestamps.now(clock), turn));
+        }
     }
 
     /** 整个改写对话（重新生成时去掉上一次回答的文字，C006-agent）。每一条保留原来的时间。 */
-    public synchronized void rewriteTurns(String projectId, String sessionId, List<TimedTurn> turns) {
-        requireFile(projectId, sessionId);
-        eventLog.rewrite(layout.transcript(projectId, sessionId),
-                turns.stream().map(timed -> line(timed.at(), timed.turn())).toList());
+    public void rewriteTurns(String projectId, String sessionId, List<TimedTurn> turns) {
+        synchronized (StorageLock.WRITES) {
+            requireFile(projectId, sessionId);
+            eventLog.rewrite(layout.transcript(projectId, sessionId),
+                    turns.stream().map(timed -> line(timed.at(), timed.turn())).toList());
+        }
     }
 
     /** 记下对话 Agent 这一次运行的状态和错误（{@code session.md} 的 {@code last_status}、{@code last_error}）。 */
-    public synchronized void writeStatus(String projectId, String sessionId, String status, String error) {
-        Path file = requireFile(projectId, sessionId);
-        FrontmatterFile.Document document = FrontmatterFile.read(file);
-        Map<String, Object> fm = new LinkedHashMap<>(document.frontmatter());
-        fm.put("last_status", status);
-        if (error == null) {
-            fm.remove("last_error");
-        } else {
-            fm.put("last_error", error);
+    public void writeStatus(String projectId, String sessionId, String status, String error) {
+        synchronized (StorageLock.WRITES) {
+            Path file = requireFile(projectId, sessionId);
+            FrontmatterFile.Document document = FrontmatterFile.read(file);
+            Map<String, Object> fm = new LinkedHashMap<>(document.frontmatter());
+            fm.put("last_status", status);
+            if (error == null) {
+                fm.remove("last_error");
+            } else {
+                fm.put("last_error", error);
+            }
+            FrontmatterFile.write(file, new FrontmatterFile.Document(fm, document.body()));
         }
-        FrontmatterFile.write(file, new FrontmatterFile.Document(fm, document.body()));
     }
 
     static final int TITLE_MAX = 80;
@@ -151,19 +159,21 @@ public final class SessionRepository {
     }
 
     /** 改标题（frontmatter 和正文第一行的标题）。 */
-    public synchronized void rename(String projectId, String sessionId, String title) {
-        Path file = requireFile(projectId, sessionId);
-        FrontmatterFile.Document document = FrontmatterFile.read(file);
-        Map<String, Object> fm = new LinkedHashMap<>(document.frontmatter());
-        String old = string(fm.get("title"));
-        fm.put("title", title);
-        String body = document.body();
-        String heading = "# " + old + "\n";
-        int at = old == null ? -1 : body.indexOf(heading);
-        if (at >= 0) {
-            body = body.substring(0, at) + "# " + title + "\n" + body.substring(at + heading.length());
+    public void rename(String projectId, String sessionId, String title) {
+        synchronized (StorageLock.WRITES) {
+            Path file = requireFile(projectId, sessionId);
+            FrontmatterFile.Document document = FrontmatterFile.read(file);
+            Map<String, Object> fm = new LinkedHashMap<>(document.frontmatter());
+            String old = string(fm.get("title"));
+            fm.put("title", title);
+            String body = document.body();
+            String heading = "# " + old + "\n";
+            int at = old == null ? -1 : body.indexOf(heading);
+            if (at >= 0) {
+                body = body.substring(0, at) + "# " + title + "\n" + body.substring(at + heading.length());
+            }
+            FrontmatterFile.write(file, new FrontmatterFile.Document(fm, body));
         }
-        FrontmatterFile.write(file, new FrontmatterFile.Document(fm, body));
     }
 
     private static Map<String, Object> line(String at, AgentRun.Turn turn) {
@@ -243,13 +253,15 @@ public final class SessionRepository {
 
     /** 写入交接摘要：替换「## 交接摘要」之后的全部内容。 */
     public void writeHandoff(String projectId, String sessionId, String summary) {
-        Path file = requireFile(projectId, sessionId);
-        FrontmatterFile.Document document = FrontmatterFile.read(file);
-        String body = document.body();
-        int heading = body.indexOf(HANDOFF_HEADING);
-        String head = heading < 0 ? body + (body.endsWith("\n") ? "\n" : "\n\n") : body.substring(0, heading);
-        String next = head + HANDOFF_HEADING + "\n\n" + summary.strip() + "\n";
-        FrontmatterFile.write(file, new FrontmatterFile.Document(document.frontmatter(), next));
+        synchronized (StorageLock.WRITES) {
+            Path file = requireFile(projectId, sessionId);
+            FrontmatterFile.Document document = FrontmatterFile.read(file);
+            String body = document.body();
+            int heading = body.indexOf(HANDOFF_HEADING);
+            String head = heading < 0 ? body + (body.endsWith("\n") ? "\n" : "\n\n") : body.substring(0, heading);
+            String next = head + HANDOFF_HEADING + "\n\n" + summary.strip() + "\n";
+            FrontmatterFile.write(file, new FrontmatterFile.Document(document.frontmatter(), next));
+        }
     }
 
     /**

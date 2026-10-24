@@ -60,7 +60,7 @@ public final class ApplicationStateMachine {
         return switch (transition) {
             case Transition.MarkLead mark -> markLead(current, mark);
             case Transition.Convert convert -> convert(current);
-            case Transition.ChangePrepState change -> changePrepState(current, change.to());
+            case Transition.ChangePrepState change -> changePrepState(current, change.to(), actor);
             case Transition.MarkApplied applied -> markApplied(current, applied.evidence());
             case Transition.ChangePhase change -> changePhase(current, change.to());
             case Transition.Close close -> close(current, close.outcome(), actor);
@@ -91,9 +91,14 @@ public final class ApplicationStateMachine {
         return new JobStatus(LeadStatus.CONVERTED, null, Phase.PREP, SELECTED, null, null);
     }
 
-    private static JobStatus changePrepState(JobStatus current, PrepState to) {
+    private static JobStatus changePrepState(JobStatus current, PrepState to, Actor actor) {
         requirePrep(current);
-        if (!PREP_EDGES.get(current.prepState()).contains(to)) {
+        // 用户说的事实优先于流程（C006-fix 第 3 节）：用户随时可能自己在 Chrome 里提交了（先放着之后、等回答时……），
+        // 说提交了，准备中的任何状态都能进 user_submitting；说还没提交 / 先放着，准备中的任何状态都能进 paused。
+        // Agent 只能按边走（例如只能从停在提交前进 user_submitting）
+        boolean userFact = actor == Actor.USER && to != current.prepState()
+                && (to == USER_SUBMITTING && !APPLIED_FROM.contains(current.prepState()) || to == PAUSED);
+        if (!userFact && !PREP_EDGES.get(current.prepState()).contains(to)) {
             throw new IllegalTransitionException(
                     "prep_state 不能从 " + current.prepState().value() + " 变为 " + to.value());
         }

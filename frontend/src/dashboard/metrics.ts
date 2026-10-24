@@ -18,15 +18,14 @@ export const BOARD_PHASES: [string, string][] = [
 // 漏斗的层：第 i 层（从 1 起）是「曾经走到过」这一步
 export const FUNNEL_LEVELS = ["已投递", "简历筛选", "笔试 / OA", "面试中", "Offer"];
 const LEVEL: Record<string, number> = { applied: 1, screening: 2, assessment: 3, interview: 4, offer: 5 };
-const AFTER_APPLIED = new Set(["applied", "screening", "assessment", "interview", "offer"]);
 
 export function applications(jobs: JobView[]): JobView[] {
   return jobs.filter((j) => j.leadStatus === "converted");
 }
 
-// 真的投出去了：现在在投递以后的阶段，或者投递以后才结束
+// 真的投出去了：现在在投递以后的阶段（服务器的分组 applied），或者投递以后才结束
 export function submitted(job: JobView): boolean {
-  return (!!job.phase && AFTER_APPLIED.has(job.phase)) || (job.phase === "closed" && reached(job) > 0);
+  return job.bucket === "applied" || (job.phase === "closed" && reached(job) > 0);
 }
 
 // 走到过的最远一层：当前阶段和事件日志里出现过的阶段取最大；接受 / 拒绝 Offer 算走到 Offer

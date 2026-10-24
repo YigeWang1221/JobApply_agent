@@ -11,11 +11,13 @@ import java.util.List;
  * @param message      给用户看的话（要用户做什么、做完怎么回复）；运行中为 null
  * @param questions    {@code ask_user} 带的问题（保留页面原文和选项）
  * @param fileSlots    {@code ask_user} 带的上传位置
- * @param disconnected 浏览器断开了：用户回复时先重连
+ *                     （浏览器断开不再存在这里，由全局的连接状态推出来，C006-fix-browser 第 1 节；旧文件里的
+ *                     {@code disconnected} 键读的时候忽略）
  * @param files        已经复制到 {@code uploads/<job-id>/} 的文件，编号从 1 开始
  * @param round        报告第几轮（定稿后用户要求修改时加一）
  * @param error        失败的原因；没有时为 null
- * @param askedButton  模型最近一次请用户确认的软边界按钮（「下一步」这类）；用户回复后，模型再点它时放行
+ * @param lastPage     浏览器那边的状态（C006-fix-runtime-2）：最后的页面地址（接着做时按它认回原页）、用户批准过的一次点击、
+ *                     结束时页面是否像已经投递；旧记录里没有，为 null
  */
 public record AgentRun(
         String project,
@@ -28,19 +30,26 @@ public record AgentRun(
         String message,
         List<Question> questions,
         List<FileSlot> fileSlots,
-        boolean disconnected,
         List<PlanItem> plan,
         List<StagedFile> files,
         int round,
         Usage usage,
         String error,
         List<Turn> conversation,
-        String askedButton) {
+        LastPage lastPage) {
 
     public static final String RUNNING = "running";
     public static final String WAITING_USER = "waiting_user";
     public static final String READY = "ready";
     public static final String FAILED = "failed";
+    /**
+     * 只出现在对外的状态里，不写进文件（C006-fix-2）：排着队等浏览器（文件里是 {@link #RUNNING}），
+     * 和文件写着 {@link #RUNNING}、这个进程里却没有在跑（应用重启前被中断，{@link LiveRuns}）。
+     */
+    public static final String QUEUED = "queued";
+    public static final String INTERRUPTED = "interrupted";
+    /** 也只在对外的状态里：用户已经定下了（已提交、结束了），这个申请线程不再接着做（C006-fix-2 回归第 1 条）。 */
+    public static final String DONE = "done";
 
     public AgentRun {
         questions = questions == null ? List.of() : List.copyOf(questions);
@@ -55,55 +64,81 @@ public record AgentRun(
     /** 新开始的一次申请：对话里只有一条开始的说明。 */
     public static AgentRun start(String project, String job, String session, String company, String title,
                                  String url, String opening) {
-        return new AgentRun(project, job, session, company, title, url, RUNNING, null, null, null, false, null,
+        return new AgentRun(project, job, session, company, title, url, RUNNING, null, null, null, null,
                 null, 1, null, null, List.of(Turn.user(opening)), null);
     }
 
-    /** 开始跑：清掉给用户的话、问题和上传位置，对话追加 {@code reply}（为 null 时不追加）。 */
+    /**
+     * 开始跑：清掉给用户的话、问题和上传位置，对话追加 {@code reply}（为 null 时不追加）。「页面像已投递」是上一次
+     * 结束时的判断，也清掉；页面地址和批准留着。
+     */
     public AgentRun resumed(Turn reply, List<StagedFile> files, int round) {
         List<Turn> turns = new ArrayList<>(conversation);
         if (reply != null) {
             turns.add(reply);
         }
-        return new AgentRun(project, job, session, company, title, url, RUNNING, null, null, null, disconnected,
-                plan, files, round, usage, null, turns, askedButton);
-    }
-
-    /** 浏览器重新连上了。 */
-    public AgentRun reconnected() {
-        return new AgentRun(project, job, session, company, title, url, status, message, questions, fileSlots, false,
-                plan, files, round, usage, error, conversation, askedButton);
+        return new AgentRun(project, job, session, company, title, url, RUNNING, null, null, null,
+                plan, files, round, usage, null, turns, lastPage == null ? null : lastPage.submitted(false));
     }
 
     public AgentRun withProgress(List<PlanItem> plan, Usage usage, List<Turn> conversation) {
         return new AgentRun(project, job, session, company, title, url, status, message, questions, fileSlots,
-                disconnected, plan, files, round, usage, error, conversation, askedButton);
+                plan, files, round, usage, error, conversation, lastPage);
     }
 
-    public AgentRun waiting(String message, List<Question> questions, List<FileSlot> fileSlots, boolean disconnected) {
+    public AgentRun waiting(String message, List<Question> questions, List<FileSlot> fileSlots) {
         return new AgentRun(project, job, session, company, title, url, WAITING_USER, message, questions, fileSlots,
-                disconnected, plan, files, round, usage, null, conversation, askedButton);
+                plan, files, round, usage, null, conversation, lastPage);
     }
 
     public AgentRun ready(String message) {
-        return new AgentRun(project, job, session, company, title, url, READY, message, null, null, false, plan,
-                files, round, usage, null, conversation, askedButton);
+        return new AgentRun(project, job, session, company, title, url, READY, message, null, null, plan,
+                files, round, usage, null, conversation, lastPage);
+    }
+
+    /** 停在提交前；{@code pageShowsSubmitted}：模型看最新页面判断已经像投递成功了。 */
+    public AgentRun ready(String message, boolean pageShowsSubmitted) {
+        LastPage page = lastPage == null ? new LastPage(null, null, false) : lastPage;
+        return withLastPage(page.submitted(pageShowsSubmitted)).ready(message);
     }
 
     public AgentRun failed(String error) {
-        return new AgentRun(project, job, session, company, title, url, FAILED, null, null, null, disconnected, plan,
-                files, round, usage, error, conversation, askedButton);
+        return new AgentRun(project, job, session, company, title, url, FAILED, null, null, null, plan,
+                files, round, usage, error, conversation, lastPage);
     }
 
-    /** 记下模型请用户确认的软边界按钮（随 {@code ask_user} 一起交给用户）。 */
-    public AgentRun withAskedButton(String button) {
+    /** 记下浏览器那边的状态（每轮存盘前由申请循环更新）。 */
+    public AgentRun withLastPage(LastPage lastPage) {
         return new AgentRun(project, job, session, company, title, url, status, message, questions, fileSlots,
-                disconnected, plan, files, round, usage, error, conversation, button);
+                plan, files, round, usage, error, conversation, lastPage);
     }
 
     public AgentRun withFiles(List<StagedFile> files) {
         return new AgentRun(project, job, session, company, title, url, status, message, questions, fileSlots,
-                disconnected, plan, files, round, usage, error, conversation, askedButton);
+                plan, files, round, usage, error, conversation, lastPage);
+    }
+
+    /** 结束时页面像已经投递成功了（模型在 {@code finish} 里判断）。 */
+    public boolean pageShowsSubmitted() {
+        return lastPage != null && lastPage.showsSubmitted();
+    }
+
+    /**
+     * 浏览器那边的状态。
+     *
+     * @param url            最后一次看到的页面地址；接着做时只用来告诉模型上次做到哪（不按它认回标签页，C006-fix-browser 第 2 节）
+     * @param approved       用户批准过的一次点击（这一页、这一个按钮）；用过或者翻到别的网址就清掉。没有时为 null
+     * @param showsSubmitted 模型 {@code finish} 时判断页面已经像投递成功了
+     */
+    public record LastPage(String url, ApprovedClick approved, boolean showsSubmitted) {
+
+        LastPage submitted(boolean shows) {
+            return new LastPage(url, approved, shows);
+        }
+    }
+
+    /** 用户批准过的一次点击：页面地址、快照里的 ref、按钮名字。 */
+    public record ApprovedClick(String url, String ref, String button) {
     }
 
     /**
@@ -189,11 +224,17 @@ public record AgentRun(
             this(id, name, text, null, null, null);
         }
 
-        /** 执行完了：记下开始时间和用时，状态按结果的开头判断（各个工具的结果统一以「失败：」「被拒绝：」开头）。 */
-        public ToolResult timed(String startedAt, long ms) {
-            return new ToolResult(id, name, text, statusOf(text), startedAt, ms);
+        /** 产生结果的地方就定下状态（C006-fix）：{@link #DONE} / {@link #FAILED} / {@link #REJECTED}。 */
+        public ToolResult(String id, String name, String text, String status) {
+            this(id, name, text, status, null, null);
         }
 
+        /** 执行完了：记下开始时间和用时。状态是产生结果时定下的；没定的才按结果的开头猜（{@link #statusOf}）。 */
+        public ToolResult timed(String startedAt, long ms) {
+            return new ToolResult(id, name, text, status != null ? status : statusOf(text), startedAt, ms);
+        }
+
+        /** 按结果的开头猜状态：只给没有记状态的旧记录、没有定状态的结果兜底，不作为新结果的依据。 */
         public static String statusOf(String text) {
             String head = text == null ? "" : text.strip();
             if (head.startsWith("被拒绝") || head.startsWith("没有点") || head.startsWith("没有执行")) {

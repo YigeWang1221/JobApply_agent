@@ -13,10 +13,13 @@ export const LEAD: Record<string, string> = {
 };
 
 export const APPLICATION: Record<string, string> = {
+  queued: "排队中",
   running: "Agent 正在做",
   waiting_user: "等你",
   ready: "停在提交前",
   failed: "失败",
+  interrupted: "中断",
+  done: "已结束",
 };
 
 export const PREP: Record<string, string> = {
@@ -66,10 +69,13 @@ export function phaseText(job: JobView): string {
 }
 
 const APPLICATION_CHIP: Record<string, string> = {
+  queued: "rev",
   running: "rev",
   waiting_user: "wait",
   ready: "good",
   failed: "bad",
+  interrupted: "wait",
+  done: "",
 };
 
 export function LeadChip({ status }: { status: string }) {

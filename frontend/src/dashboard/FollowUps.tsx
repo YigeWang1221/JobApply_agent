@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, checkDue, errorText, localDay, type JobView } from "../api";
+import { api, errorText, localDay, type JobView } from "../api";
 import { writeDraft } from "../chat/draft";
 import { go } from "../route";
 import { PHASE } from "../status";
@@ -10,7 +10,7 @@ import { applications, dayOf, daysBetween, md } from "./metrics";
 export function FollowUps({ jobs, showProject }: { jobs: JobView[]; showProject?: boolean }) {
   const [busy, setBusy] = useState<string | null>(null);
   const today = localDay();
-  const due = applications(jobs).filter((j) => checkDue(j));
+  const due = applications(jobs).filter((j) => j.due);
   const since = (job: JobView) => dayOf(job.lastCheckedAt) ?? dayOf(job.appliedAt);
   due.sort((a, b) => (since(a) ?? "").localeCompare(since(b) ?? ""));
   async function open(job: JobView) {

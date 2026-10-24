@@ -44,6 +44,14 @@ async function parse<T>(response: Response): Promise<T> {
   return data as T;
 }
 
+// 全应用只有一份的浏览器连接状态：generation 是第几次连上（还没连上过为 0）
+export interface BrowserState {
+  state: "not_connected" | "connecting" | "connected" | "disconnected";
+  reason: string | null;
+  since: string | null;
+  generation: number;
+}
+
 export interface Preset {
   id: string;
   label: string;
@@ -344,19 +352,28 @@ export interface ApplicationStatus {
   report?: "draft" | "final" | null;
   round?: number | null;
   error?: string | null;
+  // 这个申请已经存下的附件（C006-fix）：上传位置也可以选它们（attachment:<id>）
+  attachments?: SentAttachment[] | null;
 }
 
 export interface ReplyBody {
   session: string;
   text?: string;
   answers?: Record<string, string>;
-  // 原件键，按 fileSlots 的顺序，每个对应一个上传位置；跳过的选填位置写空字符串
+  // 按 fileSlots 的顺序，每个对应一个上传位置：原件键，或 attachment:<附件编号>；不选写空字符串
   files?: string[];
   // 这次回复附的文件（C006-fix），上传接口返回的编号
   attachments?: string[];
 }
 
 // 回复里附的文件、图片（C006-fix）：选中后立刻上传拿到编号，发送时只带编号
+// Chrome 里一个没有主人的标签页（C006-fix-browser 第 2 节）：只给你看，你选了才交给 Agent
+export interface BrowserTab {
+  index: number;
+  title: string;
+  url: string;
+}
+
 export interface Attachment {
   id: string;
   name: string;
@@ -409,20 +426,22 @@ export interface JobView {
   pageLooksSubmitted: boolean;
   // 阶段变化（转为申请、阶段变化、结束），按时间先后；只有 Project 主页和全局页的列表带，其它地方为 null
   events: PhaseEvent[] | null;
+  // 下面三个由服务器算好（C006-fix 第 6 节），前端只读：「该查看了」（按服务器的今天）、分组、能不能开始申请线程
+  due: boolean;
+  bucket: JobBucket;
+  canStart: boolean;
 }
+
+// 分组（服务器 JobBucket）：lead 候选池里还在考虑；preparing 准备中；waiting 准备中、要你做事（申请线程在等你 / 失败 / 中断，
+// 或者 prep 是 needs_input / needs_login / handoff_user / failed）；ready 停在提交前；applied 投递以后、没结束；
+// closed 跳过 / 下线 / 已结束
+export type JobBucket = "lead" | "preparing" | "waiting" | "ready" | "applied" | "closed";
 
 // to 是变化后的标签：applied、screening…、prep:selected、closed:rejected
 export interface PhaseEvent {
   at: string;
   type: "converted" | "phase_changed" | "closed";
   to: string;
-}
-
-const AFTER_APPLIED = new Set(["applied", "screening", "assessment", "interview", "offer"]);
-
-// 已投递、没结束、下次查看的日子到了（含今天）就「该查看了」（C007）
-export function checkDue(job: JobView, today = localDay()): boolean {
-  return !!job.nextCheckAt && !!job.phase && AFTER_APPLIED.has(job.phase) && job.nextCheckAt.slice(0, 10) <= today;
 }
 
 export function localDay(date = new Date()): string {
@@ -432,7 +451,7 @@ export function localDay(date = new Date()): string {
 
 // 停在提交前、等用户说提交了没有（C007）
 export function awaitingSubmit(job: JobView): boolean {
-  return job.phase === "prep" && job.prepState === "awaiting_review";
+  return job.bucket === "ready";
 }
 
 export interface SessionSummary {
@@ -578,6 +597,10 @@ export const api = {
   confirmSummary: (body: { zh: Record<string, string>; en: Record<string, string>; userEdited: string[];
     reviewed: string[] }) => request<ProfileSummary>("PUT", "/api/profile/summary", body),
 
+  // 浏览器连接状态（C006-fix-browser 第 1 节）；变化时全局事件流也会推 browser 事件
+  browser: () => request<BrowserState>("GET", "/api/browser"),
+  reconnectBrowser: () => request<BrowserState>("POST", "/api/browser/reconnect"),
+
   projects: () => request<{ projects: ProjectSummary[] }>("GET", "/api/projects"),
   createProject: (id: string, title: string) => request<ProjectSummary>("POST", "/api/projects", { id, title }),
   jobs: () => request<{ jobs: JobView[] }>("GET", "/api/jobs"),
@@ -595,8 +618,6 @@ export const api = {
   stopSession: (id: string) => request<SessionView>("POST", `/api/sessions/${enc(id)}/stop`),
   // 重新生成最后一条回复（C006-agent）；已经做过的操作不会撤销
   regenerate: (id: string) => request<SessionView>("POST", `/api/sessions/${enc(id)}/regenerate`),
-  sessionEvents: (id: string) => `/api/sessions/${enc(id)}/events`,
-  jobEvents: (id: string) => `/api/jobs/${enc(id)}/events`,
   job: (id: string) => request<JobDetail>("GET", `/api/jobs/${enc(id)}`),
   markLead: (id: string, status: "new" | "shortlisted" | "skipped" | "closed", reason?: string) =>
     request<JobView>("PATCH", `/api/jobs/${enc(id)}/lead`, reason ? { status, reason } : { status }),
@@ -616,6 +637,10 @@ export const api = {
   reply: (jobId: string, body: ReplyBody) => request<ApplicationStatus>("POST", `${jobPath(jobId)}/reply`, body),
   stop: (jobId: string) => request<ApplicationStatus>("POST", `${jobPath(jobId)}/stop`),
   jobAttachment: (jobId: string, file: File) => uploadFile<Attachment>(`${jobPath(jobId)}/attachments`, file),
+  // 没有主人的标签页（只给界面看）；把其中一个交给这个申请：标签页变了或者有主人了时 409
+  freeTabs: () => request<{ tabs: BrowserTab[] }>("GET", "/api/browser/tabs"),
+  handOverTab: (jobId: string, tab: BrowserTab) =>
+    request<BrowserTab>("POST", `${jobPath(jobId)}/tab`, { index: tab.index, url: tab.url }),
   // 报告是 Markdown 文本；还没有报告（404）时返回 null
   report: async (jobId: string) => {
     const response = await fetch(`${jobPath(jobId)}/report`);

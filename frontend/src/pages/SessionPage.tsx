@@ -36,7 +36,7 @@ export default function SessionPage({ id }: { id: string }) {
   }, [load]);
 
   const running = view?.status === "running";
-  const sse = useLiveUpdates(api.sessionEvents(id), running, load);
+  const sse = useLiveUpdates({ session: id }, running, load);
   const upload = useCallback((file: File) => api.sessionAttachment(id, file), [id]);
   const attach = useAttachments(upload);
 
@@ -102,6 +102,7 @@ export default function SessionPage({ id }: { id: string }) {
             <span className="muted small">
               {view.session.project}
               {view.session.tags.map((tag) => <span key={tag} className={`tagc ${tag}`}>{tag}</span>)}
+              {sse.reconnecting && <span className="reconnecting" title="和后端的推送断开了，正在自动重连">重新连接中…</span>}
             </span>
           </div>
           <button className="iconbtn labeled" aria-expanded={jobsOpen} onClick={() => setJobsOpen(!jobsOpen)}

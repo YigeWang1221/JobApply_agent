@@ -1,4 +1,4 @@
-import { checkDue, type JobView } from "../api";
+import type { JobView } from "../api";
 import { go } from "../route";
 import { ApplicationChip, phaseText } from "../status";
 import { applications, BOARD_PHASES } from "./metrics";
@@ -27,7 +27,7 @@ export function Board({ jobs, showProject }: { jobs: JobView[]; showProject?: bo
                     <span className="meta"><span className="dtext">{phaseText(job)}</span></span>
                     <span className="meta">
                       <span className="ptag">{[showProject ? job.project : null, job.type].filter(Boolean).join(" · ")}</span>
-                      {checkDue(job) && <span className="chip wait">该查看了</span>}
+                      {job.due && <span className="chip wait">该查看了</span>}
                       <ApplicationChip status={job.application} />
                     </span>
                   </button>

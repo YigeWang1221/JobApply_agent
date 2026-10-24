@@ -26,10 +26,14 @@ import org.springframework.util.MimeTypeUtils;
  * <p>
  * 用户附的文件（C006 附件）：文字后面每个附件一行；图片同时作为图片输入（{@link Media}）放进这条用户消息，
  * 只有最近 {@link #IMAGE_TURNS} 条带图片的用户消息发图片，更早的只留文字那一行。模型不支持看图时请求失败，照常报错。
+ * <p>
+ * 没有结果的工具调用（应用重启、线程中途停下时留下的）在这里补一条 {@link #INTERRUPTED} 结果再发；存着的对话不改。
  */
 public final class Conversation {
 
     public static final String OMITTED_SNAPSHOT = "（旧快照已省略）";
+    /** 对话里没有结果的工具调用，发给模型时补的结果（C006-fix 第 6 节，deepagents {@code PatchToolCallsMiddleware}）。 */
+    public static final String INTERRUPTED = "这次调用被中断了，没有执行完；需要的话重新做。";
     static final int IMAGE_TURNS = 3;
 
     /**
@@ -66,17 +70,32 @@ public final class Conversation {
         if (context != null && !context.isBlank()) {
             messages.add(new UserMessage(context));
         }
+        // 没有结果的工具调用（应用重启、线程中途停下）：补一条「中断了」，否则模型的接口会拒绝这段对话
+        Set<String> answered = new HashSet<>();
+        turns.forEach(turn -> turn.results().forEach(result -> answered.add(result.id())));
+        List<ToolResponseMessage.ToolResponse> interrupted = List.of();
         for (int i = 0; i < turns.size(); i++) {
             AgentRun.Turn turn = turns.get(i);
             boolean current = latest != null && latest.turn() == i;
             switch (turn.role()) {
-                case AgentRun.Turn.ASSISTANT -> messages.add(AssistantMessage.builder()
-                        .content(turn.text() == null || turn.text().isBlank() ? null : turn.text())
-                        .toolCalls(turn.calls().stream()
-                                .map(call -> new AssistantMessage.ToolCall(call.id(), "function", call.name(),
-                                        call.arguments() == null || call.arguments().isBlank() ? "{}" : call.arguments()))
-                                .toList())
-                        .build());
+                case AgentRun.Turn.ASSISTANT -> {
+                    messages.add(AssistantMessage.builder()
+                            .content(turn.text() == null || turn.text().isBlank() ? null : turn.text())
+                            .toolCalls(turn.calls().stream()
+                                    .map(call -> new AssistantMessage.ToolCall(call.id(), "function", call.name(),
+                                            call.arguments() == null || call.arguments().isBlank() ? "{}" : call.arguments()))
+                                    .toList())
+                            .build());
+                    interrupted = turn.calls().stream().filter(call -> !answered.contains(call.id()))
+                            .map(call -> new ToolResponseMessage.ToolResponse(call.id(), call.name(), INTERRUPTED))
+                            .toList();
+                    boolean resultsNext = i + 1 < turns.size()
+                            && AgentRun.Turn.TOOL.equals(turns.get(i + 1).role());
+                    if (!interrupted.isEmpty() && !resultsNext) {
+                        messages.add(ToolResponseMessage.builder().responses(interrupted).build());
+                        interrupted = List.of();
+                    }
+                }
                 case AgentRun.Turn.TOOL -> {
                     List<ToolResponseMessage.ToolResponse> responses = new ArrayList<>();
                     for (AgentRun.ToolResult result : turn.results()) {
@@ -86,6 +105,8 @@ public final class Conversation {
                         }
                         responses.add(new ToolResponseMessage.ToolResponse(result.id(), result.name(), data));
                     }
+                    responses.addAll(interrupted);
+                    interrupted = List.of();
                     messages.add(ToolResponseMessage.builder().responses(responses).build());
                 }
                 case AgentRun.Turn.PAGE -> messages.add(new UserMessage(turn.text() + "\n"

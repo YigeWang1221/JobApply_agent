@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, errorText, type JobView, type ProjectSummary } from "../api";
+import { useGlobalChanges } from "../chat/useLiveUpdates";
 import { TabBar, TabBody, useTab } from "../dashboard/Dashboard";
 import { RecentSessions } from "../dashboard/RecentSessions";
 import { go } from "../route";
 import { RenameTitle } from "../RenameTitle";
-
-const POLL_MS = 4000;
 
 // Project 主页（ui.md「界面结构」，示意页）：新建 Session；Dashboard / 候选池 / 申请总表三页签；Dashboard 里有最近的 Session
 export default function ProjectPage({ id, onChanged }: { id: string; onChanged: () => Promise<void> }) {
@@ -28,9 +27,8 @@ export default function ProjectPage({ id, onChanged }: { id: string; onChanged: 
 
   useEffect(() => {
     void load();
-    const timer = window.setInterval(() => void load(), POLL_MS);
-    return () => window.clearInterval(timer);
   }, [load]);
+  useGlobalChanges(load);
 
   async function newSession() {
     setBusy(true);

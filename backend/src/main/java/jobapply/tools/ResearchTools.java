@@ -68,10 +68,14 @@ public final class ResearchTools {
                             + "only a search snippet or list page). url must be a link you saw. note: why it fits, the "
                             + "key requirements (degree, graduation year, direction, city, deadline) and whether it is "
                             + "still hiring. Don't add postings the page says are closed. "
-                            + "Duplicates (same company + link) are rejected with the existing id.",
+                            + "Calling it again for the same company + link adds nothing and returns the existing id. "
+                            + "The page you read (web_fetch or browser, in any earlier message too) is kept as the JD "
+                            + "snapshot; if you read the details at a different address than url, give it as source.",
                     """
                     {"type":"object","properties":{\
                     "company":{"type":"string"},"title":{"type":"string"},"url":{"type":"string"},\
+                    "source":{"type":"string","description":"optional: the address of the page you read the details \
+                    from, when it is not url"},\
                     "city":{"type":"array","items":{"type":"string"}},\
                     "type":{"type":"string","description":"e.g. 校招·全职, 实习, 社招"},\
                     "note":{"type":"string"}},"required":["company","title","url"]}"""),
@@ -87,7 +91,8 @@ public final class ResearchTools {
             definition(START_APPLICATION,
                     "Turn a lead into an application and hand it to the application agent, which opens the job page in "
                             + "Chrome and fills the form up to (not including) the final submit. Only for jobs the user "
-                            + "asked to apply to. One application runs at a time.",
+                            + "asked to apply to. One application runs at a time. If the job already has an application thread it "
+                            + "is not restarted; the result says so (with its status).",
                     """
                     {"type":"object","properties":{"job":{"type":"string","description":"Job id"}},\
                     "required":["job"]}"""),
@@ -95,7 +100,9 @@ public final class ResearchTools {
                     "Record that the user has submitted this application themselves in Chrome (they said so in the "
                             + "chat). The user's word is the evidence; the job moves to applied and the next status check "
                             + "is scheduled. note: the user's words. Only when the user clearly said it was submitted and "
-                            + "it is clear which job; otherwise ask first.",
+                            + "it is clear which job; otherwise ask first. Works whatever the application was doing (a "
+                            + "running application agent is stopped first); a job already applied returns the recorded "
+                            + "time and records nothing new.",
                     """
                     {"type":"object","properties":{"job":{"type":"string","description":"Job id"},\
                     "note":{"type":"string","description":"What the user said"}},"required":["job"]}"""),
@@ -103,13 +110,15 @@ public final class ResearchTools {
                     "Record what the user found when checking an applied job (email / careers site). No phase and no "
                             + "outcome: checked, nothing new. phase: screening / assessment / interview / offer when it "
                             + "moved on. outcome: rejected / withdrawn / ghosted / accepted / declined / posting_closed (the posting "
-                            + "was taken down) when it ended. "
+                            + "was taken down) when it ended. A job still being prepared (not submitted yet) can only end: "
+                            + "outcome posting_closed, or not_submitted when the user no longer wants to apply. "
+                            + "Repeating the same call records nothing new. "
                             + "note: the user's words. next_check_in_days: when to remind again (default from "
                             + "preferences, usually 4); with a deadline or interview date, set it to the day before.",
                     """
                     {"type":"object","properties":{"job":{"type":"string","description":"Job id"},\
                     "phase":{"type":"string","enum":["screening","assessment","interview","offer"]},\
-                    "outcome":{"type":"string","enum":["rejected","withdrawn","ghosted","accepted","declined","posting_closed"]},\
+                    "outcome":{"type":"string","enum":["rejected","withdrawn","ghosted","accepted","declined","posting_closed","not_submitted"]},\
                     "note":{"type":"string"},"next_check_in_days":{"type":"integer","minimum":1,"maximum":90}},\
                     "required":["job"]}"""),
             definition(ASK_USER,

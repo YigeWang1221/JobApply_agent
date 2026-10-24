@@ -20,11 +20,11 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>
  * 定义是 Spring AI 的 {@link ToolCallback}，{@code call()} 一律抛异常：调用方直接调用 {@code ChatModel}，
  * 工具调用原样留在响应里，由 Harness 循环自己执行。工具名和 MCP 的工具名相同，和 {@link BrowserToolPolicy}
- * 的模型白名单一一对应（不开放 {@code browser_tabs}、{@code handle_dialog}）。
+ * 的模型白名单一一对应（不开放 {@code handle_dialog}；{@code browser_tabs} 另由 {@link #tabs()} 定义，系统代发）。
  * <p>
  * 比 MCP 多出来的参数：{@code browser_fill_form} 的每个字段、{@code browser_type}、{@code browser_select_option}
  * 可以带 {@code fact}、{@code confidence}、{@code language}（都可选，写了就进报告）（{@link FieldIntent}）；{@code browser_click} 可以带
- * {@code purpose}、{@code final_step_suspected}、{@code evidence}（只进日志）（{@link SubmitGuard.ClickIntent}）；
+ * {@code purpose}、{@code final_step_suspected}、{@code evidence}（{@code final_step_suspected} 决定软边界按钮放不放行）（{@link SubmitGuard.ClickIntent}）；
  * {@code browser_file_upload} 只收文件编号（{@code files}，从 1 开始），系统换成 {@code storage/uploads/<job-id>/}
  * 下的路径，模型看不到路径。{@link #translate} 先取出这些参数并去掉，再交给白名单和守卫。
  */
@@ -33,6 +33,12 @@ public final class BrowserTools {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final TypeReference<Map<String, Object>> MAP = new TypeReference<>() {
     };
+
+    /**
+     * 申请 Agent 的标签页工具（名字同 MCP 的 {@code browser_tabs}，但不在 {@link #definitions()} 里、不经 {@link #translate}）：
+     * 由 Harness 循环交给 {@link BrowserSession#tabs} / {@link BrowserSession#select}，只能看、只能切到这个 Job 自己的标签页（新开的、点击弹出的、用户转交的）。
+     */
+    public static final String TABS = BrowserToolPolicy.TABS;
 
     /** 文件上传的参数：文件编号。 */
     public static final String FILES = "files";
@@ -70,8 +76,10 @@ public final class BrowserTools {
             definition(BrowserToolPolicy.CLICK,
                     "Click a button, link, tab, dropdown or option. Buttons whose name looks like submitting "
                             + "(Submit, Apply, Confirm, 提交, 投递, 申请, 确认...) are rejected: the user clicks those. "
-                            + "Before clicking Next / Continue / Save, check the step indicator so you are not on the "
-                            + "final step. purpose, final_step_suspected and evidence are optional notes for the log.",
+                            + "For Next / Continue / Save buttons, look at the page first (step indicator, progress, text "
+                            + "near the button) and pass final_step_suspected with evidence: false lets the click through; "
+                            + "true means the system asks the user first (via ask_user) for this one button on this page. "
+                            + "Without final_step_suspected such buttons are not clicked. Other elements need no notes.",
                     """
                     {"type":"object","properties":{%s,\
                     "purpose":{"type":"string","enum":["next_step","save_draft","open_control","unsure"]},\
@@ -144,9 +152,26 @@ public final class BrowserTools {
     private BrowserTools() {
     }
 
+    private static final ToolDefinition TABS_DEFINITION = definition(TABS,
+            "List or switch the browser tabs of this application. list shows only your own tabs: the one in use, "
+                    + "tabs your clicks opened, and tabs the user handed over to you in the workbench. The user's "
+                    + "own tabs and other tasks' tabs are never shown and cannot be selected; if the user wants you to "
+                    + "use a page they opened, ask them to hand it over in the application workbench. select switches "
+                    + "to one listed index and returns its snapshot. Use it when a click opened a new tab, when the "
+                    + "user handed you a tab, or when the system says your tab was not found.",
+            """
+            {"type":"object","properties":{"action":{"type":"string","enum":["list","select"]},\
+            "index":{"type":"integer","minimum":0,"description":"For select: an index from list"}},\
+            "required":["action"]}""");
+
     /** 填写角色的全部浏览器工具定义。 */
     public static List<ToolCallback> definitions() {
         return DEFINITIONS.stream().map(BrowserTools::callback).toList();
+    }
+
+    /** 申请 Agent 的标签页工具定义（{@link #TABS}）。 */
+    public static ToolCallback tabs() {
+        return callback(TABS_DEFINITION);
     }
 
     public static boolean isBrowserTool(String name) {

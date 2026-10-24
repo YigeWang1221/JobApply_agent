@@ -1,4 +1,4 @@
-import { checkDue, type JobView } from "../api";
+import type { JobView } from "../api";
 import { go } from "../route";
 import { ApplicationChip, PHASE, phaseText } from "../status";
 import { applications, md } from "./metrics";
@@ -44,7 +44,7 @@ export function AppsTable({ jobs, showProject, onPostingClosed }: {
                     <td className="num">{md(job.appliedAt)}</td>
                     <td>
                       {phaseText(job)}{" "}
-                      {checkDue(job) && <span className="chip wait">该查看了</span>}{" "}
+                      {job.due && <span className="chip wait">该查看了</span>}{" "}
                       <ApplicationChip status={job.application} />
                     </td>
                     <td className="num">{md(job.lastCheckedAt)}</td>

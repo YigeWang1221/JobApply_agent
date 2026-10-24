@@ -3,8 +3,6 @@ package jobapply.memory;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,6 +16,7 @@ import jobapply.domain.Claim;
 import jobapply.domain.Fact;
 import jobapply.domain.ImportCandidate;
 import jobapply.domain.ImportRun;
+import jobapply.domain.LiveRuns;
 import jobapply.domain.ProjectCard;
 import jobapply.domain.Source;
 import jobapply.domain.Timestamps;
@@ -81,7 +80,10 @@ public final class ImportRunner implements AutoCloseable {
     private final Supplier<ChatModel> mainModel;
     private final Clock clock;
     private final ExecutorService executor;
-    private final Set<String> active = Collections.synchronizedSet(new HashSet<>());
+    private final LiveRuns active = new LiveRuns();
+    /** 记录每次写完时通知（事件日志的 {@code changed}，导入页据此重读；C006-fix 第 6 节）。 */
+    private volatile Runnable changed = () -> {
+    };
 
     public ImportRunner(StorageLayout layout, ImportRunStore runs, SourceRegistry sources, SourceInventory inventory,
                         CandidateExtractor extractor, FactWriter writer, LedgerFile ledger, ProjectCardFile cards,
@@ -131,16 +133,23 @@ public final class ImportRunner implements AutoCloseable {
         runs.save(running);
         active.add(id);
         executor.submit(() -> execute(id));
+        changed.run();
         return runs.require(id);
+    }
+
+    /** 开始、进度、整理完、失败、确认一条候选之后调用 {@code listener}（只通知，不带内容）。 */
+    public void onChange(Runnable listener) {
+        this.changed = listener == null ? () -> {
+        } : listener;
     }
 
     /** 读一条导入记录；记录是 {@code running} 但这个进程里没有在跑时，记为中断（失败）。 */
     public ImportRun view(String id) {
         ImportRun run = runs.require(id);
-        if (run.status() == ImportRun.Status.RUNNING && !active.contains(id)) {
+        if (active.interrupted(id, run.status() == ImportRun.Status.RUNNING)) {
             synchronized (this) {
                 run = runs.require(id);
-                if (run.status() == ImportRun.Status.RUNNING && !active.contains(id)) {
+                if (active.interrupted(id, run.status() == ImportRun.Status.RUNNING)) {
                     Map<String, Object> extra = new LinkedHashMap<>(run.extra());
                     extra.put("error", INTERRUPTED);
                     run = with(run, ImportRun.Status.FAILED, extra);
@@ -194,6 +203,7 @@ public final class ImportRunner implements AutoCloseable {
         }
         ImportRun next = with(run, finished ? ImportRun.Status.DONE : ImportRun.Status.REVIEWING, extra);
         runs.save(next);
+        changed.run();
         return runs.require(id);
     }
 
@@ -308,6 +318,7 @@ public final class ImportRunner implements AutoCloseable {
             }
         } finally {
             active.remove(id);
+            changed.run();
         }
     }
 
@@ -348,6 +359,7 @@ public final class ImportRunner implements AutoCloseable {
             extra.put("progress", progress(message, done, total, calls, githubCalls));
             runs.save(with(run, run.status(), extra));
         }
+        changed.run();
     }
 
     private static Map<String, Object> progress(String message, int done, int total, int calls, int githubCalls) {

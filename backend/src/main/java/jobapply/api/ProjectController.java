@@ -120,13 +120,15 @@ public class ProjectController {
     }
 
     private List<Views.JobView> jobViews(String id) {
-        return jobs.list(id).stream().map(job -> Views.job(job, applications)).toList();
+        LocalDate today = LocalDate.now(clock);
+        return jobs.list(id).stream().map(job -> Views.job(job, applications, today)).toList();
     }
 
     /** 带阶段变化的 JobView（时间线、漏斗用；C006-fix-ui）。 */
     private List<Views.JobView> jobsWithEvents(String id) {
+        LocalDate today = LocalDate.now(clock);
         return jobs.list(id).stream()
-                .map(job -> Views.job(job, applications, ledger.events(id, job.id())))
+                .map(job -> Views.job(job, applications, ledger.events(id, job.id()), today))
                 .toList();
     }
 

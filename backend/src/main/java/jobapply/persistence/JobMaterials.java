@@ -55,10 +55,12 @@ public final class JobMaterials {
             String slot = selection.slot() == null || selection.slot().isBlank() ? null : selection.slot().strip();
             materials.add(new Material(slot, asset.key(), asset.fileName(), asset.sha256()));
         }
-        FrontmatterFile.Document current = FrontmatterFile.read(file);
-        Map<String, Object> frontmatter = new LinkedHashMap<>(current.frontmatter());
-        frontmatter.put(KEY, materials.stream().map(JobMaterials::toMap).toList());
-        FrontmatterFile.write(file, new FrontmatterFile.Document(frontmatter, current.body()));
+        synchronized (StorageLock.WRITES) {
+            FrontmatterFile.Document current = FrontmatterFile.read(file);
+            Map<String, Object> frontmatter = new LinkedHashMap<>(current.frontmatter());
+            frontmatter.put(KEY, materials.stream().map(JobMaterials::toMap).toList());
+            FrontmatterFile.write(file, new FrontmatterFile.Document(frontmatter, current.body()));
+        }
         return List.copyOf(materials);
     }
 

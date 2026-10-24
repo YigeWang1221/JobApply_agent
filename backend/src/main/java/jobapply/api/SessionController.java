@@ -3,6 +3,7 @@ package jobapply.api;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Clock;
+import java.time.LocalDate;
 import java.util.List;
 import jobapply.domain.SessionRecord;
 import jobapply.persistence.JobRepository;
@@ -23,10 +24,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * Session 对话（C005）：读对话和状态、发消息（后台跑，返回 202）、重新生成最后一条回复、停止、按步推送（SSE，C006-agent）。
+ * Session 对话（C005）：读对话和状态、发消息（后台跑，返回 202）、重新生成最后一条回复、停止、推送在 {@code GET /api/events?session=<id>}（{@link EventController}）。
  * Agent 还在回上一条消息时发消息、重新生成都是 409。
  */
 @RestController
@@ -78,8 +78,10 @@ public class SessionController {
     @PostMapping(path = "/attachments", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<Views.UploadedAttachment> attach(@PathVariable String id,
                                                            @RequestParam("file") MultipartFile file) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(Views.uploaded(runner.attachments(id).save(file.getOriginalFilename(), bytes(file))));
+        Views.UploadedAttachment uploaded = Views.uploaded(runner.attachments(id).save(file.getOriginalFilename(),
+                bytes(file)));
+        runner.events().changed(id, null);
+        return ResponseEntity.status(HttpStatus.CREATED).body(uploaded);
     }
 
     @GetMapping("/attachments/{attachmentId}")
@@ -107,12 +109,6 @@ public class SessionController {
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(view(layout, clock, runner, applications, id));
     }
 
-    @GetMapping(path = "/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter events(@PathVariable String id) {
-        runner.project(id);
-        return EventStream.open(runner.feed(), id);
-    }
-
     @PostMapping("/stop")
     public SessionView stop(@PathVariable String id) {
         runner.stop(id);
@@ -126,11 +122,12 @@ public class SessionController {
         JobRepository jobs = new JobRepository(layout);
         SessionRecord session = sessions.load(project, sessionId);
         SessionRunner.Status status = runner.status(session);
+        LocalDate today = LocalDate.now(clock);
         List<Views.JobView> touched = session.jobs().stream().filter(job -> jobs.exists(project, job))
-                .map(job -> Views.job(jobs.load(project, job), applications)).toList();
+                .map(job -> Views.job(jobs.load(project, job), applications, today)).toList();
         return new SessionView(Views.session(session, runner), status.status(), status.error(),
-                Views.timed(sessions.readTurns(project, sessionId), runner.feed().inFlight(sessionId),
+                Views.timed(sessions.readTurns(project, sessionId), runner.events().sessionInFlight(sessionId),
                         "/api/sessions/" + sessionId + "/attachments"), touched,
-                Views.activity(runner.feed().activity(sessionId)));
+                Views.activity(runner.events().sessionActivity(sessionId)));
     }
 }

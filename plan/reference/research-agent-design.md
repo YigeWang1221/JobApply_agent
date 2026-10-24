@@ -76,3 +76,17 @@
 | 每一步后存会话，中断后接着做 | Hermes、Deep Agents | **用**。对话和计划存到 Job 目录下的文件；不再用 LangGraph4j Checkpoint |
 | 状态很小，随请求传递 | OpenMAIC | **借思路**：要恢复的只有对话、计划和几个数字 |
 | 子 Agent | Deep Agents、OpenMAIC | **不用**：一份申请一个 Agent 足够 |
+
+
+## 运行时：事件流、重连、子 Agent 回报（2026-10-23）
+
+> 只读源码，没有运行。OpenMAIC dff201b、deepagents 3e7d5fa、deep-agents-ui f6a4f34、langgraphjs c6675bf（另看了 npm 包 `@langchain/langgraph-sdk` 1.12.7 的 `dist/react/stream.lgp.js`）。仓库在 `/Users/yigewang/Documents/Personal_learning_2026/` 下。
+
+| 主题 | 他们怎么做（出处） | 给 JobApply 的结论 |
+| --- | --- | --- |
+| 事件流和重连 | OpenMAIC `app/api/agent/sessions/[id]/events/route.ts`：每个 Session 一条只追加的事件日志，事件带递增序号；SSE 路由是纯读者：先补发 `seq > Last-Event-ID`，再跟新事件；补完发命名事件 `caught_up`；运行结束不关流；25 秒心跳；原生 `EventSource` 带 `Last-Event-ID` 自动重连走同一条路径；LISTEN/NOTIFY 只是有损的唤醒，保底轮询兜底。`app/api/agent/owner-events/route.ts`：按用户汇总的稀疏流给列表用 | 事件日志是真相、推送是尾巴；能续接；不关流；一条全局流给侧栏 |
+| 页面重开接上运行 | LangGraph SDK `useStream({ reconnectOnMount })`：`sessionStorage` 记 `lg:stream:<threadId>` → `run_id`；挂载时 `client.runs.joinStream(threadId, runId, { lastEventId })`；结束后 `history.mutate` 重读线程状态。deep-agents-ui `src/app/hooks/useChat.ts` 打开了它 | 运行有身份；客户端接上的是同一次运行；结束后以服务端状态为准 |
+| 子 Agent 结束回报父 Agent | deepagents `middleware/async_subagents.py`、`_parent_notifier.py`：父 Agent 状态里记着启动的任务（id、状态、run）；子 Agent 结束 / 出错 / 等人时 `_notify_parent`，父 Agent 空闲时可被唤醒（`notify_parent` 默认开） | 申请线程是对话 Agent 的子任务：结束、等人时回报发起它的 Session |
+| 没有结果的工具调用 | deepagents `middleware/patch_tool_calls.py` `PatchToolCallsMiddleware.before_agent`：运行前给每个没有结果的工具调用补一条结果 | 读回对话时补「中断了」，不让下一次请求出错 |
+| 重放有副作用的调用 | OpenMAIC `lib/server/agent-runtime/curriculum-tools.ts`、`import-pptx.ts`：写操作按工具调用 id 幂等，回执存在被改的对象上，重放复用上次结果 | 有副作用的工具按业务键幂等、返回回执；重新生成不靠「不要重复」这类提示 |
+| 运行和读者分开 | OpenMAIC `lib/server/agent-runtime/config.ts`：后台 runner 用租约 + 心跳，过期的会话可以被接着跑；SSE 断开只关读者，runner 照跑 | 本机单进程不需要租约；但「断开不影响运行」「重启后标中断」要保留 |

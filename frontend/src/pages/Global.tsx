@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, errorText, localDay, type JobView, type ProjectSummary } from "../api";
+import { useGlobalChanges } from "../chat/useLiveUpdates";
 import { TabBar, TabBody, useTab } from "../dashboard/Dashboard";
-
-const POLL_MS = 5000;
 
 // 全局：所有 Project 汇总的 Dashboard / 候选池 / 申请总表（示意页）
 export default function Global({ projects }: { projects: ProjectSummary[] | null }) {
@@ -21,9 +20,8 @@ export default function Global({ projects }: { projects: ProjectSummary[] | null
 
   useEffect(() => {
     void load();
-    const timer = window.setInterval(() => void load(), POLL_MS);
-    return () => window.clearInterval(timer);
   }, [load]);
+  useGlobalChanges(load);
 
   const sessions = (projects ?? []).flatMap((p) => p.sessions);
   return (
