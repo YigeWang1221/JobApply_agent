@@ -18,6 +18,8 @@ const SUGGESTIONS = ["按我的简历撒网找岗位", "核验候选池里没核
 export default function SessionPage({ id }: { id: string }) {
   const [view, setView] = useState<SessionView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 这个 Session 删掉了（或者从来没有）：404（C013）
+  const [gone, setGone] = useState(false);
   const [text, setText] = useState(() => readDraft(id));
   const [pending, setPending] = useState<{ text: string; failed: boolean; attachments: SentAttachment[] } | null>(null);
   const [jobsOpen, setJobsOpen] = useState(() => window.matchMedia("(min-width: 1100px)").matches);
@@ -27,6 +29,9 @@ export default function SessionPage({ id }: { id: string }) {
       setView(await api.session(id));
       setError(null);
     } catch (e) {
+      if (e instanceof ApiError && e.status === 404) {
+        setGone(true);
+      }
       setError(errorText(e));
     }
   }, [id]);
@@ -96,6 +101,15 @@ export default function SessionPage({ id }: { id: string }) {
     }
   }
 
+  if (gone) {
+    return (
+      <div className="pad">
+        <h2>会话已删除</h2>
+        <p className="muted">这个 Session 已经删除（挪进了 storage/.trash/），或者不存在。它发现的岗位还在 Project 里。</p>
+        <button className="linkbtn" onClick={() => go({ kind: "global" })}>回到全局</button>
+      </div>
+    );
+  }
   if (!view) {
     return error ? <p className="error pad">{error}</p> : <ChatSkeleton />;
   }

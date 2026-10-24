@@ -273,7 +273,7 @@ public final class ApplicationRunner implements AutoCloseable {
             throw new ApplicationException.Conflict("Job " + jobId + " 现在是 " + job.status().label()
                     + "，你已经定下了，申请 Agent 不再接着做；投递后的进展在 Session 对话里告诉 Agent");
         }
-        requireSession(run.project(), reply.session());
+        requireKnownSession(run.project(), reply.session());
         String text = reply.text() == null ? "" : reply.text().strip();
         if (text.length() > MAX_TEXT) {
             throw new ApplicationException.BadRequest("回复不能超过 " + MAX_TEXT + " 个字符");
@@ -360,7 +360,7 @@ public final class ApplicationRunner implements AutoCloseable {
      * 附件要排文件编号、改上传区，运行中不收，等它停下来再发。
      */
     private ApplicationStatus insert(AgentRun run, Reply reply) {
-        requireSession(run.project(), reply.session());
+        requireKnownSession(run.project(), reply.session());
         String text = reply.text() == null ? "" : reply.text().strip();
         boolean more = reply.answers() != null && !reply.answers().isEmpty()
                 || reply.files() != null && reply.files().stream().anyMatch(file -> file != null && !file.isBlank())
@@ -863,6 +863,29 @@ public final class ApplicationRunner implements AutoCloseable {
         if (sessionId == null || !sessions.exists(projectId, sessionId)) {
             throw new ApplicationException.NotFound("Session 不存在：" + projectId + "/" + sessionId);
         }
+    }
+
+    /** 回复已有的申请线程：发起它的 Session 删了也行（C013，申请属于 Job，Session 只是记录里的历史）。 */
+    private void requireKnownSession(String projectId, String sessionId) {
+        if (!projects.exists(projectId)) {
+            throw new ApplicationException.NotFound("Project 不存在：" + projectId);
+        }
+        if (!sessions.existsOrDeleted(projectId, sessionId)) {
+            throw new ApplicationException.NotFound("Session 不存在：" + projectId + "/" + sessionId);
+        }
+    }
+
+    /**
+     * 这些 Job 都没有在跑、也没有在排队时，在锁里执行 {@code action}（删除 Project 用，C013）：拿着锁，
+     * 中间不会有新的申请开始。有在跑的时 409，说是哪几个。
+     */
+    public synchronized <T> T whileIdle(List<String> jobIds, Supplier<T> action) {
+        List<String> busy = jobIds.stream().filter(live::contains).toList();
+        if (!busy.isEmpty()) {
+            throw new ApplicationException.Conflict("还有申请在运行或排队：" + String.join("、", busy)
+                    + "。先在申请工作台里停止，再删除");
+        }
+        return action.get();
     }
 
     /** 还没跑完的 Job 现在是「正在运行」还是「在排队」（409 的文案用）。调用方持有锁。 */

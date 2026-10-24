@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
@@ -278,6 +279,56 @@ public record StorageLayout(Path root) {
     /** 本 Project 下已有的 session id。 */
     public List<String> sessionIds(String projectId) {
         return childDirectoryNames(sessionsDir(projectId), Ids::isSessionId);
+    }
+
+    /**
+     * 回收站（C013）：删除的 Session / Project 整个挪到这里，一次删除一个目录，目录里照原来的相对路径摆放
+     * （{@code .trash/<时间>-session-<id>/projects/<p>/sessions/<id>/}），挪回去就恢复了。
+     */
+    public Path trashDir() {
+        return root.resolve(".trash");
+    }
+
+    /** 回收站里的每一次删除（目录）。 */
+    public List<Path> trashEntries() {
+        if (!Files.isDirectory(trashDir())) {
+            return List.of();
+        }
+        try (Stream<Path> children = Files.list(trashDir())) {
+            return children.filter(Files::isDirectory).sorted().toList();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /** 这个 Session 删除过（在回收站里）：Job 的事件还引用它，算历史，不算不存在。 */
+    public boolean trashedSession(String projectId, String sessionId) {
+        for (Path entry : trashEntries()) {
+            if (Files.isDirectory(entry.resolve(relative(sessionDir(projectId, sessionId))))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 回收站里的全部 session id：新建 Session 时不再用这些编号（不然旧 Job 的「发现于」会指到新对话上）。 */
+    public List<String> trashedSessionIds() {
+        return trashedChildren("sessions", Ids::isSessionId);
+    }
+
+    /** 回收站里的全部 job id：新 Job 不再用这些编号（{@code runs/<job>.json} 按 job id 存，恢复时不撞）。 */
+    public List<String> trashedJobIds() {
+        return trashedChildren("jobs", Ids::isJobId);
+    }
+
+    private List<String> trashedChildren(String kind, Predicate<String> accept) {
+        List<String> ids = new ArrayList<>();
+        for (Path entry : trashEntries()) {
+            for (String projectId : childDirectoryNames(entry.resolve("projects"), Ids::isProjectId)) {
+                ids.addAll(childDirectoryNames(entry.resolve("projects").resolve(projectId).resolve(kind), accept));
+            }
+        }
+        return ids;
     }
 
     /** 相对 storage 根目录、用 / 分隔的路径。 */

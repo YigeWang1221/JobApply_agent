@@ -3,6 +3,8 @@ package jobapply.api;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Objects;
+import java.util.stream.Stream;
 import jobapply.domain.Actor;
 import jobapply.domain.AgentRun;
 import jobapply.domain.Job;
@@ -14,6 +16,7 @@ import jobapply.domain.PrepState;
 import jobapply.domain.Transition;
 import jobapply.persistence.JobLedger;
 import jobapply.persistence.JobRepository;
+import jobapply.persistence.SessionRepository;
 import jobapply.persistence.StorageLayout;
 import jobapply.workflow.ApplicationException;
 import jobapply.workflow.ApplicationRunner;
@@ -42,9 +45,13 @@ public class JobController {
      * @param application 申请线程的状态；没有申请线程时为 null
      * @param steps       申请线程每一步做了什么（思考、工具参数和结果、给用户的话；不含快照）
      * @param activity    申请线程现在在做什么；没在跑时为 null
+     * @param session     从这个页面发消息用哪个 Session：申请线程的、发现它的，都删了时用这个 Project 最新的一个；
+     *                    一个都没有时为 null（C013）
+     * @param deletedSessions 记录里引用、但已经删除的 Session（界面上显示「会话已删除」，C013）
      */
     public record JobDetail(Views.JobView job, List<EventView> events, ApplicationStatus application,
-                            List<Views.ChatMessage> steps, Views.Activity activity) {
+                            List<Views.ChatMessage> steps, Views.Activity activity, String session,
+                            List<String> deletedSessions) {
     }
 
     /** @param status {@code new} / {@code shortlisted} / {@code skipped}；不投时 {@code reason} 必填 */
@@ -67,6 +74,7 @@ public class JobController {
     private final JobLedger ledger;
     private final ApplicationRunner applications;
     private final Clock clock;
+    private final SessionRepository sessions;
 
     public JobController(StorageLayout layout, Clock clock, ApplicationRunner applications) {
         this.layout = layout;
@@ -74,6 +82,7 @@ public class JobController {
         this.ledger = new JobLedger(layout, clock, applications.events()::changed);
         this.applications = applications;
         this.clock = clock;
+        this.sessions = new SessionRepository(layout, clock);
     }
 
     /** 这个 Job 的视图；「该查看了」按服务器今天的日期算。 */
@@ -85,11 +94,17 @@ public class JobController {
     public JobDetail get(@PathVariable String id) {
         Job job = find(id);
         List<EventView> events = ledger.events(job.project(), id).stream().map(JobController::event).toList();
-        return new JobDetail(view(job), events, applications.statusIfAny(id).orElse(null),
+        ApplicationStatus status = applications.statusIfAny(id).orElse(null);
+        List<String> referenced = Stream.of(status == null ? null : status.session(), job.discoveredIn())
+                .filter(Objects::nonNull).distinct().toList();
+        String usable = referenced.stream().filter(s -> sessions.exists(job.project(), s)).findFirst()
+                .orElseGet(() -> sessions.list(job.project()).stream().findFirst().map(s -> s.id()).orElse(null));
+        return new JobDetail(view(job), events, status,
                 applications.run(id).map(run -> Views.messages(run.conversation(), applications.events().jobInFlight(id),
                                 "/api/jobs/" + id + "/application/attachments"))
                         .orElse(List.of()),
-                Views.activity(applications.events().jobActivity(id)));
+                Views.activity(applications.events().jobActivity(id)), usable,
+                referenced.stream().filter(s -> !sessions.exists(job.project(), s)).toList());
     }
 
     @PatchMapping(path = "/lead", consumes = MediaType.APPLICATION_JSON_VALUE)

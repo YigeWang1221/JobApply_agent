@@ -566,6 +566,10 @@ export interface JobDetail {
   application: ApplicationStatus | null;
   steps: ChatMessage[];
   activity?: Activity | null;
+  // 从这个页面发消息用哪个 Session（申请线程的、发现它的；都删了时用 Project 最新的一个，C013）
+  session: string | null;
+  // 记录里引用、但已经删除的 Session
+  deletedSessions: string[];
 }
 
 // 同时申请（C012）：两个上限和此刻在跑、排队的个数
@@ -639,6 +643,9 @@ export const api = {
   session: (id: string) => request<SessionView>("GET", `/api/sessions/${enc(id)}`),
   renameSession: (id: string, title: string) => request<SessionView>("PATCH", `/api/sessions/${enc(id)}`, { title }),
   renameProject: (id: string, title: string) => request<ProjectSummary>("PATCH", `/api/projects/${enc(id)}`, { title }),
+  // 删除（C013）：挪进 storage/.trash/。Session 还在跑时先停下再挪走（status: deleting）
+  deleteSession: (id: string) => request<{ id: string; status: "deleted" | "deleting" }>("DELETE", `/api/sessions/${enc(id)}`),
+  deleteProject: (id: string) => request<{ id: string }>("DELETE", `/api/projects/${enc(id)}`),
   sendMessage: (id: string, text: string, attachments: string[] = []) =>
     request<SessionView>("POST", `/api/sessions/${enc(id)}/messages`,
       attachments.length > 0 ? { text, attachments } : { text }),

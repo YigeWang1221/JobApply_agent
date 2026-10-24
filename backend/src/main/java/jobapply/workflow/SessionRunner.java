@@ -22,6 +22,7 @@ import jobapply.persistence.AttachmentStore;
 import jobapply.persistence.ProjectRepository;
 import jobapply.persistence.SessionRepository;
 import jobapply.persistence.StorageLayout;
+import jobapply.persistence.Trash;
 import jobapply.tools.BrowserSession;
 import jobapply.tools.WebFetch;
 import jobapply.tools.WebSearch;
@@ -84,6 +85,9 @@ public final class SessionRunner implements AutoCloseable {
     });
     private final LiveRuns running = new LiveRuns();
     private final Set<String> stopRequested = new HashSet<>();
+    /** 删除时还在跑的 Session（C013）：已经请它停下，这次运行结束时挪进回收站。 */
+    private final Set<String> deleteRequested = new HashSet<>();
+    private final Trash trash;
     private final RuntimeEvents events;
     /** 申请线程的回报：Session 在跑时先放在这里，跑完再写进对话（不插进正在进行的工具调用中间）。 */
     private final Map<String, List<AgentRun.Turn>> pendingReports = new HashMap<>();
@@ -102,6 +106,7 @@ public final class SessionRunner implements AutoCloseable {
         this.applications = applications;
         this.projects = new ProjectRepository(layout, clock);
         this.sessions = new SessionRepository(layout, clock);
+        this.trash = new Trash(layout, clock);
         this.events = applications.events();
         applications.reportTo(this::report);
     }
@@ -144,6 +149,7 @@ public final class SessionRunner implements AutoCloseable {
     /** 发一条消息，带上用户附的文件（{@link #attachments(String)} 里的编号，C006 附件）。只有附件时文字可以为空。 */
     public synchronized void send(String sessionId, String text, List<String> attachmentIds) {
         String projectId = project(sessionId);
+        requireNotDeleting(sessionId);
         String message = text == null ? "" : text.strip();
         AttachmentStore store = attachments(sessionId);
         List<AgentRun.Attachment> attached = (attachmentIds == null ? List.<String>of() : attachmentIds).stream()
@@ -190,6 +196,7 @@ public final class SessionRunner implements AutoCloseable {
      */
     public synchronized void regenerate(String sessionId) {
         String projectId = project(sessionId);
+        requireNotDeleting(sessionId);
         if (running.contains(sessionId)) {
             throw new ApplicationException.Conflict("Agent 还在回复，等它说完（或者先停止）再重新生成");
         }
@@ -243,6 +250,68 @@ public final class SessionRunner implements AutoCloseable {
         project(sessionId);
         if (running.contains(sessionId)) {
             stopRequested.add(sessionId);
+        }
+    }
+
+    /** 删除结果（C013）：{@code deleted} 已经挪进回收站；{@code deleting} 还在跑，已经请它停下，停下后挪走。 */
+    public enum Deletion { DELETED, DELETING }
+
+    /**
+     * 删除 Session（C013）：整个目录挪进回收站，Job 留在 Project 里（事件里的 Session 是历史）。还在跑时不拒绝：
+     * 请它停下（在当前这一次工具调用之后），停下时再挪走，用户不用先按停止、再回来删一次。
+     * 这个 Session 发起的申请线程不受影响，照常属于各自的 Job；回报找不到 Session 时不写。
+     */
+    public synchronized Deletion delete(String sessionId) {
+        String projectId = project(sessionId);
+        if (running.contains(sessionId)) {
+            deleteRequested.add(sessionId);
+            stopRequested.add(sessionId);
+            inbox.take(sessionId);
+            events.changed(sessionId, null);
+            return Deletion.DELETING;
+        }
+        trash.moveSession(projectId, sessionId);
+        forget(sessionId);
+        events.changed(sessionId, null);
+        return Deletion.DELETED;
+    }
+
+    /**
+     * 删除 Project（C013）：它的 Session 有在跑的、或者它的 Job 有申请在跑 / 排队时 409（说是哪几个）；别的 Project
+     * 继承它时也 409。否则整个 Project 连同它的 Job 的运行记录、上传暂存挪进回收站，全局台账重新生成。
+     * 拿着本对象和申请线程的锁做，检查和挪走之间不会有新的运行开始。
+     */
+    public synchronized void deleteProject(String projectId) {
+        if (!projects.exists(projectId)) {
+            throw new ApplicationException.NotFound("Project 不存在：" + projectId);
+        }
+        List<String> children = layout.projectIds().stream().filter(id -> !id.equals(projectId))
+                .filter(projects::exists).filter(id -> projects.load(id).parentIds().contains(projectId)).toList();
+        if (!children.isEmpty()) {
+            throw new ApplicationException.Conflict("这些 Project 继承它：" + String.join("、", children) + "，先删掉它们");
+        }
+        List<String> busy = layout.sessionIds(projectId).stream()
+                .filter(id -> running.contains(id) || deleteRequested.contains(id)).toList();
+        if (!busy.isEmpty()) {
+            throw new ApplicationException.Conflict("还有对话在运行：" + String.join("、", busy) + "。先停止，再删除");
+        }
+        List<String> sessionIds = layout.sessionIds(projectId);
+        applications.whileIdle(layout.jobIds(projectId), () -> trash.moveProject(projectId));
+        sessionIds.forEach(this::forget);
+        events.changed(null, null);
+    }
+
+    /** 删掉的 Session 在内存里剩下的东西。调用方持有锁。 */
+    private void forget(String sessionId) {
+        pendingReports.remove(sessionId);
+        inbox.take(sessionId);
+        stopRequested.remove(sessionId);
+        deleteRequested.remove(sessionId);
+    }
+
+    private void requireNotDeleting(String sessionId) {
+        if (deleteRequested.contains(sessionId)) {
+            throw new ApplicationException.Conflict("这个对话正在删除（等 Agent 停下就挪进回收站）");
         }
     }
 
@@ -321,6 +390,18 @@ public final class SessionRunner implements AutoCloseable {
                 }
                 running.remove(sessionId);
                 stopRequested.remove(sessionId);
+                if (deleteRequested.contains(sessionId)) {
+                    // 删除时还在跑（C013）：现在停下了，挪进回收站，不再写回报、不再接着跑
+                    try {
+                        trash.moveSession(projectId, sessionId);
+                    } catch (RuntimeException e) {
+                        log.warn("Session {} 停下后没有挪进回收站：{}", sessionId, rootMessage(e));
+                    }
+                    forget(sessionId);
+                    events.finished(sessionId, null, Status.IDLE);
+                    events.changed(sessionId, null);
+                    return;
+                }
                 // 跑的时候到的申请线程回报，现在接在对话后面
                 for (AgentRun.Turn note : pendingReports.getOrDefault(sessionId, List.of())) {
                     try {

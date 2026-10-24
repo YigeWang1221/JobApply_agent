@@ -784,3 +784,11 @@
 - 结果：`ApplicationRunner` 两个上限改为锁里可变、执行器换成按需建线程的池、新增 `concurrency()` / `setConcurrency()`；新增 `WorkerSettingsFile`（`settings/workers.yaml`）、`WorkerSettingsController`（`GET` / `PUT /api/settings/workers`）；前端设置 →「模型」最下面加「同时申请」卡片。细节见 [C012](plan/coding/C012-worker-settings.md)。
 - 验证：`JAVA_HOME=… mvn -B -q clean verify` 退出码 0（surefire 612、failsafe 1）；`ApplicationRunnerPoolTest` 新增一条（调小不停在跑的且不放新的、调大马上放、超出范围不写文件），池测试单独连跑 5 次都通过；`frontend/` 下 `npm run build` 通过。真实应用、真实模型、真实 Chrome：未运行。
 - 偏差：无。
+
+## 2026-10-24 · C013 删除 Session / Project
+
+- 日期：2026-10-24
+- 指令：用户「好像还是做不到 delete session/project。参考那两个 repo 设计然后执行」：先查 deep-agents-ui、OpenMAIC（及 langgraphjs）怎么删线程 / 项目，写进参考文档，再写 C013 并施工；软删进回收站、一个确认框；删 Session 时 Job 留下；删 Project 时在跑 409、连 runs / uploads 一起挪、全局台账去掉它；不碰 base、settings、playbook、别的 Project、example.data。
+- 结果：参考结论写进 `plan/reference/research-agent-design.md`「删除会话 / 项目」（deep-agents-ui `f6a4f34` 没有删除；OpenMAIC `dff201b` 软删 + 侧栏 ⋯ 先问一句 + 删文件夹留课程；langgraphjs `c6675bf` 硬删级联）。新增 `Trash`（挪进 `storage/.trash/<时间>-<kind>-<id>/`，照原路径摆放，写 `RESTORE.md`）、`DELETE /api/sessions/{id}`（在跑时请停、停下后挪走，202）、`DELETE /api/projects/{id}`（在跑 / 被继承 409）。台账写入和回复申请线程接受已删除的 Session（否则删掉发起申请的 Session 后申请推进不了）；回收站里的编号不再分配。侧栏 Project / Session 行加垃圾桶和确认框；已删除的 Session 在 Session 页、Job 页、候选池显示「会话已删除」。细节见 [C013](plan/coding/C013-delete-session-project.md)。
+- 验证：新增 `DeleteSessionProjectTest`（临时 storage、虚构数据：删 Session 只挪这一个目录、其余文件逐字节不变、Job 还能更新、编号不复用；删 Project 只挪它和它的 Job 的 runs / uploads，base、settings、playbook、另一个 Project 逐字节不变，`jobs-index.md` 没有它了；有申请在跑时删 Project 409）通过。`JAVA_HOME=… mvn -B -q clean verify` 退出码 0；`frontend/` 下 `npm ci` 后 `npm run build` 通过。真实应用、真实浏览器：未运行（用户的应用在 8080 上）。
+- 偏差：没做 ⋯ 菜单，垃圾桶和改名笔并排；没做恢复接口（手动挪回）；`plan/master/memory.md` 目录树加 `.trash/` 等用户确认。

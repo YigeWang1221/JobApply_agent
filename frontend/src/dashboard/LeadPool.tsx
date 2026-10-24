@@ -65,7 +65,8 @@ export function LeadPool({ leads, applications, showProject, sessionTitle, onMar
               </span>
             </button>
             {expanded && rows.map((job) => {
-              const from = job.discoveredIn ? sessionTitle(job.discoveredIn) ?? job.discoveredIn : null;
+              // 范围内找不到的 Session 是删掉的（C013）：Job 留着，只标一句
+              const from = job.discoveredIn ? sessionTitle(job.discoveredIn) ?? "会话已删除" : null;
               return (
                 <div key={job.id} className="lead">
                   <div className="nm">

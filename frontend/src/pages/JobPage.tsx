@@ -89,7 +89,11 @@ export default function JobPage({ id }: { id: string }) {
     return pollError ? <p className="error pad">{pollError}</p> : <ChatSkeleton />;
   }
   const { job, application: status, steps, events } = detail;
-  const session = status?.session ?? job.discoveredIn;
+  // 发消息用的 Session 由后端挑（记录里的 Session 删了时换成 Project 最新的一个，C013）
+  const session = detail.session;
+  const discoveredDeleted = !!job.discoveredIn && detail.deletedSessions.includes(job.discoveredIn);
+  // 回复申请线程时记它自己的 Session：删掉了后端也接受（申请属于 Job，C013）
+  const replyAs = status?.session ?? session;
   // 能不能开始由服务器判断（和后端 start 同一条规则：状态允许、有岗位链接、还没有申请线程）
   const canStart = !status && job.canStart;
   const waiting = !!status && WAITING.has(status.status);
@@ -129,7 +133,7 @@ export default function JobPage({ id }: { id: string }) {
   ].filter(Boolean) as string[];
 
   async function send() {
-    if (!status || !session) {
+    if (!status || !replyAs) {
       toast("这个申请没有 Session", "error");
       return;
     }
@@ -138,14 +142,14 @@ export default function JobPage({ id }: { id: string }) {
     );
     if (running) {
       // 运行中插话（C010）：只发这一句，附件留在输入框里等它停下再发
-      if (await call(() => api.reply(job.id, { session, text: text.trim() }))) {
+      if (await call(() => api.reply(job.id, { session: replyAs, text: text.trim() }))) {
         setText("");
       }
       return;
     }
     const files = attach.ready.map((file) => file.id);
     const body: ReplyBody = {
-      session,
+      session: replyAs,
       ...(text.trim() ? { text: text.trim() } : {}),
       ...(Object.keys(filled).length > 0 ? { answers: filled } : {}),
       ...(slots.length > 0 ? { files: slots.map((slot) => current.picked[slot.id] ?? "") } : {}),
@@ -170,9 +174,10 @@ export default function JobPage({ id }: { id: string }) {
               {job.officialUrl && <a href={job.officialUrl} target="_blank" rel="noreferrer">官方链接</a>}
               {sse.reconnecting && <span className="reconnecting" title="和后端的推送断开了，正在自动重连">重新连接中…</span>}
               <button className="linkbtn" onClick={() => go({ kind: "project", id: job.project })}>回到 Project</button>
-              {job.discoveredIn && (
+              {job.discoveredIn && !discoveredDeleted && (
                 <button className="linkbtn" onClick={() => go({ kind: "session", id: job.discoveredIn! })}>发现它的 Session</button>
               )}
+              {discoveredDeleted && <span title={`发现它的 Session（${job.discoveredIn}）已经删除，岗位留着`}>会话已删除</span>}
               {job.phase !== "closed" && job.leadStatus !== "closed" && job.leadStatus !== "skipped" && (
                 <button className="linkbtn" title="岗位已下线 / 停止招聘"
                   onClick={() => void call(() => api.postingClosed(job.id))}>岗位下线了</button>
@@ -220,9 +225,9 @@ export default function JobPage({ id }: { id: string }) {
             sendLabel={ready ? "要求修改" : status?.status === "failed" ? "重试" : "回复，继续"}
             onSend={() => void send()}
             onStop={() => void call(() => api.stop(job.id))}
-            onInterrupt={session ? () => void call(async () => {
+            onInterrupt={replyAs ? () => void call(async () => {
               await api.stop(job.id);
-              await api.reply(job.id, { session, text: text.trim() });
+              await api.reply(job.id, { session: replyAs, text: text.trim() });
               setText("");
             }) : undefined}
             placeholder={running ? "Agent 正在做，可以随时插话（例如「先别填这个，改成…」），它下一步会看到" : ready ? "要修改时写明要改什么" : "回复 Agent（可选，例如「登录好了」），可以附文件和截图"} />

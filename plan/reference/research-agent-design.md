@@ -145,3 +145,24 @@
 - 同一个 playwright-core（1.64.0-alpha，@playwright/mcp 0.0.83 的 npx 缓存）：命中检查失败时 Playwright 会换几种滚动对齐（end / center / start）重试，所以单纯在页面底部、被固定底栏挡住的按钮多半能自己滚开；一直超时多半是盖在按钮上的透明层或没关掉的浮层遮罩。超时错误不带调用日志，MCP 返回给模型的只有 `Timeout … exceeded`。
 - `click({force:true})` 只跳过可操作性检查，仍在元素中心的屏幕坐标上发鼠标事件，被盖住时点到的是上层元素，解决不了遮挡。直接在元素上派发事件（`dispatchEvent` / `element.click()`）不经过坐标，盖在上面的层收不到。
 - 结论：超时后系统用固定模板只读检查一次（滚到中间、`elementFromPoint`、fixed / sticky 层、还开着的浮层），写进错误；点击目标只是被盖住时系统直接点一次。点击守卫在这之前已经放行这个 ref。见 `PlaywrightMcpClient.DIAGNOSE`、`CLICK_THROUGH`。
+
+## 删除会话 / 项目（2026-10-24）
+
+起因：用户「好像还是做不到 delete session/project，参考那两个 repo 设计然后执行」。
+
+看的版本：deep-agents-ui `f6a4f34`；OpenMAIC `dff201b`；langgraphjs `c6675bf`（deepagents 没有删除线程的界面，没细看）。
+
+| 项目 | 界面 | 后端语义 | 正在跑的 |
+| --- | --- | --- | --- |
+| deep-agents-ui | 没有删除：`ThreadList.tsx` 只列线程（`useThreads` 调 `threads.search`），全仓没有 delete / archive | — | — |
+| langgraphjs | （服务端）`DELETE /threads/:id` → 204，没有这个线程 404（`libs/langgraph-api/src/api/threads.mts`） | **硬删**，级联删掉这个线程的 runs 和 checkpoint（`storage/ops.mts` `threads.delete`）；删 assistant 默认**不**删它的线程，要显式 `delete_threads=true` | 不检查，直接连 run 一起删 |
+| OpenMAIC · 对话 | 侧栏每行悬停出现 ⋯，里面「删除」先问一句（`components/workbench/workspace/WorkspaceRail.tsx` 文件头说明）；确认后行**乐观地**先消失，服务端失败再放回并提示；成功后若删的是当前打开的对话，外壳关掉它的面板和 URL 参数 | **软删**：`deleteWorkspaceSession` → `store.softDeleteSession(id, owner)`（`lib/workbench/workspace-actions.ts`） | 不单独处理 |
+| OpenMAIC · 课程 / 文件夹 | 课程卡片「删除」→ 卡片上就地确认 / 取消（`app/page.tsx` `pendingDeleteId`），没有二次确认 | 删课程会结束它的生成任务；删文件夹默认 `mode=ungroup`：**文件夹没了，课程留下**回到顶层；连课程一起删的模式故意不放进侧栏（「容器的 ⋯ 不能毁掉作品」）；删除有防重入和「删除代」防止在途保存把刚删的写回来（`lib/utils/deleted-stages.ts`） | 删课程 = 结束任务 |
+
+**结论（JobApply 怎么做，C013）**
+
+1. 照 OpenMAIC 的软删，而且更简单：本地文件，直接把目录挪进 `storage/.trash/<时间>-<session|project>-<id>/`，里面照原相对路径摆放，挪回去就恢复。不做恢复接口和回收站页面。
+2. 照 OpenMAIC「容器删掉、作品留下」：删 Session 只删对话，它发现的 Job 留在 Project 里，事件里的 Session 当历史；删 Project 才连 Job 一起挪走（Job 属于 Project）。
+3. 界面照 OpenMAIC 侧栏：行上悬停出现的按钮（和已有的改名笔并排，不另做 ⋯ 菜单），一个确认框写清楚挪走什么、留下什么，只问一次；删的是当前页时回到全局。
+4. 正在跑的：Session 照 OpenMAIC「删除 = 结束运行」，在跑时请它停下、停下后挪走，不让用户先停再删；Project 范围大、牵涉申请线程和浏览器标签页，有对话或申请在跑 / 排队时 409，说是哪几个。
+5. 不学 langgraph 的硬删：删错了没有回头路；也不学它不检查在跑的运行（我们的运行在写同一批文件）。

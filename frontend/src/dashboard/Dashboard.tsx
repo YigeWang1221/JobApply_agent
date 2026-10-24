@@ -94,7 +94,9 @@ export function TabBody({ tab, jobs, showProject, sessions, reload, recent }: {
             `${job.company} · ${job.title}：${LEAD[status]}`)}
           onStart={(job) => {
             // C008：先在发现它的 Session（没有就新开一个）里让对话 Agent 排简历，排完它自己开始申请
-            let session = job.discoveredIn ?? sessions.find((s) => s.project === job.project)?.id;
+            // 发现它的 Session 删了（C013）时用这个 Project 最近的一个
+            let session = (job.discoveredIn && titles.has(job.discoveredIn) ? job.discoveredIn : undefined)
+              ?? sessions.find((s) => s.project === job.project)?.id;
             void act(async () => {
               session ??= (await api.createSession(job.project)).session.id;
               await api.sendMessage(session, `给 ${job.company} · ${job.title}（${job.id}）排一下简历，然后开始申请`);

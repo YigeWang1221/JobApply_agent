@@ -64,6 +64,14 @@ public final class SessionRepository {
         return Files.exists(layout.sessionFile(projectId, sessionId));
     }
 
+    /**
+     * 还在，或者删除过（在回收站里，C013）。Job 的事件、申请线程里记的 Session 是历史：Session 删了，
+     * Job 和申请照样能往下走，记录里还写原来的 Session。
+     */
+    public boolean existsOrDeleted(String projectId, String sessionId) {
+        return sessionId != null && (exists(projectId, sessionId) || layout.trashedSession(projectId, sessionId));
+    }
+
     public SessionRecord load(String projectId, String sessionId) {
         Path file = requireFile(projectId, sessionId);
         FrontmatterFile.Document document = FrontmatterFile.read(file);
@@ -304,6 +312,7 @@ public final class SessionRepository {
         for (String projectId : layout.projectIds()) {
             ids.addAll(layout.sessionIds(projectId));
         }
+        ids.addAll(layout.trashedSessionIds());
         return ids;
     }
 

@@ -5,6 +5,7 @@ import java.io.UncheckedIOException;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Locale;
 import jobapply.domain.AgentRun;
 import jobapply.domain.SessionRecord;
 import jobapply.persistence.JobRepository;
@@ -16,6 +17,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -52,6 +54,10 @@ public class SessionController {
     }
 
     public record RenameRequest(String title) {
+    }
+
+    /** @param status {@code deleted}（已挪进回收站）或 {@code deleting}（还在跑，停下后挪走） */
+    public record DeleteResponse(String id, String status) {
     }
 
     private final StorageLayout layout;
@@ -116,6 +122,16 @@ public class SessionController {
     public SessionView stop(@PathVariable String id) {
         runner.stop(id);
         return view(layout, clock, runner, applications, id);
+    }
+
+    /**
+     * 删除这个 Session（C013）：挪进 {@code storage/.trash/}，Job 留在 Project 里。还在跑时请它停下，停下后挪走（202）。
+     */
+    @DeleteMapping
+    public ResponseEntity<DeleteResponse> delete(@PathVariable String id) {
+        SessionRunner.Deletion result = runner.delete(id);
+        return ResponseEntity.status(result == SessionRunner.Deletion.DELETED ? HttpStatus.OK : HttpStatus.ACCEPTED)
+                .body(new DeleteResponse(id, result.name().toLowerCase(Locale.ROOT)));
     }
 
     static SessionView view(StorageLayout layout, Clock clock, SessionRunner runner, ApplicationRunner applications,
