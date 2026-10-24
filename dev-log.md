@@ -718,3 +718,13 @@
 - 结果：新 skill `playbook/skills/components/repeatable-entries/SKILL.md`（先数段数、先保存当前卡片、点添加后看快照确认新卡片、加不上的排查顺序、不编原因、链接字段取简历超链接），`PlaybookSeeder.BUNDLED` 加上它；`ApplyAgent`「教育、实习、工作、项目」补几句并新增「链接」一条；skill apply-form「其它」加一句指向新 skill。`AssetAnalyzer.text` 用 `BodyContentHandler` + `LinkContentHandler` 解析，在正文前列出「文件里的超链接（链接文字：网址）」，只列 http(s)、去重、最多 50 条，整段仍去掉 C 级的值。
 - 验证：`mvn -B -q clean verify` 退出码 0（没有改测试）。自制的 docx（3 个 http 超链接 + 1 个 mailto）跑 `AssetAnalyzer.text`：3 个网址按链接文字列出，mailto 不列；字数上限 60 时不报错，已读到的链接照常列出。PDF 超链接：未运行。真实 Chrome、真实模型：未运行。
 - 偏差：本机 `storage/playbook/skills/` 里已有的 apply-form 不会被覆盖（PlaybookSeeder 只补缺），新 skill repeatable-entries 下次启动会自动补上。
+
+## 2026-10-23 · 真实跑通（小米 Agent工程师）与修补；暂停交接
+
+- 本会话：多代理做完 ① 标签页改回提示词 / skill（2ad608e）② C008 简历排名（228b38c）；之后真实 Chrome + 真实模型跑小米 Agent工程师：调研 → 排简历 → 开始申请 → 登录 → 上传 → 填写 → 停在提交前（第一次跑到 `ready`，用户没有提交）。跑出的问题逐条记在 [C006-fix-real-run](plan/coding/C006-fix-real-run.md)（1–19），按用户意见修了：申请 Agent 读简历原文、简历在对话里定好直接上传（C008-fix，867b4a6）；接着做时原件放回上传区（临时补丁 c460958，结构修正待做）；上传带 target 直接 setInputFiles（dc88033）；添加条目 skill、简历超链接（5a7a9d3，合并 7613292）。C009（敏感信息占位符）只写了设计，待用户确认。
+- 验证：合并后 `mvn -B -q clean verify` 退出码 0；前端本轮没改。第 10、14、15 条的修法在真实页面上：未运行（第三次跑卡在 Chrome 30 秒允许超时）。
+- 后端和 Vite 已停。申请线程 2026-10-23-001 停在「浏览器断开」等你，Chrome 小米页签上表单填了一部分（第一个项目、基本信息）。
+- 明天（按顺序）：
+  1. 启动后端（`backend/` 下 `java -jar target/jobapply-0.0.1-SNAPSHOT.jar`）和前端（`frontend/` 下 `npm run dev`），刷新工作台页面；点「重新连接」并在 Chrome 30 秒内点允许；在工作台回复让申请 Agent 接着做，看上传（target）、3 个项目（保存 → 添加 → 快照确认）、超链接、时间（NEU 2026 Spring 起每学期一个、各 3 个月）。
+  2. 用户决定第 18 条（卡片内「确定 / 完成」）和 C009。
+  3. 修第 9 条结构（上传时才复制原件）、12、16、17；token（5、11、19）。
