@@ -165,7 +165,7 @@ JobApply 选择分层 Markdown 来保留这些逻辑关系，按资料的归属�
 
 JobApply 在来源层保留原件，在证据与事实层保存整理后的内容，在画像层提供概要，并在 Job 与 Session 中保存申请过程的对话和记录。它通过 Project、Job 和来源引用连接这些资料，为模型提供沿业务关系读取内容的路径。
 
-JobApply 借鉴 **SillyTavern（酒馆）** 的思路设计分层阅读，在上层资料中保留概要和指向下层资料的链接。
+JobApply 借鉴 **[SillyTavern（酒馆）](https://github.com/SillyTavern/SillyTavern)** 的思路设计分层阅读，在上层资料中保留概要和指向下层资料的链接。
 
 模型先阅读概要，再根据任务判断是否需要展开，沿引用追溯详细内容或原始材料。
 
@@ -251,7 +251,7 @@ JobApply 参考 [OpenMAIC](https://github.com/THU-MAIC/OpenMAIC)、[Deep Agents]
 
 出处：[主循环与 steer](https://github.com/NousResearch/hermes-agent/blob/e5dad4ac57ad11d39fe18b1ac895c0e0ae5b6494/run_agent.py)、[Memory 工具](https://github.com/NousResearch/hermes-agent/blob/e5dad4ac57ad11d39fe18b1ac895c0e0ae5b6494/tools/memory_tool.py)；落地：[ApplyAgent](backend/src/main/java/jobapply/agents/ApplyAgent.java)、[Inbox](backend/src/main/java/jobapply/domain/Inbox.java)、[MemoryWriter](backend/src/main/java/jobapply/memory/MemoryWriter.java)。
 
-**SillyTavern（酒馆）：分层资料与按需展开。** JobApply 从酒馆项目获得启发，在上层资料中保留概要与引用，为模型提供按需追溯下层内容的路径。它据此组织原始材料、整理后的资料和运行记录，保留资料之间的上下文关系。
+**[SillyTavern（酒馆）](https://github.com/SillyTavern/SillyTavern)：分层资料与按需展开。** JobApply 从酒馆项目获得启发，在上层资料中保留概要与引用，为模型提供按需追溯下层内容的路径。它据此组织原始材料、整理后的资料和运行记录，保留资料之间的上下文关系。
 
 更完整的源码路径、研究版本和未采用的机制见[研究笔记](plan/reference/research-agent-design.md)。
 
