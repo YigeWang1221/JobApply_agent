@@ -191,8 +191,13 @@ class ApplicationRunnerPoolTest {
         @Override
         public ChatResponse call(Prompt prompt) {
             String text = prompt.getContents();
-            String company = List.of("Alpha示例", "Beta示例", "Gamma示例", "Delta示例", "Epsilon示例").stream()
-                    .filter(text::contains).findFirst().orElseThrow();
+            // 提示词里只能有一个公司名：多了说明页面串了（例如读到了别的申请的页），直接报出来，不按顺序猜
+            List<String> named = List.of("Alpha示例", "Beta示例", "Gamma示例", "Delta示例", "Epsilon示例").stream()
+                    .filter(text::contains).toList();
+            if (named.size() != 1) {
+                throw new IllegalArgumentException("假模型认不出是哪个申请，提示词里的公司：" + named);
+            }
+            String company = named.get(0);
             started.putIfAbsent(company, System.nanoTime());
             latch(company).countDown();
             try {

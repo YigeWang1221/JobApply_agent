@@ -216,3 +216,14 @@
 - 启动后第一次用浏览器：**只弹一次**允许；之后开两三个申请、调研同时用浏览器、一个结束再开新的，都不该再弹（连接代数保持不变）。
 - 两个申请同时填：各自的页上动作，前台页不会来回跳（只有开页、切到自己的弹窗、转交时 `select` 会把那页切到前台）；用户看别的页或把窗口最小化时点击不超时。
 - 同一网站两个申请、其中一个开着同站弹窗又遇到 alert：可能卡住（上表最后一行），要用户手动关掉对话框。
+
+## 合并后的竞争问题（2026-10-24）
+
+两半合并后 `ApplicationRunnerPoolTest` 时好时坏（「Beta示例 进入模型调用」等 20 秒超时）。单独连跑 20 次：17 次失败。
+
+- **原因：测试的假服务端，不是产品的锁。** `FakePlaywrightMcpServer` 的单页模式（场景里没有 `tabs`，池测试用的就是它）只有一个全局的 `currentUrl`，不分会话。三个 Worker 各自在自己的会话里同时 `browser_tabs new`，后开的覆盖前开的，于是别人的快照里是另一家公司的页面。假模型 `GatedModel` 按固定顺序（Alpha、Beta、Gamma…）找提示词里的第一个公司名，提示词里同时有自己的公司（申请资料）和别人页面上的公司名时，就认成了排在前面的那家，在别人的门闩上等，自己那家永远「没进模型调用」。合并前 Worker 池分支的浏览器有全局锁、调用一个接一个，碰不到这个；浏览器层分支没有并发开页的池测试。
+- **证据**：失败运行的日志里三个不同的 Job 都报「测试没有放行 Alpha示例」（20 次里 001/002/003/004 都出现过认成 Alpha 或 Beta）。把假模型改成「提示词里不止一个公司名就报错」后，用原来的假服务端跑 3 次全失败，报错是「提示词里的公司：[Alpha示例, Beta示例]」「[Beta示例, Gamma示例]」「[Delta示例, Epsilon示例]」。卡住时的线程转储：`application-worker-2/3` 停在 `GatedModel.call` 的 `CountDownLatch.await`（等门闩），`application-worker-1` 空闲等任务，没有 BLOCKED 线程，没有死锁。
+- **修改**：假服务端单页模式按会话记当前网址（新会话从最近一次调用时的当前页开始，单个使用者的测试和以前一样）；假模型提示词里公司名不是正好一个时直接报错，不再按顺序猜。
+- **顺带检查的跨两半交互**：锁顺序是使用者锁 → `keeperLock` / `connectLock`，拿着 `connectLock` 的路径（建立连接、断开、关闭）不拿使用者锁，没有反向；多个 Worker 同时 `retryOnNextUse` 只是都把 `retryLeft` 置真，第一个 `ensureConnected` 在 `connectLock` 里消费它，别的等到结果；第一次连接时几个 Worker 并发进 `connected()`，双重检查在锁里，只建一次；`Server.open()` 每次新建自己的 HTTP 客户端，没有共享状态。唯一改了的产品代码：`BrowserSession.close()` 原来先关服务进程再关使用者的会话，每个会话关闭时的请求都连不上，留下一串 `McpTransport: Error during asynchronous close`（ConnectException / ClosedChannelException）；改成先关会话、再关服务进程（同一个池测试的日志里这类警告 8 条 → 0 条）。
+- **真实运行会不会这样卡住**：不会。真的 `@playwright/mcp --shared-browser-context` 每个会话有自己的当前标签页（上面第 7 节手动矩阵里同时开页、填写都落在自己的页上）；这个问题只在假服务端的单页模式里。
+- **验证**：池测试连跑 20 次全部通过；`mvn -B -q clean verify` 连跑 3 次（结果见 `dev-log.md`）。

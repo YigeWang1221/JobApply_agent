@@ -164,6 +164,18 @@ public final class FakePlaywrightMcpServer {
         if (scenario.get("tabs") instanceof List<?>) {
             return withTabs(session, tool, args, scenario);
         }
+        // 单页模式也按会话记当前页（C011 合并后的竞争问题）：几个会话同时 browser_tabs new 时各自看到自己开的页，
+        // 不会读到别人刚开的页。新会话从最近一次调用时的当前页开始（只有一个使用者的测试和以前一样）。
+        currentUrl = singleUrls.getOrDefault(session, currentUrl);
+        McpSchema.CallToolResult result = single(tool, args, scenario);
+        singleUrls.put(session, currentUrl);
+        return result;
+    }
+
+    /** 单页模式（没有 {@code tabs}）：会话 → 它的当前网址。 */
+    private final Map<String, String> singleUrls = new java.util.HashMap<>();
+
+    private McpSchema.CallToolResult single(String tool, Map<String, Object> args, Map<String, Object> scenario) {
         return switch (tool) {
             case "browser_navigate" -> {
                 String url = String.valueOf(args.get("url"));

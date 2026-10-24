@@ -327,16 +327,17 @@ public final class BrowserSession implements AutoCloseable {
     @Override
     public void close() {
         synchronized (connectLock) {
-            Connection current = connection;
-            if (current != null) {
-                drop(current);
-            }
+            // 先关使用者的会话、再关服务进程：反过来时每个会话关闭时的请求都连不上服务进程，只留一串警告
             owners.values().forEach(o -> {
                 PlaywrightMcpClient client = o.client;
                 if (client != null) {
                     closeQuietly(client);
                 }
             });
+            Connection current = connection;
+            if (current != null) {
+                drop(current);
+            }
         }
     }
 
