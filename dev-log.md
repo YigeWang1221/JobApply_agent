@@ -681,3 +681,9 @@
   3. 然后做 C008（简历排名）。
 - 已知风险（只记下，不修，交用户决定）：C006-fix-browser 最后一次审查列出的 5 条标签页路径；对话压缩没做；资料导入还是固定流水线。
 - 没有提交 git。暂存区是中途快照，提交前要 `git add -A`。
+
+## 2026-10-23 · 标签页改回提示词约束（C006-fix-browser 第 3 节）
+
+- 「只操作自己打开的、点击弹出的、用户明确交给你的标签页；用户之前开的不碰」写进 `ApplyAgent`、`ResearchAgent`、`browser_tabs` 工具说明、skill apply-form。`BrowserSession` 只留记账（正在用的页、记在名下的页、转交、点击弹出的新页）；`browser_tabs list` 列出所有标签页并标出「正在用」「你的」，`select` 能切到任何一个；认不出正在用的页时把原话交给模型。删掉规则 ③④、`shrank`、`homes`、`sameSite`、`claim`、`findResult` 等；`HarnessLoop.tabLost` 简化。细节见 [C006-fix 浏览器](plan/coding/C006-fix-browser.md) 第 3 节。
+- 测试：`BrowserSessionTabsTest` 8 → 5 条，`BrowserSessionActTest` 删 1 条（`find` 清洗），没有新增。
+- 验证：`mvn -B -q clean verify` 退出码 0（surefire 621、failsafe 1）。前端没改，`npm run build` 未运行。真实 Chrome、真实模型：未运行。

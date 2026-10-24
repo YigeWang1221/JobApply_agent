@@ -111,9 +111,6 @@ public final class FakePlaywrightMcpServer {
         if (scenario.get("toolError") instanceof String error && !error.isEmpty()) {
             return McpSchema.CallToolResult.builder().addTextContent("### Error\n" + error).isError(true).build();
         }
-        if ("browser_find".equals(tool) && scenario.get("findText") instanceof String raw) {
-            return text(raw);
-        }
         if (scenario.get("form") instanceof Map<?, ?>) {
             return form.handle(tool, args, scenario);
         }

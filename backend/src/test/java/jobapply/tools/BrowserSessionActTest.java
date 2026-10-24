@@ -118,27 +118,6 @@ class BrowserSessionActTest {
                 "browser_find");
     }
 
-    /** 真实 MCP 在 find 结果后面会带上所有标签页的标题和网址（Open tabs）、当前页（Page）：只把 Result 交出去。 */
-    @Test
-    void findReturnsOnlyTheResultSectionAndNeverOtherTabsTitlesOrUrls() {
-        FakeBrowser fake = FakeBrowser.create(dir).form("multi-page");
-        String url = fake.formUrl();
-
-        try (BrowserSession session = new BrowserSession(fake.launch())) {
-            PageSnapshot first = session.open(url, JOB);
-            fake.findText("### Result\nFound 1 match for \"下一步\":\n\n- button \"下一步\" [ref=e9]\n"
-                    + "### Open tabs\n- 0: [收件箱 - 私人邮箱](https://mail.private-demo.com/inbox)\n"
-                    + "- 1: (current) [申请表](" + url + ")\n"
-                    + "### Page\n- Page URL: " + url + "\n- Page Title: 申请表\n"
-                    + "### Events\n- Downloaded file secret.pdf to \"/tmp/secret.pdf\"");
-            String found = session.find(JOB, Map.of("text", "下一步"), model(first, url, null));
-
-            assertThat(found).isEqualTo("Found 1 match for \"下一步\":\n\n- button \"下一步\" [ref=e9]");
-        }
-        assertThat(BrowserSession.findResult("### Page\n- Page URL: https://mail.private-demo.com/inbox"))
-                .isEmpty();
-    }
-
     @Test
     void uploadsTheStagedCopyIntoTheOpenFileChooser() throws Exception {
         Path uploads = dir.resolve("storage/uploads/" + JOB);

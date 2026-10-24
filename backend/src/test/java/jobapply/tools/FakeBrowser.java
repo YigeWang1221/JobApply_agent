@@ -147,12 +147,6 @@ public final class FakeBrowser {
         return save();
     }
 
-    /** 之后 {@code browser_find} 原样返回这段文字（模仿真实 MCP 在结果后面带上 Open tabs、Page 等小节）。 */
-    public synchronized FakeBrowser findText(String raw) {
-        scenario.put("findText", raw);
-        return save();
-    }
-
     public synchronized FakeBrowser callDelay(Duration delay) {
         scenario.put("callDelayMillis", delay.toMillis());
         return save();

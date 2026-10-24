@@ -164,3 +164,17 @@
   - 新加：`theUsersTabsAreNeverListedOrReadEvenOnTheSameSiteUntilHandedOver`（没新开时不能快照；同站点的用户页不列、不能选，没有 `select`，只取过新开那页的快照）；`aHandedOverTabBelongsToTheJobAndCanBeUsed`（重启后转交 → 能快照、能列；已有正在用的页时转交不偷换，`select` 过去；别人看不到、不能再交）；`handoverIsRefusedWhenTheTabChangedOrAlreadyHasAnOwner`（别人的、自己的、网址变了、序号不在都 409，别人的页照旧）。
 - 验证：`npm run build` 通过。`mvn -B clean verify`（scratchpad 副本，含 L 当时进行中的改动）：surefire 624 条只有 `PlaywrightMcpClientTest.serverExitingMidCallIsADisconnect` 失败——那条是 L 的第 1 节要改的「断开后不自动重连」（L 清单里「除上面改的一条」），和标签页无关；排除它再跑，其余全部通过（`BrowserSessionTabsTest` 8 条全过），failsafe 1 条通过。真实 Chrome 里转交一页再接着填：**未运行**。
 - 「必须保持不变」：1 ✓ `theSameTabWithAChangedUrlOnTheSameSiteIsStillThisJobs` 只换了签名，通过；2 ✓ `act` 的 CLICK 分支没动；3 ✓ `openingANewTabKeepsAnotherOwnersRecord…` 未改通过；4 ✓ 新测试断言用户页 / 别人的页不列、不快照、没有 `select`；5 ✓ `BrowserSessionActTest`、`BrowserSessionConnectionTest`、`FakeFormScriptTest` 未改通过（`PlaywrightMcpClientTest` 除 L 那条外通过）；6 ✓ `BrowserToolPolicy` 没动，`BrowserToolPolicyTest`、`BrowserToolsTest` 未改通过。
+
+## 第 3 节：标签页改回提示词约束（2026-10-23）
+
+- 依据：用户指出第 2 节和「审查后的结构修正」把「只碰自己的标签页」做成了代码硬约束，违反 AGENTS.md「Agent 开发原则」。规则不变，执行方式改成提示词 / skill；代码硬线只留不点最终提交、密钥不外泄。第 2 节和「审查后的结构修正」里代码执行的部分作废（整表对齐 N 没做完，本节不做）。
+- 提示词：`ApplyAgent`「标签页」一条（只操作自己打开的、点击弹出的、用户明确交给你的；用户之前开的不碰；分不清就问用户；找不到正在用的页时 list / select 或 `browser_navigate` 重开岗位链接），「用我开着的那个页面」改成用户说清是哪一页（或在工作台转交）后 select；`ResearchAgent` 同一规则；`browser_tabs` 工具说明；skill apply-form「其它」加一条。
+- `BrowserSession` 只留系统需要的记账：
+  - 每个使用者正在用的那页（序号 + 最近网址），操作前先切回去；认页：序号和网址都对上 → 网址唯一 → 记下的序号还在（网址变了，留一句说明给模型）；都不成立就去掉记录，抛 `TabLost`（原话：找不到你正在用的标签页，list / select 或重新打开）。
+  - 记在名下的页（新开的、点击弹出的、转交的），只用来在列表里标「你的」；只按网址认。
+  - `tabs` 列出所有标签页（`TabInfo` 加 `yours`）；`select` 能切到任何序号；`unowned` / `handOver` / `takeHandover` 保留（转交只拒绝：序号不在、网址变了、别的使用者正在用）。
+  - 正在用的页认不出时，`browser_navigate` 过了白名单就新开一页打开（模型「重新打开岗位链接」靠它）。
+- 删掉：规则 ③④、`shrank`、`homes`、`sameSite`、`claim` / `Claim`、`release`、`mine`、`others`、`tabOwner`、`requireOwnTab`、`findResult`（`find` 返回 MCP 原文）。
+- `HarnessLoop`：`tabLost` 不再自动列页 / 新开，只把原话交给模型（附转交说明）；`browser_tabs list` 的结果标「正在用」「你的」并重述规则；接着做时告诉模型上次做到的网址，可以 list / select 找回去，分不清时问用户。`SessionLoop` 没改（`TabLost` 照旧按 `IllegalStateException` 写成「失败：…」，`browser_navigate` 认不出时会新开）。
+- 测试：`BrowserSessionTabsTest` 8 条改成 5 条（删掉逐条猜归属的 3 条：用户页滑进记下的序号、登录绕行、关页后同站点别人的页；其余改成新语义）；`BrowserSessionActTest` 删掉 `find` 清洗那条，`FakeBrowser.findText` 一并删掉。没有新增测试；最终提交的测试没动。
+- 验证：`mvn -B -q clean verify` 退出码 0（surefire 621 = 625 − 4、failsafe 1）。前端没改。真实 Chrome、真实模型：**未运行**。

@@ -255,9 +255,8 @@ public final class HarnessLoop {
         }
 
         /**
-         * 开始时的页面（C006-fix-browser 第 2 节）：用户刚转交了一个标签页就切过去；否则自己的标签页还认得出就用它；
-         * 否则新开岗位链接。不按上次的网址去认别的标签页（那一页也可能是用户自己开的）：接着做时告诉模型，原来那页要是还开着、
-         * 用户想接着用，请用户在工作台上转交。
+         * 开始时的页面：用户刚转交了一个标签页就切过去；否则正在用的标签页还认得出就用它；否则新开岗位链接，告诉模型
+         * 上次做到的页面，由它决定要不要用 {@code browser_tabs} 找回去（能碰哪些页由提示词约束，C006-fix-browser 第 3 节）。
          */
         private PageSnapshot startPage() {
             BrowserSession.TabInfo handed = browser.takeHandover(run.job());
@@ -267,9 +266,8 @@ public final class HarnessLoop {
                     loop.add(AgentRun.Turn.page(handedText(handed) + "系统切过去了，下面是它的快照。"));
                     return page;
                 } catch (IllegalArgumentException e) {
-                    loop.add(AgentRun.Turn.page(handedText(handed) + "但它现在认不出了（可能被关掉，或者换了网址），"
-                            + "系统没有读它。"));
-                } catch (BrowserException.ToolFailed | BrowserSession.TabLost e) {
+                    loop.add(AgentRun.Turn.page(handedText(handed) + "但它现在已经不在了（可能被关掉），系统没有读它。"));
+                } catch (BrowserException.ToolFailed e) {
                     // 转交已经取走了：仍告诉模型，它可以自己切过去
                     loop.add(AgentRun.Turn.page(handedText(handed) + "系统切过去时出错（" + e.getMessage() + "），"
                             + "要在它上面做，用 browser_tabs select " + handed.index() + " 切过去。"));
@@ -289,11 +287,10 @@ public final class HarnessLoop {
             if (lastUrl == null) {
                 loop.add(AgentRun.Turn.page("系统打开了岗位链接 " + run.url() + "。"));
             } else {
-                loop.add(AgentRun.Turn.page("系统打开了岗位链接 " + run.url() + "。上次做到的页面（" + lastUrl
-                        + "）已经不算你的标签页了（应用重启、浏览器重连或者那一页被关掉后，系统不按网址认回，"
-                        + "因为同一个网址的那一页也可能是用户自己开的）。在新打开的页面上接着做；上次填了一半的内容要是"
-                        + "不在了，下一次对用户说话时顺带告诉用户：原来那页要是还开着、想接着用，请他在申请工作台上"
-                        + "「把一个标签页交给 Agent」。"));
+                loop.add(AgentRun.Turn.page("系统打开了岗位链接 " + run.url() + "。上次做到的页面是 " + lastUrl
+                        + "（应用重启、浏览器重连或者那一页被关掉后，系统不再记得它在哪个标签页）。那一页要是还开着、"
+                        + "上面有填了一半的内容，可以用 browser_tabs list 找到再 select 回去接着做；分不清是不是你开的那页时，"
+                        + "问用户。"));
             }
             return opened;
         }
@@ -464,8 +461,8 @@ public final class HarnessLoop {
         }
 
         /**
-         * 模型的 {@code browser_tabs}：{@code list} 只列这个 Job 自己的标签页（它新开的、它点击弹出的、用户转交的），
-         * {@code select} 切过去并取快照。参数不发给 MCP，由 {@link BrowserSession} 以系统身份去列、去切。
+         * 模型的 {@code browser_tabs}：{@code list} 列出所有标签页（标出正在用的、它自己开的或用户转交的），
+         * {@code select} 切过去并取快照；能碰哪些由提示词约束。参数不发给 MCP，由 {@link BrowserSession} 以系统身份去列、去切。
          */
         private Step<AgentRun> tabs(AgentRun.ToolCall call) {
             Map<String, Object> args;
@@ -480,8 +477,9 @@ public final class HarnessLoop {
                     List<BrowserSession.TabInfo> listed = browser.tabs(run.job());
                     log(RunLog.Entry.toolCall(run.session(), step(), BrowserTools.TABS, null, null, null, null,
                             page(latest), "ok"));
-                    return result(call, withHandover(listed.isEmpty() ? "你现在没有自己的标签页。"
-                            : "你的标签页（用户自己的和别的任务的标签页你看不到）：\n" + tabLines(listed)));
+                    return result(call, withHandover(listed.isEmpty() ? "现在没有标签页。"
+                            : "Chrome 里的标签页（只碰标了「你的」和用户明确交给你的；用户之前开的不要碰）：\n"
+                            + tabLines(listed)));
                 }
                 if ("select".equals(action)) {
                     if (!(args.get("index") instanceof Number number) || number.intValue() < 0) {
@@ -500,7 +498,7 @@ public final class HarnessLoop {
                 }
                 return failedResult(call, "失败：browser_tabs 的 action 只能是 list 或 select");
             } catch (IllegalArgumentException e) {
-                return rejectedResult(call, "被拒绝：" + e.getMessage() + "。");
+                return failedResult(call, "失败：" + e.getMessage() + "。");
             } catch (BrowserException.Disconnected e) {
                 return ended(call, current -> disconnectedRun(current, e.getMessage()));
             } catch (BrowserException.ToolFailed e) {
@@ -508,30 +506,9 @@ public final class HarnessLoop {
             }
         }
 
-        /**
-         * 这个 Job 的标签页认不出了（被关掉，或者页面自己换了网址）：不在别的标签页上操作。它还有别的自己的标签页
-         * （点击弹出的、用户转交的）时列给模型；一个都没有时重新打开岗位链接。
-         */
+        /** 正在用的标签页认不出了（或者还没有）：这次没有操作，原话交给模型，由它 list / select 或者重新打开岗位链接。 */
         private Step<AgentRun> tabLost(AgentRun.ToolCall call, String reason) {
-            List<BrowserSession.TabInfo> mine;
-            try {
-                mine = browser.tabs(run.job());
-                if (mine.isEmpty()) {
-                    PageSnapshot opened = browser.open(run.url(), run.job());
-                    latest = opened;
-                    seen(opened);
-                    return Step.<AgentRun>rejected(call, "没有执行：" + reason
-                            + "。你也没有别的标签页，系统新开了岗位链接 " + run.url() + "，下面是它的快照。原来那页要是还开着、"
-                            + "用户想接着用，请他在申请工作台上「把一个标签页交给 Agent」：")
-                            .withPage(opened);
-                }
-            } catch (BrowserException.Disconnected e) {
-                return ended(call, current -> disconnectedRun(current, e.getMessage()));
-            } catch (BrowserException.ToolFailed e) {
-                return failedResult(call, "失败：" + reason + "；列标签页也失败了：" + e.getMessage());
-            }
-            return rejectedResult(call, withHandover("没有执行：" + reason + "。你还有这些标签页，用 browser_tabs select "
-                    + "切过去再接着做：\n" + tabLines(mine)));
+            return failedResult(call, withHandover("失败：" + reason + "。"));
         }
 
         /** 运行中用户转交了一个标签页：结果后面附一句，由模型决定要不要 {@code browser_tabs select} 过去。 */
@@ -882,12 +859,13 @@ public final class HarnessLoop {
         return "完成。系统取了新的快照：";
     }
 
-    /** 给模型看的标签页列表（只有它自己的）：一行一个，{@code - 序号: [标题](网址)}，标明正在用的。 */
+    /** 给模型看的标签页列表：一行一个，{@code - 序号: [标题](网址)}，标明正在用的和它自己的。 */
     private static String tabLines(List<BrowserSession.TabInfo> tabs) {
         StringBuilder out = new StringBuilder();
         for (BrowserSession.TabInfo tab : tabs) {
             out.append("- ").append(tab.index()).append(": ")
                     .append(tab.inUse() ? "（正在用）" : "")
+                    .append(tab.yours() ? "（你的）" : "")
                     .append('[').append(tab.title()).append("](").append(tab.url()).append(")\n");
         }
         return out.toString().strip();

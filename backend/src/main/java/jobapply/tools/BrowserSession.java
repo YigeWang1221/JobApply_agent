@@ -9,9 +9,9 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -32,18 +32,13 @@ import org.slf4j.LoggerFactory;
  * 等这一次的结果）。用过的连接断开以后，下一次使用时自动重连一次（远程调试模式下重连不用再确认）；这一次也连不上就
  * 停在 {@code disconnected}，之后的调用直接报 {@link BrowserException.Disconnected}、不再碰 MCP，不在后台重试，等用户点
  * 「重新连接」（{@link #reconnect()}）或者发下一条消息（{@link #retryOnNextUse()}）。快照里的 ref 不跨连接使用。
- * 重连之后的「当前标签页」可能是用户自己的标签页，所以重连后要先 {@link #open(String, String)}（或者用户转交了一页，
- * {@link #handOver}），再取快照。
  * 建立连接和关闭时清空 MCP 的输出目录（{@link BrowserLaunch#outputDir()}），里面可能有登录后的页面内容。
  * <p>
- * 每个使用者（一个 Job 的申请线程、一个 Session 的调研）有自己的标签页：正在用的那一页，加上它点开的别的页。只按网址认
- * 标签页（C006-fix-runtime-2）：记下的序号和网址都对上，或者网址在列表里只出现一次。每次操作前先列一次标签页，核对
- * 记下的那一页还在（{@link #focus}）；认不出就不操作（不会落到别的任务或用户自己的标签页上），抛出 {@link TabLost}。
- * 点击打开了新标签页时（Playwright MCP 的返回里附了标签页列表），新标签页记给这个使用者，系统切过去。
- * 申请 Agent 可以用 {@link #tabs} / {@link #select} 在<b>自己的</b>标签页之间切换：它新开的、它点击弹出的、用户转交给它的
- * （{@link #handOver}）。不属于它的标签页（用户自己的、别的使用者的、没人占用的）不列给它、不切过去、不取快照；归属只在
- * 内存里，重启或断开后不按网址自动认回（C006-fix-browser 第 2 节，用户 2026-10-23）。没人占用的标签页只通过
- * {@link #unowned()} 列给界面，由用户决定交不交。
+ * 标签页只做系统自己需要的记账（C006-fix-browser 第 3 节，用户 2026-10-23）：每个使用者（一个 Job 的申请线程、一个
+ * Session 的调研）正在用哪一页（序号 + 最近一次看到的网址），操作前先切回那一页（调研和申请会轮流用浏览器）；它新开的、
+ * 点击弹出的、用户转交的标签页记在它名下，列表里标出来。<b>能碰哪些标签页由提示词和 skill 约束</b>，代码不猜归属、
+ * 不拒绝：{@link #tabs} 列出所有标签页，{@link #select} 能切到任何一个。正在用的那页认不出时（序号和网址都对不上、
+ * 网址也不唯一、序号也不在了）抛出 {@link TabLost}，说明交给模型。
  */
 public final class BrowserSession implements AutoCloseable {
 
@@ -56,7 +51,11 @@ public final class BrowserSession implements AutoCloseable {
     private static final Pattern TAB_LINE = Pattern.compile(
             "(?m)^- (\\d+):( \\(current\\))? \\[(.*)\\]\\((.*)\\)(?: \\[crashed\\])?$");
 
-    /** 一个使用者的标签页：序号和最近一次看到的网址。 */
+    /** 认不出正在用的那一页时给模型的话。 */
+    static final String LOST = "找不到你正在用的标签页（可能被关掉了）。申请里可以用 browser_tabs list 看一下再 select；"
+            + "也可以用 browser_navigate 重新打开要用的网址（系统会新开一个标签页）";
+
+    /** 一个标签页的记录：序号和最近一次看到的网址。 */
     private record Tab(int index, String url) {
     }
 
@@ -65,14 +64,15 @@ public final class BrowserSession implements AutoCloseable {
     }
 
     /**
-     * 一个标签页（序号、标题、网址）。给模型的列表里只有这个使用者自己的；{@link #unowned()} 给界面的列表里是没人占用的。
+     * 一个标签页（序号、标题、网址）。
      *
      * @param inUse 这个使用者现在正在用的那一页（界面的列表里总是 false）
+     * @param yours 这个使用者新开的、点击弹出的或者用户转交给它的（界面的列表里总是 false）
      */
-    public record TabInfo(int index, String title, String url, boolean inUse) {
+    public record TabInfo(int index, String title, String url, boolean inUse, boolean yours) {
     }
 
-    /** 用户要转交的标签页已经不在、网址变了，或者已经有主人了：没有转交（接口 409）。 */
+    /** 用户要转交的标签页已经不在、网址变了，或者别的使用者正在用：没有转交（接口 409）。 */
     public static final class HandoverRefused extends RuntimeException {
 
         HandoverRefused(String message) {
@@ -80,7 +80,7 @@ public final class BrowserSession implements AutoCloseable {
         }
     }
 
-    /** 这个使用者的标签页认不出了，或者它还没有标签页：没有在别的标签页上操作。 */
+    /** 这个使用者还没有正在用的标签页，或者那一页认不出了：这次没有操作，说明交给模型。 */
     public static final class TabLost extends IllegalStateException {
 
         TabLost(String message) {
@@ -90,26 +90,14 @@ public final class BrowserSession implements AutoCloseable {
 
     /** 使用者 → 它正在用的标签页（当前连接上）。 */
     private final Map<String, Tab> tabs = new HashMap<>();
-    /** 使用者 → 它的别的标签页（点开的新标签页、切走之前用的那页）。 */
-    private final Map<String, List<Tab>> others = new HashMap<>();
+    /** 使用者 → 记在它名下的标签页（它新开的、点击弹出的、用户转交的；只用来在列表里标出来）。 */
+    private final Map<String, List<Tab>> yours = new HashMap<>();
     /** 使用者 → 还没交给它的说明（点击打开了新标签页、系统切过去了）。 */
     private final Map<String, String> notices = new HashMap<>();
     /** 使用者 → 用户刚转交给它、还没告诉模型的标签页（{@link #takeHandover}）。 */
     private final Map<String, TabInfo> handed = new HashMap<>();
-    /**
-     * 使用者 → 它的主站点（{@link BrowserToolPolicy#siteOf}）：{@link #open} 打开的网址和落地网址，{@code browser_navigate}
-     * 之后换成导航去的。记下的序号上的标签页换了网址、但还在这些站点上时，仍认作它的（{@link #claim} 第 ③ 条）。
-     */
-    private final Map<String, Set<String>> homes = new HashMap<>();
-    /** 上一次列出来的标签页个数。 */
+    /** 上一次列出来的标签页个数（点击后多了一个 = 点开了新标签页）。 */
     private int tabCount;
-    /**
-     * 最近这次列出来的个数比上一次少（有页被关、序号可能整体挪了）：这一次 {@link #claim} 只按网址认，认不出的记录去掉
-     * （C006-fix-runtime-2 最终审查第 2 条）。
-     */
-    private boolean shrank;
-    /** 当前标签页属于哪个使用者；不知道时为 null。 */
-    private String tabOwner;
     /** 连接状态（{@link BrowserState}）；读不拿锁，界面查询不被一次长的浏览器调用挡住。 */
     private volatile BrowserState state;
     /**
@@ -134,120 +122,83 @@ public final class BrowserSession implements AutoCloseable {
     }
 
     /**
-     * 新开一个标签页打开页面，再取一次快照。新标签页随即成为当前标签页，不动用户已经打开的标签页
-     * （远程调试模式下，已打开的标签页也会被收进来）。这个使用者原来的标签页（还认得出的话）记成它的别的标签页。
+     * 新开一个标签页打开页面，再取一次快照。新标签页成为这个使用者正在用的那页，记在它名下；不动别的标签页。
      */
-    public synchronized PageSnapshot open(String url, String jobId) {
-        tabOwner = null;
-        Tab previous = tabs.remove(jobId);
-        if (previous != null) {
-            others.computeIfAbsent(jobId, k -> new ArrayList<>()).add(previous);
-        }
+    public synchronized PageSnapshot open(String url, String owner) {
         List<Listed> listed = parseTabs(call(BrowserToolPolicy.TABS, Map.of("action", "new", "url", url)));
         if (listed.stream().noneMatch(Listed::current)) {
             listed = parseTabs(call(BrowserToolPolicy.TABS, Map.of("action", "list")));
         }
-        // 和上次比的是新开那页以外的个数
-        shrank = listed.size() - 1 < tabCount;
         tabCount = listed.size();
         Listed opened = listed.stream().filter(Listed::current).findFirst().orElse(null);
-        if (opened != null) {
-            // 先按其余的标签页刷新所有人的序号（用户可能关掉了前面的标签页），再去掉序号正好是新标签页的过时记录
-            claim(listed.stream().filter(tab -> tab != opened).toList());
-            release(opened.index());
-            tabs.put(jobId, at(opened));
+        if (opened == null) {
+            tabs.remove(owner);
+        } else {
+            refresh(listed.stream().filter(tab -> tab != opened).toList());
+            tabs.put(owner, at(opened));
+            yours.computeIfAbsent(owner, k -> new ArrayList<>()).add(at(opened));
         }
-        homes.put(jobId, sites(url, opened == null ? null : opened.url()));
-        tabOwner = jobId;
-        return read(jobId);
+        return read(owner);
     }
 
-    private static Set<String> sites(String... urls) {
-        Set<String> out = new HashSet<>();
-        for (String url : urls) {
-            String site = url == null ? null : BrowserToolPolicy.siteOf(url);
-            if (site != null) {
-                out.add(site);
-            }
+    /** 只读：切到这个使用者正在用的那页，取快照。还没有或者认不出时抛出 {@link TabLost}。 */
+    public synchronized PageSnapshot snapshot(String owner) {
+        if (!ownsTab(owner)) {
+            throw new TabLost("还没有你在用的标签页，不能取快照");
         }
-        return out;
-    }
-
-    /**
-     * 只读：取这个 Job 自己新开的那个标签页的快照。标签页不是它的（还没新开过，或属于另一个 Job）时拒绝，
-     * 免得读到用户自己的标签页或别的岗位的页面。
-     */
-    public synchronized PageSnapshot snapshot(String jobId) {
-        if (!ownsTab(jobId)) {
-            throw new TabLost("当前标签页不是 Job " + jobId + " 新开的岗位页，不能取快照");
+        if (!focus(owner)) {
+            throw new TabLost(LOST);
         }
-        focus(jobId);
-        return read(jobId);
+        return read(owner);
     }
 
     /**
-     * 模型的一次浏览器操作：先确认当前标签页是这个 Job 新开的，再按 {@code context} 过白名单并发出，最后取一次快照返回
+     * 模型的一次浏览器操作：先切到这个使用者正在用的那页，再按 {@code context} 过白名单并发出，最后取一次快照返回
      * （写操作之后系统自己取快照，交给守卫和模型）。{@code args} 必须已经去掉模型多给的参数
      * （{@link jobapply.harness.policies.FieldIntent}、{@link jobapply.harness.policies.SubmitGuard.ClickIntent}）；
      * 点击和填写的守卫由调用方先判断。{@code browser_snapshot} 直接返回这次的快照，不再多取一次。
      * 点击打开了新标签页时切过去，返回新标签页的快照（{@link #takeNotice} 说明一次）。
-     * 连接断开时抛出 {@link BrowserException.Disconnected}，标签页不再属于任何 Job。
+     * 正在用的那页认不出时：{@code browser_navigate} 过了白名单就新开一个标签页打开它，别的操作抛出 {@link TabLost}。
+     * 连接断开时抛出 {@link BrowserException.Disconnected}，标签页记录清空。
      */
-    public synchronized PageSnapshot act(String jobId, String tool, Map<String, Object> args,
+    public synchronized PageSnapshot act(String owner, String tool, Map<String, Object> args,
                                          BrowserToolPolicy.Context context) {
-        requireOwnTab(jobId);
+        boolean had = ownsTab(owner);
+        if (!had || !focus(owner)) {
+            if (BrowserToolPolicy.NAVIGATE.equals(tool) && args.get("url") instanceof String target) {
+                BrowserToolPolicy.check(tool, args, context);
+                return open(target, owner);
+            }
+            throw new TabLost(had ? LOST : "还没有你在用的标签页，不能操作");
+        }
         int before = tabCount;
         String result = call(tool, args, context);
         if (BrowserToolPolicy.SNAPSHOT.equals(tool)) {
-            return remember(jobId, PageSnapshot.parse(result));
-        }
-        if (BrowserToolPolicy.NAVIGATE.equals(tool) && args.get("url") instanceof String target) {
-            PageSnapshot landed = read(jobId);
-            homes.put(jobId, sites(target, landed.url()));
-            return landed;
+            return remember(owner, PageSnapshot.parse(result));
         }
         if (BrowserToolPolicy.CLICK.equals(tool)) {
             List<Listed> listed = parseTabs(result);
             if (before > 0 && listed.size() > before) {
                 Listed opened = listed.get(listed.size() - 1);
                 tabCount = listed.size();
-                notices.put(jobId, "这次点击打开了新的标签页（" + opened.url() + "），系统已经切过去，下面是新标签页的快照；"
+                yours.computeIfAbsent(owner, k -> new ArrayList<>()).add(at(opened));
+                notices.put(owner, "这次点击打开了新的标签页（" + opened.url() + "），系统已经切过去，下面是新标签页的快照；"
                         + "原来那页还开着，要回去用 browser_tabs。");
-                return switchTo(jobId, opened);
+                return switchTo(owner, opened);
             }
         }
-        return read(jobId);
+        return read(owner);
     }
 
-    /**
-     * 模型的 {@code browser_find}：只读，返回找到的元素。同样先确认标签页属于这个 Job。只留 MCP 原文的
-     * {@code ### Result} 小节（{@link #findResult}）：原文里还可能有 {@code ### Open tabs}（所有标签页的标题和网址）、
-     * {@code ### Page} 等，不能交给模型。
-     */
-    public synchronized String find(String jobId, Map<String, Object> args, BrowserToolPolicy.Context context) {
-        requireOwnTab(jobId);
-        return findResult(call(BrowserToolPolicy.FIND, args, context));
-    }
-
-    /**
-     * MCP 原文里 {@code ### Result} 小节的正文（到下一个行首 {@code ### } 为止）；没有这一节时为空串。@playwright/mcp
-     * 0.0.83 的小节顺序是 Error / Result / Ran Playwright code / Open tabs / Page / Modal state / Events，任何一个标签页
-     * 的标题变了都会带上 Open tabs 和 Page；find 的结果行都以 {@code - } 或缩进开头，不会是行首 {@code ### }。
-     */
-    static String findResult(String raw) {
-        if (raw == null) {
-            return "";
+    /** 模型的 {@code browser_find}：只读，先切到这个使用者正在用的那页，返回 MCP 的原文。 */
+    public synchronized String find(String owner, Map<String, Object> args, BrowserToolPolicy.Context context) {
+        if (!ownsTab(owner)) {
+            throw new TabLost("还没有你在用的标签页，不能操作");
         }
-        List<String> kept = new ArrayList<>();
-        boolean inResult = false;
-        for (String line : raw.replace("\r\n", "\n").split("\n", -1)) {
-            if (line.startsWith("### ")) {
-                inResult = "Result".equals(line.substring(4).trim());
-            } else if (inResult) {
-                kept.add(line);
-            }
+        if (!focus(owner)) {
+            throw new TabLost(LOST);
         }
-        return String.join("\n", kept).strip();
+        return call(BrowserToolPolicy.FIND, args, context);
     }
 
     /** 上一次操作留给这个使用者的说明（例如「点击打开了新标签页，系统切过去了」），取一次就清掉；没有时为 null。 */
@@ -255,72 +206,61 @@ public final class BrowserSession implements AutoCloseable {
         return notices.remove(owner);
     }
 
-    /**
-     * 这个使用者自己的标签页（确定认出来的：它新开的、它点击弹出的、用户转交的）。用户自己的、别的使用者的、没人占用的
-     * 标签页不列出，记录认不出了的（「可能是它的」）也不列出。只列，不切换。
-     */
+    /** Chrome 里所有的标签页，标出这个使用者正在用的、记在它名下的。只列，不切换。能碰哪些由提示词约束。 */
     public synchronized List<TabInfo> tabs(String owner) {
         List<Listed> listed = list();
-        return mine(owner, listed, claim(listed));
+        Tab inUse = tabs.get(owner);
+        List<Tab> mine = yours.getOrDefault(owner, List.of());
+        return listed.stream().map(tab -> new TabInfo(tab.index(), tab.title(), tab.url(),
+                inUse != null && inUse.index() == tab.index(),
+                mine.stream().anyMatch(t -> t.index() == tab.index()))).toList();
     }
 
     /**
-     * 切到这个使用者自己的一个标签页（{@link #tabs} 里的序号），取快照。原来正在用的那页记成它的别的标签页。
+     * 切到序号 {@code index} 的标签页，取快照，它成为这个使用者正在用的那页。
      *
-     * @throws IllegalArgumentException 序号不是它自己的标签页
+     * @throws IllegalArgumentException 没有这个序号
      */
     public synchronized PageSnapshot select(String owner, int index) {
-        List<Listed> listed = list();
-        boolean allowed = mine(owner, listed, claim(listed)).stream().anyMatch(t -> t.index() == index);
-        if (!allowed) {
-            throw new IllegalArgumentException("标签页 " + index + " 不能选：只能选 browser_tabs list 列出来的序号");
-        }
-        Listed target = listed.stream().filter(t -> t.index() == index).findFirst().orElseThrow();
+        Listed target = list().stream().filter(t -> t.index() == index).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("没有序号 " + index + " 的标签页，先 browser_tabs list"));
         return switchTo(owner, target);
     }
 
     /**
-     * 没有确定主人的标签页（序号、标题、网址），<b>只给界面用</b>：用户从里面挑一页交给某个申请（{@link #handOver}）。
-     * 不进任何工具结果。只列，不切换、不取快照。
+     * 没有记在任何使用者名下、也没人正在用的标签页（序号、标题、网址），<b>给界面用</b>：用户从里面挑一页交给某个申请
+     * （{@link #handOver}）。只列，不切换、不取快照。
      */
     public synchronized List<TabInfo> unowned() {
         List<Listed> listed = list();
-        Map<Integer, Claim> claimed = claim(listed);
-        return listed.stream().filter(tab -> {
-            Claim holder = claimed.get(tab.index());
-            return holder == null || !holder.sure();
-        }).map(tab -> new TabInfo(tab.index(), tab.title(), tab.url(), false)).toList();
+        Set<Integer> taken = new HashSet<>();
+        tabs.values().forEach(tab -> taken.add(tab.index()));
+        yours.values().forEach(list -> list.forEach(tab -> taken.add(tab.index())));
+        return listed.stream().filter(tab -> !taken.contains(tab.index()))
+                .map(tab -> new TabInfo(tab.index(), tab.title(), tab.url(), false, false)).toList();
     }
 
     /**
-     * 用户在工作台上把一个标签页交给这个使用者。再列一次核对：序号还在、网址还是界面上看到的 {@code url}、没有确定的主人，
-     * 才记给它（别的记录里写着这个序号的去掉），成为它正在用的那页，并记一条待告诉模型的转交（{@link #takeHandover}）。
-     * 不切换、不取快照：模型下一次用浏览器时才读。正在用的那页记成它的别的标签页。
+     * 用户在工作台上把一个标签页交给这个使用者。再列一次核对：序号还在、网址还是界面上看到的 {@code url}、别的使用者
+     * 没在用，才记在它名下，并记一条待告诉模型的转交（{@link #takeHandover}）。它还没有正在用的页时，这一页就是；
+     * 已经有时不偷换它脚下的页面（旧快照的 ref 会落到新页上），由模型 {@code browser_tabs select} 切过去。不切换、不取快照。
      *
-     * @throws HandoverRefused 标签页不在了、网址变了，或者已经属于某个使用者
+     * @throws HandoverRefused 标签页不在了、网址变了，或者别的使用者正在用
      */
     public synchronized TabInfo handOver(String owner, int index, String url) {
-        List<Listed> listed = list();
-        Map<Integer, Claim> claimed = claim(listed);
-        Listed target = listed.stream().filter(tab -> tab.index() == index).findFirst()
+        Listed target = list().stream().filter(tab -> tab.index() == index).findFirst()
                 .orElseThrow(() -> new HandoverRefused("标签页 " + index + " 已经不在了，刷新列表再选"));
         if (url == null || !url.equals(target.url())) {
             throw new HandoverRefused("标签页 " + index + " 的网址变了（现在是 " + target.url() + "），刷新列表再选");
         }
-        Claim holder = claimed.get(index);
-        if (holder != null && holder.sure()) {
-            throw new HandoverRefused("标签页 " + index + " 已经属于"
-                    + (holder.owner().equals(owner) ? "这个申请" : "别的任务") + "，不能再交");
+        boolean inUseByOther = tabs.entrySet().stream()
+                .anyMatch(e -> !e.getKey().equals(owner) && e.getValue().index() == index);
+        if (inUseByOther) {
+            throw new HandoverRefused("标签页 " + index + " 别的任务正在用，不能再交");
         }
-        release(index);
-        if (tabs.containsKey(owner)) {
-            // 它正在用别的页（可能正在跑）：不偷换它脚下的页面（旧快照的 ref 会落到新页上），记成它的别的标签页，
-            // 由模型 browser_tabs select 切过去
-            others.computeIfAbsent(owner, k -> new ArrayList<>()).add(at(target));
-        } else {
-            tabs.put(owner, at(target));
-        }
-        TabInfo info = new TabInfo(target.index(), target.title(), target.url(), false);
+        yours.computeIfAbsent(owner, k -> new ArrayList<>()).add(at(target));
+        tabs.putIfAbsent(owner, at(target));
+        TabInfo info = new TabInfo(target.index(), target.title(), target.url(), false, true);
         handed.put(owner, info);
         return info;
     }
@@ -331,11 +271,11 @@ public final class BrowserSession implements AutoCloseable {
     }
 
     /**
-     * 这个使用者在当前连接上有没有自己新开的标签页（连接断开、重连、应用重启之后都是 false）。
+     * 这个使用者在当前连接上有没有记下的正在用的标签页（连接断开、重连、应用重启之后都是 false）。
      * 有、但不是当前标签页时，下一次调用会先切过去。
      */
-    public synchronized boolean ownsTab(String jobId) {
-        return jobId != null && tabs.containsKey(jobId);
+    public synchronized boolean ownsTab(String owner) {
+        return owner != null && tabs.containsKey(owner);
     }
 
     /**
@@ -405,184 +345,87 @@ public final class BrowserSession implements AutoCloseable {
         disconnect();
     }
 
-    private void requireOwnTab(String jobId) {
-        if (!ownsTab(jobId)) {
-            throw new TabLost("当前标签页不是 Job " + jobId + " 新开的岗位页，不能操作");
-        }
-        focus(jobId);
-    }
-
     /**
-     * 确认这个使用者正在用的标签页还在，并让它成为当前标签页。先列出标签页，只按网址认（{@link #claim}）：记下的序号上
-     * 还是记下的网址，或者网址在没认领的标签页里只出现一次。认不出：这个使用者不再有正在用的标签页，抛出 {@link TabLost}，
-     * 不在别的标签页上操作。
+     * 切到这个使用者正在用的那页（不是当前标签页时）。先列出标签页、刷新记录（{@link #refresh}）；认不出就返回 false，
+     * 没有操作。
      */
-    private void focus(String owner) {
+    private boolean focus(String owner) {
         List<Listed> listed = list();
-        Map<Integer, Claim> claimed = claim(listed);
         Tab tab = tabs.get(owner);
-        Claim holder = tab == null ? null : claimed.get(tab.index());
-        if (tab == null || holder == null || !holder.sure() || !holder.owner().equals(owner)) {
-            // 这个使用者不再有正在用的标签页（下一次重新打开，或者用户转交）；认不出的那条记录留作「可能是它的」
-            Tab lost = tabs.remove(owner);
-            if (lost != null && lost.index() < listed.size()) {
-                others.computeIfAbsent(owner, k -> new ArrayList<>()).add(lost);
-            }
-            if (owner.equals(tabOwner)) {
-                tabOwner = null;
-            }
-            throw new TabLost("找不到 " + owner + " 的标签页（可能在 Chrome 里被关掉了，或者页面自己换了网址），"
-                    + "没有在别的标签页上操作");
+        Listed found = tab == null ? null
+                : listed.stream().filter(t -> t.index() == tab.index()).findFirst().orElse(null);
+        if (found == null) {
+            tabs.remove(owner);
+            return false;
         }
-        int index = tab.index();
-        Listed found = listed.stream().filter(t -> t.index() == index).findFirst().orElseThrow();
         if (!found.current()) {
-            tabOwner = null;
             call(BrowserToolPolicy.TABS, Map.of("action", "select", "index", found.index()));
         }
-        tabOwner = owner;
+        return true;
     }
 
-    /** 列出标签页，记下个数（覆盖之前先和上次比，见 {@link #shrank}）。 */
+    /** 列出标签页，记下个数，刷新记录。 */
     private List<Listed> list() {
         List<Listed> listed = parseTabs(call(BrowserToolPolicy.TABS, Map.of("action", "list")));
-        shrank = listed.size() < tabCount;
         tabCount = listed.size();
+        refresh(listed);
         return listed;
     }
 
     /**
-     * 标签页列表里的一页归谁。
-     *
-     * @param sure true：按网址认出来的，可以操作；false：网址认不出了、但记下的序号上还有标签页，只当作「可能是它的」
-     *             （挡住别的使用者；不列给它自己的模型，下一次 ①②③ 认出来才又算它的；界面的 {@link #unowned()} 里列出，
-     *             由用户决定要不要转交）
+     * 按这次的列表更新记录（序号可能因为用户关掉前面的页而整体挪了）。正在用的那页：序号和网址都对上，或者网址在列表里
+     * 只出现一次；都不成立、记下的序号还在时认作同一页（网址变了，例如用户在这一页登录了、点了下一步），留一句说明给模型；
+     * 序号也不在了就去掉。记在名下的别的页只按网址认，认不出就去掉（只影响列表里的标记）。
      */
-    private record Claim(String owner, boolean sure) {
-    }
-
-    /**
-     * 按网址认出各个使用者的标签页，顺手更新记下的序号和网址。① 序号和网址都对上的；② 网址在剩下的标签页里只出现一次的；
-     * ③ 记下的序号上的标签页没被别人认领、和这条记录的网址或者这个使用者的主站点（{@link #homes}）同一站点的——用户在这一页
-     * 登录、点下一步、单页应用换了路由，网址变了但还是它（C006-fix-runtime-2 回归修正），只有一条认不出的记录写着这个序号时
-     * 才成立；④ 其余认不出的记录留着，记下的序号上还有没人认领的标签页时算作「可能是它的」；序号已经不在列表里的记录去掉。
-     * 这次列出来的个数比上次少时（{@link #shrank}，序号可能整体挪了，挪过来的可能是同一站点上别人的页）只用 ① ②，
-     * 认不出的记录全部去掉。返回 序号 → 归属。
-     */
-    private Map<Integer, Claim> claim(List<Listed> listed) {
-        Map<Integer, Listed> byIndex = new HashMap<>();
-        listed.forEach(t -> byIndex.put(t.index(), t));
-        Map<Integer, Claim> claimed = new HashMap<>();
-        Map<Tab, Listed> matched = new IdentityHashMap<>();
-        List<Map.Entry<String, Tab>> all = new ArrayList<>();
-        tabs.forEach((owner, tab) -> all.add(Map.entry(owner, tab)));
-        others.forEach((owner, list) -> list.forEach(tab -> all.add(Map.entry(owner, tab))));
-        for (Map.Entry<String, Tab> entry : all) {
-            Tab tab = entry.getValue();
-            listed.stream().filter(t -> t.index() == tab.index() && t.url().equals(tab.url())
-                    && !claimed.containsKey(t.index())).findFirst().ifPresent(t -> {
-                        claimed.put(t.index(), new Claim(entry.getKey(), true));
-                        matched.put(tab, t);
-                    });
-        }
-        for (Map.Entry<String, Tab> entry : all) {
-            Tab tab = entry.getValue();
-            if (matched.containsKey(tab)) {
-                continue;
+    private void refresh(List<Listed> listed) {
+        Set<Integer> taken = new HashSet<>();
+        Map<String, Tab> found = new HashMap<>();
+        tabs.forEach((owner, tab) -> {
+            Listed match = byUrl(tab, listed, taken);
+            if (match != null) {
+                found.put(owner, at(match));
+                taken.add(match.index());
             }
-            List<Listed> same = listed.stream()
-                    .filter(t -> t.url().equals(tab.url()) && !claimed.containsKey(t.index())).toList();
-            if (same.size() == 1) {
-                claimed.put(same.get(0).index(), new Claim(entry.getKey(), true));
-                matched.put(tab, same.get(0));
+        });
+        tabs.forEach((owner, tab) -> {
+            if (found.containsKey(owner) || taken.contains(tab.index())) {
+                return;
             }
-        }
-        // 个数变少了（序号可能整体挪了）：③ ④ 都不信序号，认不出的记录去掉
-        Function<Tab, Boolean> kept = tab -> !shrank && byIndex.containsKey(tab.index());
-        for (Map.Entry<String, Tab> entry : all) {
-            Tab tab = entry.getValue();
-            Listed there = byIndex.get(tab.index());
-            if (shrank || matched.containsKey(tab) || there == null || claimed.containsKey(there.index())) {
-                continue;
-            }
-            // 只有这一条认不出的记录写着这个序号时才成立：两条争同一页就都不认
-            long rivals = all.stream().filter(e -> !matched.containsKey(e.getValue())
-                    && e.getValue().index() == tab.index()).count();
-            if (rivals == 1 && sameSite(entry.getKey(), tab, there)) {
-                claimed.put(there.index(), new Claim(entry.getKey(), true));
-                matched.put(tab, there);
-            }
-        }
-        for (Map.Entry<String, Tab> entry : all) {
-            Tab tab = entry.getValue();
-            if (!matched.containsKey(tab) && kept.apply(tab)) {
-                claimed.putIfAbsent(tab.index(), new Claim(entry.getKey(), false));
-            }
-        }
-        tabs.values().removeIf(tab -> !matched.containsKey(tab) && !kept.apply(tab));
-        tabs.replaceAll((owner, tab) -> matched.containsKey(tab) ? at(matched.get(tab)) : tab);
-        others.replaceAll((owner, list) -> list.stream()
-                .filter(tab -> matched.containsKey(tab) || kept.apply(tab))
-                .map(tab -> matched.containsKey(tab) ? at(matched.get(tab)) : tab)
+            listed.stream().filter(t -> t.index() == tab.index()).findFirst().ifPresent(match -> {
+                found.put(owner, at(match));
+                taken.add(match.index());
+                notices.put(owner, "你在用的标签页 " + match.index() + " 网址变了（原来 " + tab.url() + "，现在 "
+                        + match.url() + "），系统按序号认作同一页；不是你的页面时用 browser_tabs list 看一下。");
+            });
+        });
+        tabs.clear();
+        tabs.putAll(found);
+        yours.replaceAll((owner, list) -> list.stream().map(tab -> byUrl(tab, listed, Set.of()))
+                .filter(Objects::nonNull).map(BrowserSession::at).distinct()
                 .collect(Collectors.toCollection(ArrayList::new)));
-        others.values().removeIf(List::isEmpty);
-        return claimed;
+        yours.values().removeIf(List::isEmpty);
     }
 
-    /** 规则 ③：标签页 {@code there} 和记录 {@code tab} 的网址同一站点，或者在 {@code owner} 的主站点上。 */
-    private boolean sameSite(String owner, Tab tab, Listed there) {
-        String site = BrowserToolPolicy.siteOf(there.url());
-        if (site == null) {
-            return false;
-        }
-        return site.equals(BrowserToolPolicy.siteOf(tab.url())) || homes.getOrDefault(owner, Set.of()).contains(site);
-    }
-
-    /** 这个序号现在明确归新的使用者了：别的记录里还写着这个序号的，都是过时的，去掉。 */
-    private void release(int index) {
-        tabs.values().removeIf(tab -> tab.index() == index);
-        others.values().forEach(list -> list.removeIf(tab -> tab.index() == index));
-        others.values().removeIf(List::isEmpty);
+    /** 序号和网址都对上的那一页；没有时网址在列表里（{@code taken} 以外）只出现一次的那一页；否则 null。 */
+    private static Listed byUrl(Tab tab, List<Listed> listed, Set<Integer> taken) {
+        List<Listed> same = listed.stream()
+                .filter(t -> t.url().equals(tab.url()) && !taken.contains(t.index())).toList();
+        return same.stream().filter(t -> t.index() == tab.index()).findFirst()
+                .orElse(same.size() == 1 ? same.get(0) : null);
     }
 
     private static Tab at(Listed listed) {
         return new Tab(listed.index(), listed.url());
     }
 
-    /** 确定是这个使用者的标签页（认页规则 ①②③ 认出来的）。「可能是它的」、没人占用的、别人的都不算。 */
-    private List<TabInfo> mine(String owner, List<Listed> listed, Map<Integer, Claim> claimed) {
-        Tab inUse = tabs.get(owner);
-        List<TabInfo> out = new ArrayList<>();
-        for (Listed tab : listed) {
-            Claim holder = claimed.get(tab.index());
-            if (holder != null && holder.sure() && owner.equals(holder.owner())) {
-                out.add(new TabInfo(tab.index(), tab.title(), tab.url(),
-                        inUse != null && inUse.index() == tab.index()));
-            }
-        }
-        return out;
-    }
-
-    /** 把 {@code target} 记成这个使用者正在用的标签页，切过去、取快照。原来那页记成它的别的标签页。 */
+    /** 把 {@code target} 记成这个使用者正在用的标签页，切过去、取快照。 */
     private PageSnapshot switchTo(String owner, Listed target) {
-        Tab previous = tabs.remove(owner);
-        List<Tab> mine = others.computeIfAbsent(owner, k -> new ArrayList<>());
-        mine.removeIf(tab -> tab.index() == target.index());
-        if (previous != null && previous.index() != target.index()) {
-            mine.add(previous);
-        }
-        if (mine.isEmpty()) {
-            others.remove(owner);
-        }
-        release(target.index());
         tabs.put(owner, at(target));
-        tabOwner = null;
         call(BrowserToolPolicy.TABS, Map.of("action", "select", "index", target.index()));
-        tabOwner = owner;
         return read(owner);
     }
 
-    /** 取当前标签页（已经确认是 {@code owner} 的）的快照，记下它的网址。 */
+    /** 取当前标签页（已经切到 {@code owner} 正在用的那页）的快照，记下它的网址。 */
     private PageSnapshot read(String owner) {
         return remember(owner, PageSnapshot.parse(call(BrowserToolPolicy.SNAPSHOT, Map.of())));
     }
@@ -590,7 +433,12 @@ public final class BrowserSession implements AutoCloseable {
     private PageSnapshot remember(String owner, PageSnapshot page) {
         Tab tab = tabs.get(owner);
         if (tab != null && page.url() != null && !page.url().isBlank()) {
-            tabs.put(owner, new Tab(tab.index(), page.url()));
+            Tab now = new Tab(tab.index(), page.url());
+            tabs.put(owner, now);
+            List<Tab> mine = yours.get(owner);
+            if (mine != null) {
+                mine.replaceAll(t -> t.index() == now.index() ? now : t);
+            }
         }
         return page;
     }
@@ -675,14 +523,11 @@ public final class BrowserSession implements AutoCloseable {
     }
 
     private void disconnect() {
-        tabOwner = null;
         tabs.clear();
-        others.clear();
+        yours.clear();
         notices.clear();
         handed.clear();
-        homes.clear();
         tabCount = 0;
-        shrank = false;
         if (client != null) {
             PlaywrightMcpClient old = client;
             client = null;

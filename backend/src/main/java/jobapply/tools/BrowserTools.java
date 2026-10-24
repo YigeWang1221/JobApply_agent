@@ -153,12 +153,11 @@ public final class BrowserTools {
     }
 
     private static final ToolDefinition TABS_DEFINITION = definition(TABS,
-            "List or switch the browser tabs of this application. list shows only your own tabs: the one in use, "
-                    + "tabs your clicks opened, and tabs the user handed over to you in the workbench. The user's "
-                    + "own tabs and other tasks' tabs are never shown and cannot be selected; if the user wants you to "
-                    + "use a page they opened, ask them to hand it over in the application workbench. select switches "
-                    + "to one listed index and returns its snapshot. Use it when a click opened a new tab, when the "
-                    + "user handed you a tab, or when the system says your tab was not found.",
+            "List or switch browser tabs. list shows every open tab (index, title, URL) and marks the one you are "
+                    + "using and the ones that are yours. Only operate tabs you opened yourself, tabs your clicks "
+                    + "opened, and tabs the user explicitly handed to you; never touch tabs the user opened earlier. "
+                    + "select switches to an index from list and returns its snapshot. Use it when a click opened a "
+                    + "new tab, when the user handed you a tab, or when the system says your tab was not found.",
             """
             {"type":"object","properties":{"action":{"type":"string","enum":["list","select"]},\
             "index":{"type":"integer","minimum":0,"description":"For select: an index from list"}},\
