@@ -12,8 +12,6 @@ import { RenameTitle } from "../RenameTitle";
 import { JobState, SubmitConfirm } from "../status";
 import { toast } from "../toast";
 
-const SUGGESTIONS = ["按我的简历撒网找岗位", "核验候选池里没核验的", "投想投的那几个"];
-
 // 对话视图（C006-front）：整屏高度，中间是消息流，底部固定输入框，右侧是这个 Session 涉及的岗位（可收起）
 export default function SessionPage({ id }: { id: string }) {
   const [view, setView] = useState<SessionView | null>(null);
@@ -145,11 +143,9 @@ export default function SessionPage({ id }: { id: string }) {
           onRetry={lastUser ? () => void send(lastUser.text, lastUser.attachments ?? [], false) : undefined}
           onRegenerate={() => void act(() => api.regenerate(id))}
           empty={
+            // 新建的 Session 是空白对话（C005-fix 开场）：一行固定提示，项目状态看 Project 主页
             <div className="emptychat">
-              <h2>想让 Agent 做什么？</h2>
-              <div className="suggestions">
-                {SUGGESTIONS.map((s) => <button key={s} onClick={() => void send(s, [], false)}>{s}</button>)}
-              </div>
+              <p className="muted">说说想找什么岗位、投哪几个，或者更新一下面试情况。</p>
             </div>
           } />
         <div className="composerwrap">

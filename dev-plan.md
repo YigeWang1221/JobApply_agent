@@ -49,7 +49,7 @@
 | [C012](plan/coding/C012-worker-settings.md) | 设置页改 Worker 数量（同时申请数、每站上限），保存后马上生效、存进 settings/workers.yaml | 已施工，等用户试（2026-10-24） |
 | [C013](plan/coding/C013-delete-session-project.md) | 删除 Session / Project：挪进 storage/.trash/（软删、可手动恢复），侧栏一个确认框；删 Session 时 Job 留在 Project 里 | 已施工，等用户试（2026-10-24；memory.md 加 `.trash/` 待确认） |
 | [C014](plan/coding/C014-move-forward.md) | Move forward：面试轮次与复盘、Agent 自己更新 memory、Cover Letter、敏感信息占位符（原 C009） | 施工中（2026-10-24，三个 agent 并行） |
-| [C005-fix 开场](plan/coding/C005-fix-session-opening.md) | 新建 Session 不再自动写项目总结：空白对话，项目状态看 Project 主页 | 施工中（2026-10-24） |
+| [C005-fix 开场](plan/coding/C005-fix-session-opening.md) | 新建 Session 不再自动写项目总结：空白对话，项目状态看 Project 主页 | 已施工，等用户试（2026-10-24） |
 
 ## 参考（不是施工步骤）
 

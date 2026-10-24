@@ -818,3 +818,11 @@
 - 结果：新增 `memory/MemoryWriter.java`、`persistence/MemoryNotes.java`、skill `components/cover-letter`、`memory-update`（进 `PlaybookSeeder.BUNDLED`）。`ControlTools` 加 `read_jd`、`remember`（定义两个 Agent 共用），`ResearchTools` 加 `remember`；`SessionLoop`、`HarnessLoop` 各加执行分支，对话 Agent 上下文加「已有的资料键」。`remember`：`action add / replace / remove`；fact 按键 upsert 到 Project 的 `overrides.md`；site / company / lesson 是 md 里的一行条目，`old_text` 定位、去重、每文件 4000 字上限；skill 只做唯一匹配的局部替换。`JobRepository.jdSnapshot`、`StorageLayout.companyFile / reviewLessons / baseWriting`、`FieldIntent.COVER_LETTER` + `FillReportWriter.COVER_LETTER_SOURCE`（报告来源写「Cover Letter：Agent 起草」）。两个 Agent 的提示词各加一段。`plan/reference/research-agent-design.md` 加「Hermes 的 memory 写法」，C014 写「实际结果 · B」。
 - 验证：`backend/` 下 `JAVA_HOME=… mvn -B -q clean verify` 退出码 0。jshell 在临时 storage 上用虚构数据手动调 `MemoryWriter`：新加 / 按键更新 / C 级明文拒绝 / 条目去重、替换、对不上报错 / 超上限拒绝 / skill old_string 对不上报错，都符合预期。前端没改。真实应用、真实浏览器：未运行。
 - 偏差：`{KEY}` 占位符在本分支写不进去（`Fact` 还不允许 C 级），等 D 合并。经验文件只写不读，还没放进 Agent 上下文。没写测试。
+
+## 2026-10-24 · C005-fix 新建 Session 不再自动写开场
+
+- 日期：2026-10-24
+- 指令：用户：每开一个新 Session，Agent 都先写一大段项目状态；新建 Session 改成空白对话，用户第一条消息前不调模型，项目状态放在 Project 主页 / Dashboard。
+- 结果：`SessionRunner` 去掉 `OPENING` 和新建时的自动运行（`create` 只建 Session、发 `changed`，新建 `POST` 返回 201）；Session 页空白时一行固定提示 + 输入框，去掉三个建议按钮；Project 主页的等审阅（「待你」）、「该查看了」（「待追踪」）已有，缺的候选池待投数加成 KPI 第 9 格「候选池待投」。`ui.md`「新建 Session」、`tracking.md`「匹配反馈与提醒」、`workflow.md` 遗漏检查第 10 项改成空白对话 / Project 主页里提醒。已有 Session 里的开场 note 不动。细节见 [C005-fix 开场](plan/coding/C005-fix-session-opening.md)。
+- 验证：`JAVA_HOME=… mvn -B -q clean verify` 退出码 0（没有测试依赖开场，测试未改）；`frontend/` 下 `npm run build` 通过。用户本机新建 Session、看 Project 主页：未运行。
+- 偏差：建议按钮去掉（计划写的是一行提示 + 输入框）；新建接口 202 改 201。
