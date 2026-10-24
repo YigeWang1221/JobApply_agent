@@ -681,3 +681,124 @@
   3. 然后做 C008（简历排名）。
 - 已知风险（只记下，不修，交用户决定）：C006-fix-browser 最后一次审查列出的 5 条标签页路径；对话压缩没做；资料导入还是固定流水线。
 - 没有提交 git。暂存区是中途快照，提交前要 `git add -A`。
+
+## 2026-10-23 · 标签页改回提示词约束（C006-fix-browser 第 3 节）
+
+- 「只操作自己打开的、点击弹出的、用户明确交给你的标签页；用户之前开的不碰」写进 `ApplyAgent`、`ResearchAgent`、`browser_tabs` 工具说明、skill apply-form。`BrowserSession` 只留记账（正在用的页、记在名下的页、转交、点击弹出的新页）；`browser_tabs list` 列出所有标签页并标出「正在用」「你的」，`select` 能切到任何一个；认不出正在用的页时把原话交给模型。删掉规则 ③④、`shrank`、`homes`、`sameSite`、`claim`、`findResult` 等；`HarnessLoop.tabLost` 简化。细节见 [C006-fix 浏览器](plan/coding/C006-fix-browser.md) 第 3 节。
+- 测试：`BrowserSessionTabsTest` 8 → 5 条，`BrowserSessionActTest` 删 1 条（`find` 清洗），没有新增。
+- 验证：`mvn -B -q clean verify` 退出码 0（surefire 621、failsafe 1）。前端没改，`npm run build` 未运行。真实 Chrome、真实模型：未运行。
+
+## 2026-10-23 · C008 简历排名
+
+- 对话 Agent 新工具 `list_resumes` / `read_resume` / `choose_resume`（`ResumeMatch`）；`job.md` 新字段 `resume_choice`，事件 `resume_chosen`；`start_application` 没有本次排名时提示先排（`skip_ranking` 放行并记下）；申请开场写「拟用简历」；`JobView.resumeChoice`；候选池和 Job 页的「开始申请」改为给 Session 发消息；Job 页右栏「简历排名」、头部和候选卡「拟用简历」、上传位置默认选中。细节见 C008「实际结果」。
+- 验证：`mvn -B -q clean verify` 退出码 0（surefire 612，没有改测试）；`npm run build` 通过。真实模型、真实 Chrome：未运行。
+
+## 2026-10-23 · 第一次真实跑通的修复（C006-fix-real-run 1–4、6、8；C008-fix）
+
+- 申请 Agent 新控制工具 `read_resume(file)`：读「可上传的文件」里一份的文字（`ResumeMatch.fileText`，和对话 Agent 的 `read_resume` 共用，C 级的值已去掉）。`HarnessLoop.control` 分发；`Views.summary` 显示「文件 N」。
+- `ApplicationRunner.start`：`resume_choice` 的原件在开始时放进上传区成为文件 1，开场写明直接上传、填经历前先 `read_resume`。`choose_resume` 加可选 `attachment`（Session 附件 → `AssetRegistry.register` 登记成新原件并选中，`ranking` 可省）；结果文字和工具说明改为「用户定了才调用」。
+- 提示词：`ResearchAgent` 简历排名改为「排名 → 表和建议 → 问用哪份 → 用户确认后 choose_resume → start_application」；`ApplyAgent` 新增折叠区域、简历原文、经历逐条填全、原文措辞不翻译、拿不准用 ask_user、值的来源几条，上传改为已有合适文件直接上传、自动解析值逐个核对，「项目和经历：不改写、不扩写」改为「资料 / 简历原文优先，只裁剪，不编造」。skill apply-form 新增两节，resume-parse 加两条。
+- 报告：`fact: resume` 的字段来源写「简历原文」（`FillReportWriter.RESUME_SOURCE`，用 `Recorded` 行）；`BrowserTools` 字段说明加 `resume`。
+- 新计划 C009（敏感信息占位符），待用户确认，没有改代码和 `dev-limit.md`。
+- 验证：`mvn -B -q clean verify` 退出码 0（surefire 621、failsafe 1，没有改测试）。前端没改，`npm run build` 未运行。真实 Chrome、真实模型：未运行。本机已有的预置 skill 不会被覆盖（PlaybookSeeder 只补缺）。
+
+## 2026-10-23 · 上传不靠点按钮（C006-fix-real-run 第 10、13 条）
+
+- 调研写进 `plan/reference/research-agent-design.md`「浏览器点击与上传控件」：点击超时是 Playwright 的可操作性检查（遮罩、透明层挡住命中检查），点击没发生；`browser_drop` 同样被挡；`setInputFiles` 不需要点击和文件选择框。
+- `browser_file_upload` 加可选 `target`：`BrowserToolPolicy` 检查 ref 在最新快照里、带 target 时必须有文件；`PlaywrightMcpClient` 过完白名单后换成固定模板的 `browser_run_code_unsafe`（`setInputFiles`，从 ref 往外找最近的 `input[type=file]`）。`browser_run_code_unsafe`、`browser_drop` 仍不在白名单里。工作区里半成品的 `browser_drop` 方案撤掉。
+- `PlaywrightMcpClient.hint`：动作超时、没有文件选择框、文件选择框挡着别的操作时，错误后面补一句实情和下一步。
+- `application.yml`：`--timeout-action 15000`。
+- 提示词 `ApplyAgent`「上传」加一句（带 target、照错误说明做、不推测成安全限制）；skill file-upload 流程改写；`storage/playbook` 的副本同步覆盖（覆盖前 = git 里的种子 + 主会话加的一行，没有用户改动）。
+- 夹具：`file-slots` 的作品集按钮改成被遮罩挡住（场景脚本 `blocked`，HTML 加透明层）；`FakeFormScript` 认固定模板的 run_code；`BrowserSessionActTest` 上传用例加几行（点击超时 → 带 target 上传成功）。
+- 验证：`mvn -B -q clean verify` 退出码 0（surefire 621、failsafe 1）。用 MCP 同版本的 playwright-core 在无头 Chrome 里打开 `file-slots.html`：点被盖住的按钮超时，模板设上文件、页面显示文件名。真实小米页面、真实模型：未运行。
+## 2026-10-23 · 可重复条目「添加」与简历超链接（C006-fix-real-run 14、15）
+
+- 日期：2026-10-23
+- 指令：小米校招表（飞书招聘）上点「添加」没加出第二个项目，模型编了「需要真实用户触发」的原因；简历里的项目超链接没有填进链接字段。通过 skill 和提示词解决，读简历时保留超链接网址。
+- 结果：新 skill `playbook/skills/components/repeatable-entries/SKILL.md`（先数段数、先保存当前卡片、点添加后看快照确认新卡片、加不上的排查顺序、不编原因、链接字段取简历超链接），`PlaybookSeeder.BUNDLED` 加上它；`ApplyAgent`「教育、实习、工作、项目」补几句并新增「链接」一条；skill apply-form「其它」加一句指向新 skill。`AssetAnalyzer.text` 用 `BodyContentHandler` + `LinkContentHandler` 解析，在正文前列出「文件里的超链接（链接文字：网址）」，只列 http(s)、去重、最多 50 条，整段仍去掉 C 级的值。
+- 验证：`mvn -B -q clean verify` 退出码 0（没有改测试）。自制的 docx（3 个 http 超链接 + 1 个 mailto）跑 `AssetAnalyzer.text`：3 个网址按链接文字列出，mailto 不列；字数上限 60 时不报错，已读到的链接照常列出。PDF 超链接：未运行。真实 Chrome、真实模型：未运行。
+- 偏差：本机 `storage/playbook/skills/` 里已有的 apply-form 不会被覆盖（PlaybookSeeder 只补缺），新 skill repeatable-entries 下次启动会自动补上。
+
+## 2026-10-23 · 真实跑通（小米 Agent工程师）与修补；暂停交接
+
+- 本会话：多代理做完 ① 标签页改回提示词 / skill（2ad608e）② C008 简历排名（228b38c）；之后真实 Chrome + 真实模型跑小米 Agent工程师：调研 → 排简历 → 开始申请 → 登录 → 上传 → 填写 → 停在提交前（第一次跑到 `ready`，用户没有提交）。跑出的问题逐条记在 [C006-fix-real-run](plan/coding/C006-fix-real-run.md)（1–19），按用户意见修了：申请 Agent 读简历原文、简历在对话里定好直接上传（C008-fix，867b4a6）；接着做时原件放回上传区（临时补丁 c460958，结构修正待做）；上传带 target 直接 setInputFiles（dc88033）；添加条目 skill、简历超链接（5a7a9d3，合并 7613292）。C009（敏感信息占位符）只写了设计，待用户确认。
+- 验证：合并后 `mvn -B -q clean verify` 退出码 0；前端本轮没改。第 10、14、15 条的修法在真实页面上：未运行（第三次跑卡在 Chrome 30 秒允许超时）。
+- 后端和 Vite 已停。申请线程 2026-10-23-001 停在「浏览器断开」等你，Chrome 小米页签上表单填了一部分（第一个项目、基本信息）。
+- 明天（按顺序）：
+  1. 启动后端（`backend/` 下 `java -jar target/jobapply-0.0.1-SNAPSHOT.jar`）和前端（`frontend/` 下 `npm run dev`），刷新工作台页面；点「重新连接」并在 Chrome 30 秒内点允许；在工作台回复让申请 Agent 接着做，看上传（target）、3 个项目（保存 → 添加 → 快照确认）、超链接、时间（NEU 2026 Spring 起每学期一个、各 3 个月）。
+  2. 用户决定第 18 条（卡片内「确定 / 完成」）和 C009。
+  3. 修第 9 条结构（上传时才复制原件）、12、16、17；token（5、11、19）。
+
+## 2026-10-24 · 运行中插话（C010）
+
+- 日期：2026-10-24
+- 指令：参考 deep agents / OpenMAIC，Agent 运行中用户可以打字插话、改变流程（steer）。
+- 结果：调研写进 `plan/reference/research-agent-design.md`「运行中插话（steer）」。新增 `domain/Inbox`；共用循环 `AgentLoop` 每次调模型之前取走插话、作为用户消息加进对话（不打断正在执行的工具）。`SessionRunner.send`、`ApplicationRunner.reply` 在跑时不再 409，放进收件箱返回 202（申请工作台运行中只收文字）；跑完还有的写进对话并接着跑。`SessionView`、`ApplicationStatus` 多 `inserted`。ResearchAgent、ApplyAgent 提示词各加一句「插话优先」。前端两个输入框运行中可发，显示「已插入，Agent 下一步会看到」，保留停止，加「打断并发送」（= 停止 + 发送）。细节见 [C010](plan/coding/C010-steer.md)。
+- 验证：`mvn -B -q clean verify` 退出码 0（没改测试、没新增测试）；`npm run build` 通过。真实模型、真实 Chrome：未运行。
+- 待用户确认：C010「待用户确认回写 master」那两句（`plan/master/agent-runtime.md` 未改）。
+
+## 2026-10-24 · C006-fix-real-run 第 20 条：点击超时后检查原因，被盖住时系统直接点一次
+
+- 改动：`BrowserSession.act` 在 `browser_click` / `browser_type` / `browser_select_option` 动作超时时调 `afterTimeout`：系统用固定模板（`PlaywrightMcpClient.DIAGNOSE`，经 `browser_run_code_unsafe`，只读，只滚动）检查同一个 ref 可不可见、在不在屏幕里、被哪个元素 / fixed 层盖住、还有哪些浮层开着，写进错误；点击目标可见、只是被盖住时，用 `CLICK_THROUGH` 在元素上直接派发一次点击，成功就取新快照并留说明，失败照实报。连接记账抽成 `BrowserSession.system`。`ApplyAgent` 提示词加「点不动（动作超时）」；skill apply-form、components/repeatable-entries 各加一两条。夹具 `file-slots`（场景 + HTML）加被盖住的「添加」，`FakeFormScript` 认得两个新模板，`BrowserSessionActTest` 加几行。
+- 验证：`mvn -B -q clean verify` 退出码 0（surefire 621、failsafe 1）。MCP 同版本 playwright-core + 无头 Chrome 打开 `file-slots.html`：普通点击超时；检查报出盖住它的遮罩；直接点击后页面变成「项目 1（待填写）」；注入的 fixed 底栏和 listbox 浮层都被报出。真实小米页面、真实模型：未运行。
+- 预置 skill 改了 `apply-form/SKILL.md`、`components/repeatable-entries/SKILL.md`；`storage/playbook/skills/` 里已有的副本不会被覆盖（本步没碰 `storage/`）。
+
+## 2026-10-24 · C011 Worker 池
+
+- 日期：2026-10-24
+- 指令：按已批准的 C011 方案 A 做调度这一半：`ApplicationRunner` 单线程执行器换成 N 个 Worker（默认 3），超出的排队；保留排队时停止、插话；停止检查和 `status()` 读文件移出实例锁；同站点限速（默认 2）；`start_application` 的排队文案只在真的排队时出现；加一个并发测试。不碰浏览器层。
+- 结果：`ApplicationRunner` 改成固定线程池 + `queued`（Job → 待跑的运行）/ `running`（Job → 网站 + 任务）+ `dispatch()`；排队凭证去掉（排队的不再提前交给执行器）；`stopRequested` 换成并发集合；`status()` 锁里只读运行记录和运行表；`awaitIdle` 改成 `wait/notifyAll`，新增按 Job 等。`HarnessProperties` / `application.yml` 加 `application-workers: 3`、`applications-per-site: 2`。`SessionRunner` 排队回执文案、`ResearchTools` 的 `start_application` 说明改掉「一次一个」。新增 `backend/src/test/java/jobapply/workflow/ApplicationRunnerPoolTest.java`。前端、提示词没改。细节见 C011「实际结果 · Worker 池」。
+- 验证：`backend/` 下 `mvn -B -q clean verify` 退出码 0；`ApplicationRunnerPoolTest` 单独连跑 3 次都通过（3 个同时在模型调用里、第 4 个排队并在一个结束后开始、排队时停止不跑、一个出错不影响别的、同站点上限）。真实 Chrome 冒烟：未运行（浏览器层还在另一个分支改）。前端没改，`npm run build` 未运行。
+- 偏差：C011 原文说「保留排队凭证」，实际去掉了，原因见 `dev-recoding.md`；行为（排队时停止、重新排队不跑旧的）不变。
+
+## 2026-10-24 · C011 方案 A 浏览器层：一条共享连接、每个使用者一个 MCP 会话
+
+- 日期：2026-10-24
+- 指令：用户批准 C011 方案 A，施工浏览器层：一个 `@playwright/mcp@0.0.83 --port --host 127.0.0.1 --shared-browser-context` 进程、Streamable HTTP、保活会话、每个使用者（Job / Session）一个会话和一把锁、焦点模拟模板、同站对话框卡住的兜底、测试和真实浏览器手动检查。不动 `ApplicationRunner` 的调度。
+- 结果：`PlaywrightMcpClient` 换成 HTTP 传输并新增 `Server`（随机端口、只听 127.0.0.1）和三个系统模板（焦点模拟、弹窗 opener 检查、切前台）；`BrowserSession` 只管共享连接（状态、服务进程、保活会话、重连），新 `OwnerBrowser` 管每个使用者的会话、标签页、弹窗、说明、转交，锁按使用者，动作前不再 select；给模型的标签页列表只列自己的页。`HarnessLoop` 两句话、`ApplyAgent` 提示词两条、skill apply-form 一句、`application.yml` 注释、`plan/master/workflow.md` 一句。假 MCP 服务端改成本机回环地址上的 HTTP（Tomcat），新增 `BrowserSessionConcurrencyTest`、手动检查 `ConcurrentBrowserManualCheck`。细节和矩阵见 [C011「实际结果 · 浏览器层」](plan/coding/C011-concurrent-workers.md)。
+- 验证：`JAVA_HOME=… mvn -B -q clean verify` 退出码 0（surefire 609、failsafe 1）；并发测试里两次填写的时间区间重叠约 308 ms、各落在自己的页。手动检查（自己启动的 Chrome for Testing，有头，非 9222，本机夹具页）跑了一次完整矩阵：同时开页 / 填写 / 快照 / 点击区间重叠，重定向、弹窗（含 noopener）、后台页点击、文件选择框和对话框隔离、抛异常、关页、新 Worker、CDP 连接 1 条且连接代数一直是 1，都通过；同站弹窗开着时的 alert 卡住复现，切前台兜底无效（不通过）。用户自己的 Chrome 上冒烟：未运行。
+- 偏差：弹窗只按 opener 认（第一次手动跑发现「多出一页就收」会收走别人的弹窗，已去掉）；每次动作前仍在自己会话里列一次标签页（不切换）用来发现自己的页被关；切前台兜底保留但对复现出来的卡住无效。
+
+## 2026-10-24 · C011 合并后池测试时好时坏：假服务端单页模式不分会话
+
+- 日期：2026-10-24
+- 指令：Worker 池和浏览器层合并后 `ApplicationRunnerPoolTest` 偶发失败（某家公司「进入模型调用」超时）；稳定复现、找根因（产品的并发问题就改产品，测试假设就改测试）、检查两半之间别的交互、验证并记录。
+- 结果：根因在测试：`FakePlaywrightMcpServer` 单页模式只有一个全局当前网址，三个会话同时 `browser_tabs new` 时互相覆盖，别人的页面进了提示词；`GatedModel` 按固定顺序取第一个公司名，于是认错申请、等在别人的门闩上。改成单页模式按会话记当前网址；假模型提示词里公司名不是正好一个时直接报错。产品代码只改 `BrowserSession.close()` 的顺序（先关使用者会话、再关服务进程），去掉收尾时的 `Error during asynchronous close` 警告。锁顺序、并发 `retryOnNextUse`、第一次并发连接都检查过，没有问题。原因、证据见 [C011「合并后的竞争问题」](plan/coding/C011-concurrent-workers.md)。
+- 验证：修改前池测试单独连跑 20 次失败 17 次；改了假模型、保留旧假服务端时 3 次全失败，报错列出提示词里的两个公司名；卡住时 `jstack` 看到 Worker 停在 `GatedModel.call` 的门闩上，没有 BLOCKED 线程、没有死锁。修改后池测试连跑 20 次全部通过；`JAVA_HOME=… mvn -B -q clean verify` 连跑 3 次退出码都是 0。完整测试里剩下的 8 条异步关闭警告来自故意杀掉服务端 / 超时的断开测试，属预期。真实浏览器：未运行（真的 Playwright MCP 每个会话自己的当前页，不受影响）。
+- 偏差：无。
+
+## 2026-10-24 · C010 回写 master（用户批准）
+
+- 按代码（`Inbox`、`AgentLoop.heard`、`SessionRunner.send`、`ApplicationRunner.reply/insert/resumeWithInserted/stop`、前端「打断并发送」）在 `plan/master/agent-runtime.md` 7.1 加一条「运行中插话」、7.7 `ApplicationRunner` 的「回复」补「在跑或排队时只收文字，带答案、文件或附件时 409」；和 C010 原拟文字的差别（排队时也收、排队时停下也接着跑、用户已定下不再跑）记在 C010；只改文档，未运行构建。
+
+## 2026-10-24 · C011 冒烟清单和观察脚本
+
+- 指令：写用户自己 Chrome 上的 C011 冒烟清单（严格不提交；证明两个 Worker 重叠动作、各在自己的标签页；只弹一次允许、MCP 会话隔离；排队中和运行中插话；K1 同站点卡住单独列为已知问题，出现即记失败）和一个只读观察脚本。
+- 结果：新增 `plan/coding/C011-smoke-test.md`（推荐 `--jobapply.harness.application-workers=2` + 3 个不同网站的岗位让第三个排队）和 `plan/coding/c011_smoke_observe.py`（`watch` 记事件流和状态轮询的结构字段，`report` 打印重叠、页面地址、连接代数、插话、状态五张表；不打印填写的值）；C011 加一行指向清单。
+- 验证：脚本 `report` 对现有 3 个 Job 的文件跑通（应用没开，接口部分按读不到处理；输出只核对了结构，没看内容）；`watch` 和应用日志解析用 scratchpad 里的合成数据跑通。对真实运行中的应用订阅事件流：未运行。冒烟本身：未运行。
+
+## 2026-10-24 · C012 设置页改 Worker 数量
+
+- 日期：2026-10-24
+- 指令：用户「修改为支持前端改 worker 数量」：先写计划再施工；运行中调大马上放排队的、调小不停在跑的；存在 `storage/settings/` 的非密钥文件，`application.yml` / 命令行仍是默认值；范围 Worker 1–6、每站 1 到 Worker 数，超出 400；设置页加「同时申请」。
+- 结果：`ApplicationRunner` 两个上限改为锁里可变、执行器换成按需建线程的池、新增 `concurrency()` / `setConcurrency()`；新增 `WorkerSettingsFile`（`settings/workers.yaml`）、`WorkerSettingsController`（`GET` / `PUT /api/settings/workers`）；前端设置 →「模型」最下面加「同时申请」卡片。细节见 [C012](plan/coding/C012-worker-settings.md)。
+- 验证：`JAVA_HOME=… mvn -B -q clean verify` 退出码 0（surefire 612、failsafe 1）；`ApplicationRunnerPoolTest` 新增一条（调小不停在跑的且不放新的、调大马上放、超出范围不写文件），池测试单独连跑 5 次都通过；`frontend/` 下 `npm run build` 通过。真实应用、真实模型、真实 Chrome：未运行。
+- 偏差：无。
+
+## 2026-10-24 · C013 删除 Session / Project
+
+- 日期：2026-10-24
+- 指令：用户「好像还是做不到 delete session/project。参考那两个 repo 设计然后执行」：先查 deep-agents-ui、OpenMAIC（及 langgraphjs）怎么删线程 / 项目，写进参考文档，再写 C013 并施工；软删进回收站、一个确认框；删 Session 时 Job 留下；删 Project 时在跑 409、连 runs / uploads 一起挪、全局台账去掉它；不碰 base、settings、playbook、别的 Project、example.data。
+- 结果：参考结论写进 `plan/reference/research-agent-design.md`「删除会话 / 项目」（deep-agents-ui `f6a4f34` 没有删除；OpenMAIC `dff201b` 软删 + 侧栏 ⋯ 先问一句 + 删文件夹留课程；langgraphjs `c6675bf` 硬删级联）。新增 `Trash`（挪进 `storage/.trash/<时间>-<kind>-<id>/`，照原路径摆放，写 `RESTORE.md`）、`DELETE /api/sessions/{id}`（在跑时请停、停下后挪走，202）、`DELETE /api/projects/{id}`（在跑 / 被继承 409）。台账写入和回复申请线程接受已删除的 Session（否则删掉发起申请的 Session 后申请推进不了）；回收站里的编号不再分配。侧栏 Project / Session 行加垃圾桶和确认框；已删除的 Session 在 Session 页、Job 页、候选池显示「会话已删除」。细节见 [C013](plan/coding/C013-delete-session-project.md)。
+- 验证：新增 `DeleteSessionProjectTest`（临时 storage、虚构数据：删 Session 只挪这一个目录、其余文件逐字节不变、Job 还能更新、编号不复用；删 Project 只挪它和它的 Job 的 runs / uploads，base、settings、playbook、另一个 Project 逐字节不变，`jobs-index.md` 没有它了；有申请在跑时删 Project 409）通过。`JAVA_HOME=… mvn -B -q clean verify` 退出码 0；`frontend/` 下 `npm ci` 后 `npm run build` 通过。真实应用、真实浏览器：未运行（用户的应用在 8080 上）。
+- 偏差：没做 ⋯ 菜单，垃圾桶和改名笔并排；没做恢复接口（手动挪回）；`plan/master/memory.md` 目录树加 `.trash/` 等用户确认。
+
+## 2026-10-24 · C013 删除确认框修正（用户反馈）
+
+- 无头 Chromium 复现：删除请求没回来时「取消」/ Esc / 点框外都关不掉，只能刷新。改成任何时候都能关、请求 20 秒超时、默认焦点在「取消」；框加宽加间距、按钮靠右、「删除」实心红；侧栏删除图标改成红色、悬停红底。`npm run build` 通过，无头实测 6 项都过（没有真的删任何东西）。
+
+## 2026-10-24 · C011 用户冒烟结果改成通过
+
+- 指令：用户说明已在本机真实测试，都正常投递；记录里不再写「用户口述、非本会话证据」这类话。
+- 结果：C011「验收」表里的只弹一次允许、运行中插话、填表阶段后台点击改为通过（用户本机测试），结论改为用户真实 Chrome 冒烟通过；C011 状态和 `dev-plan.md` 索引行改为完成。K1 照旧记为已知问题。
+- 验证：只改文档。

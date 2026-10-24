@@ -3,12 +3,17 @@
 <head>
 <meta charset="utf-8">
 <title>示例科技 · 在线申请 · 附件</title>
-<!-- 手动冒烟用的虚构表单，和 file-slots.scenario.json 表达同一个表单：简历和作品集两个上传位置。 -->
+<!-- 手动冒烟用的虚构表单，和 file-slots.scenario.json 表达同一个表单：简历和作品集两个上传位置。
+     作品集的按钮被一层透明的遮罩盖住（点击会动作超时），要用 browser_file_upload 带 target 直接设文件。
+     项目经历的「添加」按钮也被一层透明的层盖住（像没关掉的下拉留下的遮罩）：点击超时后系统检查出盖住它的层，
+     再在按钮上直接点一次，「已添加的项目」变成「项目 1（待填写）」。 -->
 <style>
   body { font-family: sans-serif; max-width: 40rem; margin: 2rem auto; }
   section[hidden] { display: none; }
   fieldset { margin: 1rem 0; }
   input[type=file] { display: none; }
+  .slot { position: relative; display: inline-block; }
+  .cover { position: absolute; inset: 0; }
 </style>
 </head>
 <body>
@@ -24,8 +29,13 @@
   <fieldset>
     <legend>作品集（选填）</legend>
     <input type="file" id="portfolio">
-    <button type="button" data-pick="portfolio">上传作品集</button>
+    <span class="slot"><button type="button" data-pick="portfolio">上传作品集</button><span class="cover"></span></span>
     <span aria-label="作品集文件" id="portfolio-name">未上传</span>
+  </fieldset>
+  <fieldset>
+    <legend>项目经历</legend>
+    <span class="slot"><button type="button" id="add-project">添加</button><span class="cover picker-mask"></span></span>
+    <span aria-label="已添加的项目" id="projects">无</span>
   </fieldset>
   <button type="button" data-go="review">下一步</button>
 </section>
@@ -46,6 +56,9 @@
     document.getElementById(input.id + '-name').textContent =
         Array.from(input.files).map(file => file.name).join(', ') || '未上传';
   }));
+  document.getElementById('add-project').addEventListener('click', () => {
+    document.getElementById('projects').textContent = '项目 1（待填写）';
+  });
   document.querySelectorAll('[data-go]').forEach(button => button.addEventListener('click', () => {
     document.querySelectorAll('section').forEach(section => { section.hidden = section.id !== button.dataset.go; });
     document.title = document.getElementById(button.dataset.go).dataset.title;

@@ -16,6 +16,7 @@ import jobapply.workflow.SessionRunner;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -46,6 +47,9 @@ public class ProjectController {
     }
 
     public record RenameProject(String title) {
+    }
+
+    public record DeletedProject(String id) {
     }
 
     private final StorageLayout layout;
@@ -104,6 +108,17 @@ public class ProjectController {
         requireProject(id);
         projects.rename(id, request == null ? null : request.title());
         return summary(id);
+    }
+
+    /**
+     * 删除 Project（C013）：整个目录连同它的 Job 的运行记录、上传暂存挪进 {@code storage/.trash/}，全局台账重新生成。
+     * 有对话或申请在跑 / 排队、或者别的 Project 继承它时 409。{@code base}、设置、playbook、别的 Project 不碰。
+     */
+    @DeleteMapping("/api/projects/{id}")
+    public DeletedProject delete(@PathVariable String id) {
+        requireProject(id);
+        sessionRunner.deleteProject(id);
+        return new DeletedProject(id);
     }
 
     @PostMapping(path = "/api/projects/{id}/sessions", consumes = MediaType.APPLICATION_JSON_VALUE)

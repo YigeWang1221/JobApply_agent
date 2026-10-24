@@ -57,12 +57,13 @@ public final class JobRepository {
         return jobs;
     }
 
-    /** 所有 Project 下已有的 job id（用于全局编号）。 */
+    /** 所有 Project 下已有的 job id（用于全局编号），连同回收站里的（C013：删掉的编号不再用）。 */
     public List<String> allJobIds() {
         List<String> ids = new ArrayList<>();
         for (String projectId : layout.projectIds()) {
             ids.addAll(layout.jobIds(projectId));
         }
+        ids.addAll(layout.trashedJobIds());
         return ids;
     }
 

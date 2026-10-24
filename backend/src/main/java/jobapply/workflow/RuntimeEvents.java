@@ -329,6 +329,12 @@ public final class RuntimeEvents {
             }
 
             @Override
+            public void heard(List<AgentRun.Turn> said) {
+                // 用户插的话已经进了对话：界面重读，「已插入」变成对话里的一条（C010）
+                changed(session, job);
+            }
+
+            @Override
             public void tool(AgentRun.ToolCall call) {
                 setActivity(session, job, new Activity("tool", call, Timestamps.now(clock)));
             }

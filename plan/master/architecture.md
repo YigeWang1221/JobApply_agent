@@ -17,7 +17,7 @@ JobApply_Agent/
 │   │   ├── runtime/
 │   │   ├── context/
 │   │   └── policies/
-│   ├── workflow/               # 申请线程：排队、运行状态、台账（不用图引擎）
+│   ├── workflow/               # 申请线程：Worker 池（并发 + 超出排队，C011）、运行状态、台账（不用图引擎）
 │   ├── memory/                 # 长期记忆（如用户求职画像）
 │   ├── tools/                  # Agent Tool 接口
 │   ├── domain/                 # 业务数据结构

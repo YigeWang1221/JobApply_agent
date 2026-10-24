@@ -16,6 +16,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import jobapply.agents.ResearchAgent;
 import jobapply.domain.Actor;
 import jobapply.domain.AgentRun;
@@ -36,6 +37,7 @@ import jobapply.harness.policies.SubmitGuard;
 import jobapply.harness.policies.ToolNotAllowedException;
 import jobapply.harness.runtime.AgentLoop.Step;
 import jobapply.persistence.AgentRunStore;
+import jobapply.persistence.AssetRegistry;
 import jobapply.persistence.AttachmentStore;
 import jobapply.persistence.DuplicateLeadException;
 import jobapply.persistence.FrontmatterFile;
@@ -108,6 +110,8 @@ public final class SessionLoop {
     private final JobRepository jobs;
     private final JobLedger ledger;
     private final AgentRunStore runs;
+    /** 简历排名（C008）。 */
+    private final ResumeMatch resumes;
 
     public SessionLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock, WebSearch search,
                        WebFetch fetch, Applications applications) {
@@ -127,6 +131,7 @@ public final class SessionLoop {
         this.jobs = new JobRepository(layout);
         this.ledger = new JobLedger(layout, clock, ledgerEvents);
         this.runs = new AgentRunStore(layout);
+        this.resumes = new ResumeMatch(new AssetRegistry(layout, clock), ledger, clock);
     }
 
     /**
@@ -145,11 +150,17 @@ public final class SessionLoop {
     /** 同上；{@code observer} 收到「正在做什么」（调模型、执行工具）和每一步的结果。 */
     public void run(String projectId, String sessionId, List<AgentRun.Turn> history, BooleanSupplier stop,
                     Consumer<AgentRun.Turn> append, LoopObserver observer) {
+        run(projectId, sessionId, history, stop, append, observer, null);
+    }
+
+    /** 同上；{@code inbox} 取走运行中用户插的话（C010），每次调模型之前取一次。 */
+    public void run(String projectId, String sessionId, List<AgentRun.Turn> history, BooleanSupplier stop,
+                    Consumer<AgentRun.Turn> append, LoopObserver observer, Supplier<List<AgentRun.Turn>> inbox) {
         new PlaybookSeeder(layout, clock).seed();
         // 用户发了消息：浏览器断着的话再留一次重连，真要用浏览器时才连（C006-fix-browser 第 1 节）
         browser.retryOnNextUse();
         new Round(projectId, sessionId, history, stop == null ? () -> false : stop, append,
-                observer == null ? LoopObserver.NONE : observer).go();
+                observer == null ? LoopObserver.NONE : observer, inbox).go();
     }
 
     /** 这个 Agent 在共用循环（{@link AgentLoop}）里的那一份：工具、上下文和结束条件。 */
@@ -166,12 +177,12 @@ public final class SessionLoop {
         private PageSnapshot latest;
 
         Round(String project, String session, List<AgentRun.Turn> history, BooleanSupplier stop,
-              Consumer<AgentRun.Turn> append, LoopObserver observer) {
+              Consumer<AgentRun.Turn> append, LoopObserver observer, Supplier<List<AgentRun.Turn>> inbox) {
             this.project = project;
             this.session = session;
             // 调模型回来时已经要求停止：照常记下回复，它的工具写「没有执行」，下一轮再停（和申请 Agent 不同，见 AgentLoop）
             this.loop = new AgentLoop<>(model, ResearchAgent.tools(), clock, TOOL_CALLS_PER_MESSAGE, false, stop,
-                    observer, history, append);
+                    observer, history, append, inbox);
             this.firstNew = Math.max(0, history.size() - 1);
             this.pages = new SessionPages(layout.sessionPagesDir(project, session));
         }
@@ -278,7 +289,12 @@ public final class SessionLoop {
                     case ResearchTools.LIST_JOBS -> result(call, listJobs(text(args.get("status"))));
                     case ResearchTools.ADD_LEAD -> result(call, addLead(args));
                     case ResearchTools.UPDATE_LEAD -> result(call, updateLead(args));
-                    case ResearchTools.START_APPLICATION -> startApplication(call, text(args.get("job")));
+                    case ResearchTools.START_APPLICATION -> startApplication(call, text(args.get("job")),
+                            text(args.get("skip_ranking")));
+                    case ResearchTools.LIST_RESUMES -> result(call, resumes.list());
+                    case ResearchTools.READ_RESUME -> result(call, resumes.read(text(args.get("key"))));
+                    case ResearchTools.CHOOSE_RESUME -> result(call, resumes.choose(job(text(args.get("job"))), session,
+                            args, new AttachmentStore(layout.sessionAttachmentsDir(project, session))));
                     case ResearchTools.MARK_SUBMITTED -> result(call, markSubmitted(args));
                     case ResearchTools.RECORD_STATUS -> result(call, recordStatus(args));
                     case ResearchTools.ASK_USER -> askUser(call, text(args.get("message")));
@@ -659,9 +675,26 @@ public final class SessionLoop {
                     + (next == null ? "，不再提醒。" : "，下次 " + next + " 提醒。");
         }
 
-        private Step<Void> startApplication(AgentRun.ToolCall call, String jobId) {
+        private Job job(String jobId) {
+            if (jobId == null || !jobs.exists(project, jobId)) {
+                throw new IllegalArgumentException("这个 Project 里没有 Job " + jobId);
+            }
+            return jobs.load(project, jobId);
+        }
+
+        private Step<Void> startApplication(AgentRun.ToolCall call, String jobId, String skipRanking) {
             if (jobId == null || !jobs.exists(project, jobId)) {
                 return failed(call, "失败：这个 Project 里没有 Job " + jobId);
+            }
+            // C008：开始申请前先按这个岗位排简历。是提示不是关卡：用户说不用排时带 skip_ranking 照做并记下
+            Job job = jobs.load(project, jobId);
+            if (applications.status(jobId) == null && !resumes.current(job)) {
+                if (skipRanking == null) {
+                    return result(call, "还没有开始：" + jobId + " 这次还没有排过简历（或者排过之后上传了新原件）。"
+                            + "先 list_resumes、read_resume，在对话里把排名和修改建议告诉用户、问用哪一份；用户定了以后 "
+                            + "choose_resume，然后再调用 start_application。用户明确说不用排时，带 skip_ranking（用户的原话）再调用。");
+                }
+                resumes.skip(job, session, skipRanking);
             }
             try {
                 return result(call, applications.start(jobId, project, session));

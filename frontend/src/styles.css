@@ -1163,6 +1163,10 @@ pre.report {
   overflow-wrap: anywhere;
 }
 
+.umsg.inserted .bubble {
+  opacity: 0.75;
+}
+
 .umsg.failed .bubble {
   background: color-mix(in srgb, var(--crit) 12%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--crit) 45%, transparent);
@@ -2032,7 +2036,8 @@ pre.report {
   padding: 2px !important;
   justify-content: center;
   color: var(--muted);
-  opacity: 0;
+  /* 平时淡淡地显示，知道按钮在哪；悬停这一行时完全显示 */
+  opacity: 0.35;
 }
 
 .siderow:hover .renamebtn,
@@ -2450,4 +2455,97 @@ table.apps tr.grp td {
 
 .browserbar button {
   flex: none;
+}
+
+/* 删除确认框（C013） */
+.dialogback {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 60;
+}
+
+.dialog {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.22);
+  /* 跟着窗口大小按比例：宽度、留白、字号都随视口变化，不是固定像素 */
+  width: clamp(320px, 38vw, 680px);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: clamp(18px, 1.8vw, 30px) clamp(20px, 2vw, 34px);
+  font-size: clamp(13px, 0.95vw, 16px);
+  line-height: 1.6;
+}
+
+.dialog h3 {
+  margin: 0 0 0.9em;
+  font-size: 1.2em;
+  line-height: 1.4;
+}
+
+.dialog ul {
+  margin: 0 0 1em;
+  padding-left: 1.4em;
+  font-size: 1em;
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+
+.dialog li + li {
+  margin-top: 0.5em;
+}
+
+.dialog-note {
+  margin: 0 0 4px;
+  padding: 0.6em 0.8em;
+  border-radius: 7px;
+  background: var(--surface-2);
+  font-size: 0.92em;
+  color: var(--ink-2);
+}
+
+.dialog .error {
+  margin: 10px 0 0;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.7em;
+  margin-top: 1.3em;
+}
+
+.dialog-actions button {
+  min-width: 5.5em;
+  padding: 0.5em 1.1em;
+  font-size: 1em;
+}
+
+button.danger-solid {
+  background: var(--crit);
+  border-color: var(--crit);
+  color: #fff;
+  font-weight: 500;
+}
+
+button.danger-solid:hover:not(:disabled) {
+  background: var(--crit-ink);
+  border-color: var(--crit-ink);
+}
+
+/* 侧栏的删除按钮：出现时就是红色，悬停时加红底，和背景分得开 */
+.side .delbtn {
+  color: var(--crit);
+}
+
+.side .delbtn:hover {
+  color: #fff;
+  background: var(--crit);
 }

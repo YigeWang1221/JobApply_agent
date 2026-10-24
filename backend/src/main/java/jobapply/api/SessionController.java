@@ -5,6 +5,8 @@ import java.io.UncheckedIOException;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Locale;
+import jobapply.domain.AgentRun;
 import jobapply.domain.SessionRecord;
 import jobapply.persistence.JobRepository;
 import jobapply.persistence.SessionRepository;
@@ -15,6 +17,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -40,8 +43,10 @@ public class SessionController {
      * @param jobs     这个 Session 涉及的 Job
      * @param activity 现在在做什么；没在跑时为 null
      */
+    /** @param inserted 运行中插了、Agent 还没看到的消息原文（C010） */
     public record SessionView(Views.SessionSummary session, String status, String error,
-                              List<Views.ChatMessage> messages, List<Views.JobView> jobs, Views.Activity activity) {
+                              List<Views.ChatMessage> messages, List<Views.JobView> jobs, Views.Activity activity,
+                              List<String> inserted) {
     }
 
     /** @param attachments 先上传的附件编号（C006 附件）；有附件时 {@code text} 可以为空 */
@@ -49,6 +54,10 @@ public class SessionController {
     }
 
     public record RenameRequest(String title) {
+    }
+
+    /** @param status {@code deleted}（已挪进回收站）或 {@code deleting}（还在跑，停下后挪走） */
+    public record DeleteResponse(String id, String status) {
     }
 
     private final StorageLayout layout;
@@ -115,6 +124,16 @@ public class SessionController {
         return view(layout, clock, runner, applications, id);
     }
 
+    /**
+     * 删除这个 Session（C013）：挪进 {@code storage/.trash/}，Job 留在 Project 里。还在跑时请它停下，停下后挪走（202）。
+     */
+    @DeleteMapping
+    public ResponseEntity<DeleteResponse> delete(@PathVariable String id) {
+        SessionRunner.Deletion result = runner.delete(id);
+        return ResponseEntity.status(result == SessionRunner.Deletion.DELETED ? HttpStatus.OK : HttpStatus.ACCEPTED)
+                .body(new DeleteResponse(id, result.name().toLowerCase(Locale.ROOT)));
+    }
+
     static SessionView view(StorageLayout layout, Clock clock, SessionRunner runner, ApplicationRunner applications,
                             String sessionId) {
         String project = runner.project(sessionId);
@@ -128,6 +147,16 @@ public class SessionController {
         return new SessionView(Views.session(session, runner), status.status(), status.error(),
                 Views.timed(sessions.readTurns(project, sessionId), runner.events().sessionInFlight(sessionId),
                         "/api/sessions/" + sessionId + "/attachments"), touched,
-                Views.activity(runner.events().sessionActivity(sessionId)));
+                Views.activity(runner.events().sessionActivity(sessionId)),
+                runner.inserted(sessionId).stream().map(SessionController::insertedText).toList());
+    }
+
+    /** 插话的原文；只有附件时写附件名。 */
+    private static String insertedText(AgentRun.Turn turn) {
+        if (turn.text() != null && !turn.text().isBlank()) {
+            return turn.text();
+        }
+        return turn.attachments().stream().map(AgentRun.Attachment::name)
+                .collect(java.util.stream.Collectors.joining("、", "（附件：", "）"));
     }
 }

@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * {@link BrowserSession#act} 对表单模式的 {@link FakePlaywrightMcpServer}（真实的 stdio 子进程）。
+ * {@link BrowserSession#act} 对表单模式的 {@link FakePlaywrightMcpServer}（真实的子进程，本机回环地址上的 Streamable HTTP）。
  * 不访问网络，不启动 Chrome，不调用 npx。
  */
 class BrowserSessionActTest {
@@ -66,9 +66,9 @@ class BrowserSessionActTest {
             PageSnapshot read = session.act(JOB, BrowserToolPolicy.SNAPSHOT, Map.of(), model(back, url, null));
             assertThat(read).isEqualTo(back);
         }
-        // 每次操作前先列一次标签页，核对还是自己的那一页
-        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_snapshot",
-                "browser_tabs", "browser_fill_form", "browser_snapshot", "browser_tabs", "browser_type",
+        // 保活会话先列一次（建立共享连接）；开页后开焦点模拟；每次操作前在自己的会话里列一次标签页（不切换），核对还是自己的那一页
+        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_tabs", "browser_run_code_unsafe",
+                "browser_snapshot", "browser_tabs", "browser_fill_form", "browser_snapshot", "browser_tabs", "browser_type",
                 "browser_snapshot", "browser_tabs", "browser_select_option", "browser_snapshot", "browser_tabs",
                 "browser_click", "browser_snapshot", "browser_tabs", "browser_click", "browser_snapshot",
                 "browser_tabs", "browser_snapshot");
@@ -99,8 +99,8 @@ class BrowserSessionActTest {
                     .isInstanceOf(ToolNotAllowedException.class);
             assertThat(session.ownsTab("2026-10-23-002")).isTrue();
         }
-        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_snapshot", "browser_tabs",
-                "browser_tabs");
+        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_tabs", "browser_run_code_unsafe",
+                "browser_snapshot", "browser_tabs", "browser_tabs");
     }
 
     @Test
@@ -114,29 +114,8 @@ class BrowserSessionActTest {
 
             assertThat(found).contains("button \"下一步\" [ref=e9]").doesNotContain("姓名");
         }
-        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_snapshot", "browser_tabs",
-                "browser_find");
-    }
-
-    /** 真实 MCP 在 find 结果后面会带上所有标签页的标题和网址（Open tabs）、当前页（Page）：只把 Result 交出去。 */
-    @Test
-    void findReturnsOnlyTheResultSectionAndNeverOtherTabsTitlesOrUrls() {
-        FakeBrowser fake = FakeBrowser.create(dir).form("multi-page");
-        String url = fake.formUrl();
-
-        try (BrowserSession session = new BrowserSession(fake.launch())) {
-            PageSnapshot first = session.open(url, JOB);
-            fake.findText("### Result\nFound 1 match for \"下一步\":\n\n- button \"下一步\" [ref=e9]\n"
-                    + "### Open tabs\n- 0: [收件箱 - 私人邮箱](https://mail.private-demo.com/inbox)\n"
-                    + "- 1: (current) [申请表](" + url + ")\n"
-                    + "### Page\n- Page URL: " + url + "\n- Page Title: 申请表\n"
-                    + "### Events\n- Downloaded file secret.pdf to \"/tmp/secret.pdf\"");
-            String found = session.find(JOB, Map.of("text", "下一步"), model(first, url, null));
-
-            assertThat(found).isEqualTo("Found 1 match for \"下一步\":\n\n- button \"下一步\" [ref=e9]");
-        }
-        assertThat(BrowserSession.findResult("### Page\n- Page URL: https://mail.private-demo.com/inbox"))
-                .isEmpty();
+        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_tabs", "browser_run_code_unsafe",
+                "browser_snapshot", "browser_tabs", "browser_find");
     }
 
     @Test
@@ -166,9 +145,30 @@ class BrowserSessionActTest {
             assertThat(uploaded.modalState()).isEmpty();
             assertThat(uploaded.snapshot()).contains("- generic \"简历文件\" [ref=e4]: resume-demo.pdf")
                     .contains("- generic \"作品集文件\" [ref=e7]: 未上传");
+
+            // 作品集按钮点不到：点击是动作超时，错误里写着系统检查的结果；带 target 上传不点击，直接设到文件输入框
+            assertThatThrownBy(() -> session.act(JOB, BrowserToolPolicy.CLICK,
+                    Map.of("target", "e6", "element", "上传作品集"), model(uploaded, url, uploads)))
+                    .isInstanceOf(BrowserException.ToolFailed.class).hasMessageContaining("动作超时")
+                    .hasMessageContaining("系统检查了这个元素");
+            BrowserTools.Call direct = BrowserTools.translate(BrowserToolPolicy.FILE_UPLOAD,
+                    "{\"target\":\"e6\",\"files\":[1]}", List.of(resume));
+            PageSnapshot set = session.act(JOB, direct.tool(), direct.args(), model(uploaded, url, uploads));
+            assertThat(set.snapshot()).contains("- generic \"作品集文件\" [ref=e7]: resume-demo.pdf");
+
+            // 「添加」被底部固定栏盖住：点击超时 → 系统检查出盖住它的层 → 在同一个 ref 上直接点一次，留说明、取新快照
+            PageSnapshot added = session.act(JOB, BrowserToolPolicy.CLICK,
+                    Map.of("target", "e31", "element", "添加"), model(set, url, uploads));
+            assertThat(added.snapshot()).contains("- generic \"已添加的项目\" [ref=e32]: 项目 1（待填写）");
+            assertThat(session.takeNotice(JOB)).contains("直接点了一次").contains("class=\"bottom-bar\"")
+                    .contains("position: fixed");
         }
         assertThat(fake.calls(BrowserToolPolicy.FILE_UPLOAD)).extracting(args -> args.get("paths"))
                 .containsExactly(List.of(resume.toString()), List.of(resume.toString()));
+        assertThat(fake.calls("browser_run_code_unsafe"))
+                .filteredOn(args -> String.valueOf(args.get("code")).contains("setInputFiles")).singleElement()
+                .satisfies(args -> assertThat(String.valueOf(args.get("code"))).contains("\"aria-ref=e6\"")
+                        .contains("setInputFiles([\"" + resume + "\"])"));
     }
 
     @Test

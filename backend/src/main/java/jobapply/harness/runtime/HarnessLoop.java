@@ -4,6 +4,7 @@ import static jobapply.harness.runtime.ToolArgs.parse;
 import static jobapply.harness.runtime.ToolArgs.text;
 
 import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -15,6 +16,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import jobapply.agents.ApplyAgent;
 import jobapply.config.HarnessProperties;
@@ -125,11 +127,17 @@ public final class HarnessLoop {
 
     /** 同上；{@code observer} 收到「正在做什么」（调模型、执行工具）和每一步的结果。 */
     public AgentRun run(AgentRun run, BooleanSupplier stop, Consumer<AgentRun> progress, LoopObserver observer) {
+        return run(run, stop, progress, observer, null);
+    }
+
+    /** 同上；{@code inbox} 取走运行中用户插的话（C010），每次调模型之前取一次。 */
+    public AgentRun run(AgentRun run, BooleanSupplier stop, Consumer<AgentRun> progress, LoopObserver observer,
+                        Supplier<List<AgentRun.Turn>> inbox) {
         if (!seeded) {
             seeder.seed();
             seeded = true;
         }
-        return new Round(run, stop, progress, observer == null ? LoopObserver.NONE : observer).go();
+        return new Round(run, stop, progress, observer == null ? LoopObserver.NONE : observer, inbox).go();
     }
 
     /** 一个 Job 的报告草稿：按「页面 + 字段」去重，后填的覆盖先填的。 */
@@ -191,13 +199,14 @@ public final class HarnessLoop {
         /** 用户批准过的一次点击（存在 {@link AgentRun#lastPage()} 里）；用过或者翻到别的网址就清掉。 */
         private SubmitGuard.Approval approval;
 
-        Round(AgentRun run, BooleanSupplier stop, Consumer<AgentRun> progress, LoopObserver observer) {
+        Round(AgentRun run, BooleanSupplier stop, Consumer<AgentRun> progress, LoopObserver observer,
+              Supplier<List<AgentRun.Turn>> inbox) {
             this.run = run;
             this.progress = progress == null ? ignored -> {
             } : progress;
             // 调模型回来时用户已经要求停止：丢掉这条回复直接停（和对话 Agent 不同，见 AgentLoop）
             this.loop = new AgentLoop<>(model, ApplyAgent.tools(), clock, limits.toolCallsPerRun(), true, stop,
-                    observer, run.conversation(), null);
+                    observer, run.conversation(), null, inbox);
             this.detector = new LoopDetector(limits);
             this.plan = run.plan();
             this.modelCalls = run.usage().modelCalls();
@@ -254,10 +263,15 @@ public final class HarnessLoop {
             progress.accept(current());
         }
 
+        /** 用户插话加进对话后也存一次盘，工作台马上看得到（C010）。 */
+        @Override
+        public void heard(List<AgentRun.Turn> said) {
+            progress.accept(current());
+        }
+
         /**
-         * 开始时的页面（C006-fix-browser 第 2 节）：用户刚转交了一个标签页就切过去；否则自己的标签页还认得出就用它；
-         * 否则新开岗位链接。不按上次的网址去认别的标签页（那一页也可能是用户自己开的）：接着做时告诉模型，原来那页要是还开着、
-         * 用户想接着用，请用户在工作台上转交。
+         * 开始时的页面：用户刚转交了一个标签页就切过去；否则正在用的标签页还认得出就用它；否则新开岗位链接，告诉模型
+         * 上次做到的页面，由它决定要不要用 {@code browser_tabs} 找回去（能碰哪些页由提示词约束，C006-fix-browser 第 3 节）。
          */
         private PageSnapshot startPage() {
             BrowserSession.TabInfo handed = browser.takeHandover(run.job());
@@ -267,9 +281,8 @@ public final class HarnessLoop {
                     loop.add(AgentRun.Turn.page(handedText(handed) + "系统切过去了，下面是它的快照。"));
                     return page;
                 } catch (IllegalArgumentException e) {
-                    loop.add(AgentRun.Turn.page(handedText(handed) + "但它现在认不出了（可能被关掉，或者换了网址），"
-                            + "系统没有读它。"));
-                } catch (BrowserException.ToolFailed | BrowserSession.TabLost e) {
+                    loop.add(AgentRun.Turn.page(handedText(handed) + "但它现在已经不在了（可能被关掉），系统没有读它。"));
+                } catch (BrowserException.ToolFailed e) {
                     // 转交已经取走了：仍告诉模型，它可以自己切过去
                     loop.add(AgentRun.Turn.page(handedText(handed) + "系统切过去时出错（" + e.getMessage() + "），"
                             + "要在它上面做，用 browser_tabs select " + handed.index() + " 切过去。"));
@@ -289,11 +302,10 @@ public final class HarnessLoop {
             if (lastUrl == null) {
                 loop.add(AgentRun.Turn.page("系统打开了岗位链接 " + run.url() + "。"));
             } else {
-                loop.add(AgentRun.Turn.page("系统打开了岗位链接 " + run.url() + "。上次做到的页面（" + lastUrl
-                        + "）已经不算你的标签页了（应用重启、浏览器重连或者那一页被关掉后，系统不按网址认回，"
-                        + "因为同一个网址的那一页也可能是用户自己开的）。在新打开的页面上接着做；上次填了一半的内容要是"
-                        + "不在了，下一次对用户说话时顺带告诉用户：原来那页要是还开着、想接着用，请他在申请工作台上"
-                        + "「把一个标签页交给 Agent」。"));
+                loop.add(AgentRun.Turn.page("系统打开了岗位链接 " + run.url() + "。上次做到的页面是 " + lastUrl
+                        + "（应用重启、浏览器重连或者那一页被关掉后，系统不再记得它在哪个标签页）。那一页要是还开着、"
+                        + "上面有填了一半的内容，用 ask_user 请用户在申请工作台上把那个标签页交给你（browser_tabs list "
+                        + "只列你自己的页，看不到它），交过来以后 select 过去接着做。"));
             }
             return opened;
         }
@@ -464,8 +476,8 @@ public final class HarnessLoop {
         }
 
         /**
-         * 模型的 {@code browser_tabs}：{@code list} 只列这个 Job 自己的标签页（它新开的、它点击弹出的、用户转交的），
-         * {@code select} 切过去并取快照。参数不发给 MCP，由 {@link BrowserSession} 以系统身份去列、去切。
+         * 模型的 {@code browser_tabs}：{@code list} 列出所有标签页（标出正在用的、它自己开的或用户转交的），
+         * {@code select} 切过去并取快照；能碰哪些由提示词约束。参数不发给 MCP，由 {@link BrowserSession} 以系统身份去列、去切。
          */
         private Step<AgentRun> tabs(AgentRun.ToolCall call) {
             Map<String, Object> args;
@@ -480,8 +492,9 @@ public final class HarnessLoop {
                     List<BrowserSession.TabInfo> listed = browser.tabs(run.job());
                     log(RunLog.Entry.toolCall(run.session(), step(), BrowserTools.TABS, null, null, null, null,
                             page(latest), "ok"));
-                    return result(call, withHandover(listed.isEmpty() ? "你现在没有自己的标签页。"
-                            : "你的标签页（用户自己的和别的任务的标签页你看不到）：\n" + tabLines(listed)));
+                    return result(call, withHandover(listed.isEmpty() ? "现在没有标签页。"
+                            : "你的标签页（你开的、点击弹出的、用户交给你的；序号是你自己的编号，select 用它）：\n"
+                            + tabLines(listed)));
                 }
                 if ("select".equals(action)) {
                     if (!(args.get("index") instanceof Number number) || number.intValue() < 0) {
@@ -500,7 +513,7 @@ public final class HarnessLoop {
                 }
                 return failedResult(call, "失败：browser_tabs 的 action 只能是 list 或 select");
             } catch (IllegalArgumentException e) {
-                return rejectedResult(call, "被拒绝：" + e.getMessage() + "。");
+                return failedResult(call, "失败：" + e.getMessage() + "。");
             } catch (BrowserException.Disconnected e) {
                 return ended(call, current -> disconnectedRun(current, e.getMessage()));
             } catch (BrowserException.ToolFailed e) {
@@ -508,30 +521,9 @@ public final class HarnessLoop {
             }
         }
 
-        /**
-         * 这个 Job 的标签页认不出了（被关掉，或者页面自己换了网址）：不在别的标签页上操作。它还有别的自己的标签页
-         * （点击弹出的、用户转交的）时列给模型；一个都没有时重新打开岗位链接。
-         */
+        /** 正在用的标签页认不出了（或者还没有）：这次没有操作，原话交给模型，由它 list / select 或者重新打开岗位链接。 */
         private Step<AgentRun> tabLost(AgentRun.ToolCall call, String reason) {
-            List<BrowserSession.TabInfo> mine;
-            try {
-                mine = browser.tabs(run.job());
-                if (mine.isEmpty()) {
-                    PageSnapshot opened = browser.open(run.url(), run.job());
-                    latest = opened;
-                    seen(opened);
-                    return Step.<AgentRun>rejected(call, "没有执行：" + reason
-                            + "。你也没有别的标签页，系统新开了岗位链接 " + run.url() + "，下面是它的快照。原来那页要是还开着、"
-                            + "用户想接着用，请他在申请工作台上「把一个标签页交给 Agent」：")
-                            .withPage(opened);
-                }
-            } catch (BrowserException.Disconnected e) {
-                return ended(call, current -> disconnectedRun(current, e.getMessage()));
-            } catch (BrowserException.ToolFailed e) {
-                return failedResult(call, "失败：" + reason + "；列标签页也失败了：" + e.getMessage());
-            }
-            return rejectedResult(call, withHandover("没有执行：" + reason + "。你还有这些标签页，用 browser_tabs select "
-                    + "切过去再接着做：\n" + tabLines(mine)));
+            return failedResult(call, withHandover("失败：" + reason + "。"));
         }
 
         /** 运行中用户转交了一个标签页：结果后面附一句，由模型决定要不要 {@code browser_tabs select} 过去。 */
@@ -629,6 +621,7 @@ public final class HarnessLoop {
                 case ControlTools.ASK_USER -> askUser(call, args);
                 case ControlTools.UPDATE_PLAN -> updatePlan(call, args);
                 case ControlTools.READ_SKILL -> readSkill(call, text(args.get("name")));
+                case ControlTools.READ_RESUME -> readResume(call, args.get("file"));
                 case ControlTools.FINISH -> finish(call, args);
                 default -> failedResult(call, "失败：没有这个工具：" + call.name());
             };
@@ -693,6 +686,26 @@ public final class HarnessLoop {
             return result(call, "skill「" + skill.name() + "」：\n\n" + skill.body());
         }
 
+        /** 「可上传的文件」里一份的文字（C006-fix-real-run 第 8 条：申请 Agent 要能读到简历原文）。 */
+        private Step<AgentRun> readResume(AgentRun.ToolCall call, Object file) {
+            int number = file instanceof Number n ? n.intValue() : -1;
+            if (number < 1 || number > run.files().size()) {
+                return failedResult(call, run.files().isEmpty()
+                        ? "失败：可上传的文件里还没有文件。没有简历时用 ask_user 的 files 请用户选一份。"
+                        : "失败：file 写可上传的文件里的编号（1 到 " + run.files().size() + "）");
+            }
+            Path path = stagedPaths().get(number - 1);
+            if (!Files.isRegularFile(path)) {
+                return failedResult(call, "失败：文件 " + number + " 不见了：" + run.files().get(number - 1).uploadName());
+            }
+            try {
+                return result(call, ResumeMatch.fileText(path, "文件 " + number + " "
+                        + run.files().get(number - 1).uploadName()));
+            } catch (IllegalArgumentException e) {
+                return failedResult(call, "失败：" + e.getMessage());
+            }
+        }
+
         private Step<AgentRun> finish(AgentRun.ToolCall call, Map<String, Object> args) {
             draft.unresolved.addAll(strings(args.get("unresolved")));
             writeDraft();
@@ -729,13 +742,21 @@ public final class HarnessLoop {
                 }
                 Language language = field.language() == null ? null : Language.of(field.language());
                 FillReportWriter.Confidence confidence = confidence(field.confidence());
+                String replaced = replacedValue(shown, field.ref(), value);
+                if (FieldIntent.RESUME.equals(field.fact())) {
+                    // 取自简历原文：来源写「简历原文」（C006-fix-real-run 第 3 条，报告写明每个值的来源）
+                    draft.field(new FillReportWriter.Recorded(before.title(), label,
+                            replaced == null ? value : value + "（页面原值：" + replaced + "，已改正）",
+                            FillReportWriter.RESUME_SOURCE, language == null ? null : language.code(),
+                            confidence == null ? null : confidence.code(), FactClass.A.name()));
+                    continue;
+                }
                 ResolvedFact fact = field.inferred() ? null : fact(field.fact(), language, value);
                 FillReportWriter.Filled row = fact == null
                         ? FillReportWriter.Filled.inferred(before.title(), label, value, confidence, FactClass.A,
                         language)
                         : FillReportWriter.Filled.fromFact(before.title(), label, value, fact, confidence,
                         fact.language() != null ? fact.language() : language);
-                String replaced = replacedValue(shown, field.ref(), value);
                 draft.field(replaced == null ? row : row.replacing(replaced));
             }
             writeDraft();
@@ -882,12 +903,13 @@ public final class HarnessLoop {
         return "完成。系统取了新的快照：";
     }
 
-    /** 给模型看的标签页列表（只有它自己的）：一行一个，{@code - 序号: [标题](网址)}，标明正在用的。 */
+    /** 给模型看的标签页列表：一行一个，{@code - 序号: [标题](网址)}，标明正在用的和它自己的。 */
     private static String tabLines(List<BrowserSession.TabInfo> tabs) {
         StringBuilder out = new StringBuilder();
         for (BrowserSession.TabInfo tab : tabs) {
             out.append("- ").append(tab.index()).append(": ")
                     .append(tab.inUse() ? "（正在用）" : "")
+                    .append(tab.yours() ? "（你的）" : "")
                     .append('[').append(tab.title()).append("](").append(tab.url()).append(")\n");
         }
         return out.toString().strip();

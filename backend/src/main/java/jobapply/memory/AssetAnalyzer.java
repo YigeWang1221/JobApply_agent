@@ -4,15 +4,24 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 import jobapply.harness.policies.FieldClassGuard;
 import org.apache.tika.Tika;
 import org.apache.tika.exception.TikaException;
+import org.apache.tika.exception.WriteLimitReachedException;
+import org.apache.tika.io.TikaInputStream;
 import org.apache.tika.metadata.Metadata;
 import org.apache.tika.metadata.PagedText;
 import org.apache.tika.metadata.TikaCoreProperties;
+import org.apache.tika.parser.ParseContext;
+import org.apache.tika.sax.BodyContentHandler;
+import org.apache.tika.sax.Link;
+import org.apache.tika.sax.LinkContentHandler;
+import org.apache.tika.sax.TeeContentHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -20,6 +29,7 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.xml.sax.SAXException;
 
 /**
  * 原件的轻量分析：用 Tika 把文件转成文字（只在内存里用，不写文件），取开头 {@value #MAX_CHARS} 个字符交给辅助模型
@@ -66,6 +76,56 @@ public final class AssetAnalyzer {
     /** 按内容和文件名检测媒体类型。 */
     public String detectType(byte[] content, String fileName) {
         return TIKA.detect(content, fileName);
+    }
+
+    /** 超链接列表最多列这么多条。 */
+    static final int MAX_LINKS = 50;
+
+    /**
+     * 原件转成的文字（C008 {@code read_resume}）：Tika 最多读 {@code maxChars} 个字符，去掉 C 级的值。
+     * 纯文字会丢掉超链接的网址、只剩链接文字，所以文件里的 http(s) 超链接另外列在开头「文件里的超链接」下
+     * （C006-fix-real-run 第 15 条：项目链接、作品集、GitHub 要从这里取）。只在内存里用，不写文件。
+     *
+     * @throws IOException 读不出文字时（原因不含文件内容）
+     */
+    public static String text(Path file, int maxChars) throws IOException {
+        Metadata metadata = new Metadata();
+        metadata.set(TikaCoreProperties.RESOURCE_NAME_KEY, file.getFileName().toString());
+        BodyContentHandler body = new BodyContentHandler(maxChars);
+        LinkContentHandler links = new LinkContentHandler();
+        try (TikaInputStream in = TikaInputStream.get(file, metadata)) {
+            TIKA.getParser().parse(in, new TeeContentHandler(body, links), metadata, new ParseContext());
+        } catch (SAXException e) {
+            // 到了字数上限 Tika 会抛异常中断，这时已经读到的文字照常用
+            if (!WriteLimitReachedException.isWriteLimitReached(e)) {
+                throw new IOException("读不出文件里的文字（" + e.getClass().getSimpleName() + "）");
+            }
+        } catch (TikaException | RuntimeException e) {
+            throw new IOException("读不出文件里的文字（" + e.getClass().getSimpleName() + "）");
+        }
+        String text = body.toString().strip();
+        // 链接放在正文前面：正文太长被截断时，链接也还在
+        return FieldClassGuard.withoutClassC(linkList(links.getLinks()) + text).text();
+    }
+
+    /** 「链接文字：网址」一行一条，只列 http(s)，去重；没有时返回空字符串。 */
+    static String linkList(List<Link> links) {
+        Map<String, String> byUri = new LinkedHashMap<>();
+        for (Link link : links) {
+            String uri = link.getUri() == null ? "" : link.getUri().strip();
+            if (!link.isAnchor() || !uri.matches("(?i)https?://\\S+") || byUri.size() >= MAX_LINKS) {
+                continue;
+            }
+            String label = link.getText() == null ? "" : link.getText().strip().replaceAll("\\s+", " ");
+            byUri.merge(uri, label, (a, b) -> a.isEmpty() ? b : a);
+        }
+        if (byUri.isEmpty()) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder("文件里的超链接（链接文字：网址）：\n");
+        byUri.forEach((uri, label) -> out.append("- ").append(label.isEmpty() ? "（没有链接文字）" : label)
+                .append("：").append(uri).append('\n'));
+        return out.append("\n正文：\n").toString();
     }
 
     public Analysis analyze(Path file, String type) {

@@ -29,7 +29,9 @@ public record JobEvent(
         /** 识别规则认为仍在登录页，用户带 override 继续。不改状态，只做审计。 */
         LOGIN_OVERRIDE,
         /** 用户反馈看过了、没有变化（C007）。不改状态，只推后下一次查看。 */
-        STATUS_CHECKED;
+        STATUS_CHECKED,
+        /** 对话 Agent 按这个岗位给简历排了名、选了一份（C008）。不改状态，只做记录。 */
+        RESUME_CHOSEN;
 
         public String value() {
             return name().toLowerCase(Locale.ROOT);

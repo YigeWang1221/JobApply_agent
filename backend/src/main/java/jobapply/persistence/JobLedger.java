@@ -71,7 +71,7 @@ public final class JobLedger {
             synchronized (StorageLock.WRITES) {
                 require(actor, "actor");
                 require(posting, "posting");
-                requireProjectAndSession(projectId, sessionId);
+                requireProjectAndLiveSession(projectId, sessionId);
                 String key = posting.dedupeKey();
                 for (Job existing : jobs.list(projectId)) {
                     if (existing.posting().dedupeKey().equals(key)) {
@@ -336,16 +336,48 @@ public final class JobLedger {
         }
     }
 
+    /**
+     * 记下这个岗位的简历排名（C008）：{@code choice} 整个写进 job.md 的 {@code resume_choice}（覆盖上一次），
+     * 事件日志记一条 {@code resume_chosen}（from / to 都是当前状态），{@code reason} 是一句摘要。不改状态。
+     */
+    public Job chooseResume(String projectId, String jobId, String sessionId, Map<String, Object> choice, String reason) {
+        try {
+            synchronized (StorageLock.WRITES) {
+                require(choice, "choice");
+                requireProjectAndSession(projectId, sessionId);
+                Job next = jobs.load(projectId, jobId).withExtra(Map.of("resume_choice", choice));
+                jobs.update(next);
+                appendEvent(next, event(sessionId, Actor.AGENT, JobEvent.Type.RESUME_CHOSEN, next.status(),
+                        next.status(), reason, null));
+                afterChange(projectId, sessionId, jobId);
+                return next;
+            }
+        } finally {
+            publish();
+        }
+    }
+
     public List<JobEvent> events(String projectId, String jobId) {
         return eventLog.readJobEvents(layout.jobEvents(projectId, jobId));
     }
 
+    /**
+     * 已有 Job 的写入：Session 删除过（在回收站里，C013）也接受，事件照样记原来的 Session。新建候选
+     * （{@link #addLead}）要求 Session 还在（{@link #requireProjectAndLiveSession}）。
+     */
     private void requireProjectAndSession(String projectId, String sessionId) {
         if (!projects.exists(projectId)) {
             throw new IllegalArgumentException("Project 不存在：" + projectId);
         }
-        if (!sessions.exists(projectId, sessionId)) {
+        if (!sessions.existsOrDeleted(projectId, sessionId)) {
             throw new IllegalArgumentException("Session 不存在：" + projectId + "/" + sessionId);
+        }
+    }
+
+    private void requireProjectAndLiveSession(String projectId, String sessionId) {
+        requireProjectAndSession(projectId, sessionId);
+        if (!sessions.exists(projectId, sessionId)) {
+            throw new IllegalArgumentException("Session 已删除：" + projectId + "/" + sessionId);
         }
     }
 
@@ -369,7 +401,10 @@ public final class JobLedger {
 
     private List<Path> afterChange(String projectId, String sessionId, String jobId) {
         List<Path> written = new ArrayList<>();
-        written.add(sessions.refreshDerived(projectId, sessionId));
+        if (sessions.exists(projectId, sessionId)) {
+            // 删掉的 Session 没有 session.md 可以更新（C013）
+            written.add(sessions.refreshDerived(projectId, sessionId));
+        }
         written.addAll(tracker.writeProject(projectId));
         written.addAll(tracker.writeGlobal());
         pending.get().add(new Change(sessionId, jobId));

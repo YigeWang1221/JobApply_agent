@@ -90,3 +90,79 @@
 | 没有结果的工具调用 | deepagents `middleware/patch_tool_calls.py` `PatchToolCallsMiddleware.before_agent`：运行前给每个没有结果的工具调用补一条结果 | 读回对话时补「中断了」，不让下一次请求出错 |
 | 重放有副作用的调用 | OpenMAIC `lib/server/agent-runtime/curriculum-tools.ts`、`import-pptx.ts`：写操作按工具调用 id 幂等，回执存在被改的对象上，重放复用上次结果 | 有副作用的工具按业务键幂等、返回回执；重新生成不靠「不要重复」这类提示 |
 | 运行和读者分开 | OpenMAIC `lib/server/agent-runtime/config.ts`：后台 runner 用租约 + 心跳，过期的会话可以被接着跑；SSE 断开只关读者，runner 照跑 | 本机单进程不需要租约；但「断开不影响运行」「重启后标中断」要保留 |
+
+## 浏览器点击与上传控件（2026-10-23）
+
+起因：C006-fix-real-run 第 10 条，小米校招（飞书招聘）页面点「选择文件」报 `Timeout 5000ms exceeded`，之后 `browser_file_upload` 报没有文件选择框，模型编成「浏览器安全限制」。
+
+看的版本：@playwright/mcp 0.0.83（`~/.npm/_npx/381cec31605a419a/node_modules/playwright-core/lib/coreBundle.js` 和 `@playwright/mcp/README.md`）；Hermes `e5dad4ac5`（`tools/browser_tool.py`、`browser_cdp_tool.py`、`browser_dialog_tool.py`）；deepagents `3e7d5fa`；deep-agents-ui `f6a4f34`；OpenMAIC `dff201b`。
+
+**Playwright MCP 自己**
+
+- `browser_click` = `locator.click({timeout: --timeout-action})`，默认 5000ms。超时花在可操作性检查上：可见、稳定、可用、**命中检查**（点的位置最上层的元素必须是目标或它的子元素）。透明遮罩、加载层、盖在按钮上的 `opacity:0` 的 `<input type=file>` 都会让它一直重试到超时，点击没有发生。错误前缀是 `browserBackend.callTool:`（API 名按调用栈推出来的），没有调用日志，看不出原因。
+- 文件选择框是拦截的：`filechooser` 事件 → 标签页上记一个 `fileChooser` modal state。`browser_file_upload` 只能在这个状态下用（否则 `can only be used when there is related modal state present`）；状态存在时别的工具都报 `does not handle the modal state`。
+- `browser_drop`：在元素上派发 dragenter / dragover / drop（带 DataTransfer）。走的也是指针动作的可操作性检查（`_retryPointerAction`），按钮被盖住时一样超时；目标还必须有接受拖放的 dragover 处理。**解决不了遮罩问题**。
+- Playwright 处理隐藏文件输入框的正路是 `setInputFiles`：只要求元素是 `<input type=file>`（或关联它的 `<label>`），**不查可见性、不点击、不需要文件选择框**，设完派发 input / change 事件。MCP 没有单独的工具暴露它，只能经 `browser_run_code_unsafe`（core 能力，默认就有；RCE 等价）。`target` 参数也接受选择器，但 `aria-ref=eN` 才能对上快照里的 ref。
+- 命令行有 `--timeout-action <ms>`（环境变量 `PLAYWRIGHT_MCP_TIMEOUT_ACTION`）。
+
+**参考仓库**
+
+- Hermes：浏览器工具走 agent-browser CLI，每条命令默认 30 秒超时（`browser.command_timeout`），没有上传工具；原生对话框交给 CDP supervisor 记成 `pending_dialogs`，模型用单独的 `browser_dialog` 回应；兜底是原样转发任意 CDP 命令的 `browser_cdp`（理论上能 `DOM.setFileInputFiles`，没有专门写）。
+- deepagents、deep-agents-ui、OpenMAIC：没有浏览器自动化，没有上传控件的处理（只搜到测试里的无关文件）。
+
+**结论（JobApply 怎么做）**
+
+1. 上传不靠点按钮：`browser_file_upload` 加可选 `target`（上传按钮 / 上传区域的 ref）。带 target 时，系统在过完白名单（ref 在最新快照里、文件都在 `storage/uploads/<job>/`）之后，用**固定模板**经 `browser_run_code_unsafe` 调 `setInputFiles`：从 ref 指的元素往外找最近的 `input[type=file]`。模型不能提交代码，模板只嵌 ref 和路径两个 JSON 字符串。不带 target 时照旧交给已经打开的文件选择框。
+2. 不开 `browser_drop`：和点击一样会被遮罩挡住，多一个工具没用。
+3. 动作超时从 5 秒放到 15 秒（`--timeout-action 15000`），给加载遮罩留时间；比 Hermes 的 30 秒短，点不到时不至于每次等太久。
+4. MCP 的错误补一句实情（`PlaywrightMcpClient.hint`）：动作超时 = 元素点不到、操作没发生、不是安全限制；没有文件选择框 / 文件选择框挡着别的操作时下一步做什么。模型照错误里的说明做，不再自己编原因。
+5. 本机验证：用 MCP 同版本的 playwright-core 在无头 Chrome 里打开夹具 `file-slots.html`（作品集按钮上盖了透明层），点击 2 秒超时；模板 `setInputFiles` 设上文件，页面的 change 处理写出了文件名。
+
+## 运行中插话（steer）（2026-10-24）
+
+起因：用户要求「参考 deep agents / OpenMAIC：Agent 执行输出时，用户可以打字打断或改变流程」。当时两个 Agent 运行中发消息都返回 409，只能先停止。
+
+看的版本：langgraphjs `c6675bf`；deepagents `3e7d5fa`；deep-agents-ui `f6a4f34`；OpenMAIC `dff201b`；Hermes `e5dad4ac5`（只读源码，没读配置、密钥、memories、日志）。
+
+| 项目 | 做法 | 模型什么时候看到 | 前端 |
+| --- | --- | --- | --- |
+| langgraphjs | 每次运行带 `multitask_strategy`：reject（409）/ enqueue（排队等这次跑完）/ interrupt / rollback（用 AbortSignal 中止当前运行再开新运行，rollback 丢掉旧运行）。`libs/langgraph-api/src/api/runs.mts`、`storage/ops.mts` `cancel()`；客户端 `libs/sdk/src/stream/submit-coordinator.ts`（默认 rollback） | 不往正在跑的循环里插；要么等跑完，要么中止后作为新一轮 | SDK 有 `useSubmissionQueue` 显示排队的消息 |
+| deep-agents-ui | 运行中发送键变成停止，`handleSubmit` 直接返回（`ChatInterface.tsx`），等于在界面上拒绝 | — | 输入框能打字，不能发 |
+| deepagents CLI | 运行中消息进 `_pending_messages` 队列，跑完按顺序发（`libs/code/deepagents_code/app.py`）；Esc 先撤回最后一条排队的，没有排队的才中止 | 跑完以后作为新一轮 | 「N messages queued」 |
+| OpenMAIC | `POST /api/agent/sessions/[id]/messages` 先落库、返回 202；空闲时开新运行，在跑时 `runner.ts` `drainMessages()` 把新消息经 `agent.steer()` 插进正在跑的循环；`ask_user` 发出后不再插；停止是单独的 `/cancel` | 下一轮调模型之前（pi-agent-core 的 steer；依赖没装，具体时机按其惯例推断，未确认） | 输入框一直可用，运行中 Enter 就是插话，旁边有停止 |
+| Hermes | `busy_input_mode` 三选一：interrupt（默认，打断正在执行的工具，剩下的写「被用户打断跳过」，新消息作为下一轮）/ queue（跑完再发）/ steer（`run_agent.py` `steer()` 存进 `_pending_steer`，一批工具执行完后附在最后一条工具结果后面，或者每次调模型之前取走；不打断工具；带图片时退回 queue） | steer：下一次调模型之前 | 输入框从不禁用，状态写「queued for next turn」 |
+
+**结论（JobApply 怎么做）**
+
+1. 默认用 OpenMAIC / Hermes 的 steer：运行中的消息放进这次运行的收件箱，共用循环 `AgentLoop` 每次调模型之前（也就是上一批工具都执行完之后）取走，作为用户消息加进对话。不中止正在执行的工具：浏览器写操作做一半最难收拾，Hermes 的 steer 和 OpenMAIC 都不打断工具。不做 langgraph 的 rollback（要回滚浏览器里已经填的东西，做不到）。
+2. 跑完时收件箱里还有的（最后一步正好到的），写进对话、接着开一次运行（等于 deepagents 的队列兜底），不丢。
+3. 「打断并发送」= 现有的停止 + 发送（Hermes 的 interrupt 模式），不另造中止机制：循环先查停止再取收件箱，这条留给下一次运行。
+4. 前端照 OpenMAIC：输入框一直可用，运行中发送就是插话，停止按钮保留。
+5. 插话只收文字（Session 可带附件，因为它本来就是对话里的一条用户消息）；申请工作台的回答问题、选上传文件要改上传区和文件编号，运行中不收，和 Hermes「带图片退回 queue」同理。
+
+**补充：点击超时后的检查和直接点击（2026-10-24，C006-fix-real-run 第 20 条）**
+
+- 同一个 playwright-core（1.64.0-alpha，@playwright/mcp 0.0.83 的 npx 缓存）：命中检查失败时 Playwright 会换几种滚动对齐（end / center / start）重试，所以单纯在页面底部、被固定底栏挡住的按钮多半能自己滚开；一直超时多半是盖在按钮上的透明层或没关掉的浮层遮罩。超时错误不带调用日志，MCP 返回给模型的只有 `Timeout … exceeded`。
+- `click({force:true})` 只跳过可操作性检查，仍在元素中心的屏幕坐标上发鼠标事件，被盖住时点到的是上层元素，解决不了遮挡。直接在元素上派发事件（`dispatchEvent` / `element.click()`）不经过坐标，盖在上面的层收不到。
+- 结论：超时后系统用固定模板只读检查一次（滚到中间、`elementFromPoint`、fixed / sticky 层、还开着的浮层），写进错误；点击目标只是被盖住时系统直接点一次。点击守卫在这之前已经放行这个 ref。见 `PlaywrightMcpClient.DIAGNOSE`、`CLICK_THROUGH`。
+
+## 删除会话 / 项目（2026-10-24）
+
+起因：用户「好像还是做不到 delete session/project，参考那两个 repo 设计然后执行」。
+
+看的版本：deep-agents-ui `f6a4f34`；OpenMAIC `dff201b`；langgraphjs `c6675bf`（deepagents 没有删除线程的界面，没细看）。
+
+| 项目 | 界面 | 后端语义 | 正在跑的 |
+| --- | --- | --- | --- |
+| deep-agents-ui | 没有删除：`ThreadList.tsx` 只列线程（`useThreads` 调 `threads.search`），全仓没有 delete / archive | — | — |
+| langgraphjs | （服务端）`DELETE /threads/:id` → 204，没有这个线程 404（`libs/langgraph-api/src/api/threads.mts`） | **硬删**，级联删掉这个线程的 runs 和 checkpoint（`storage/ops.mts` `threads.delete`）；删 assistant 默认**不**删它的线程，要显式 `delete_threads=true` | 不检查，直接连 run 一起删 |
+| OpenMAIC · 对话 | 侧栏每行悬停出现 ⋯，里面「删除」先问一句（`components/workbench/workspace/WorkspaceRail.tsx` 文件头说明）；确认后行**乐观地**先消失，服务端失败再放回并提示；成功后若删的是当前打开的对话，外壳关掉它的面板和 URL 参数 | **软删**：`deleteWorkspaceSession` → `store.softDeleteSession(id, owner)`（`lib/workbench/workspace-actions.ts`） | 不单独处理 |
+| OpenMAIC · 课程 / 文件夹 | 课程卡片「删除」→ 卡片上就地确认 / 取消（`app/page.tsx` `pendingDeleteId`），没有二次确认 | 删课程会结束它的生成任务；删文件夹默认 `mode=ungroup`：**文件夹没了，课程留下**回到顶层；连课程一起删的模式故意不放进侧栏（「容器的 ⋯ 不能毁掉作品」）；删除有防重入和「删除代」防止在途保存把刚删的写回来（`lib/utils/deleted-stages.ts`） | 删课程 = 结束任务 |
+
+**结论（JobApply 怎么做，C013）**
+
+1. 照 OpenMAIC 的软删，而且更简单：本地文件，直接把目录挪进 `storage/.trash/<时间>-<session|project>-<id>/`，里面照原相对路径摆放，挪回去就恢复。不做恢复接口和回收站页面。
+2. 照 OpenMAIC「容器删掉、作品留下」：删 Session 只删对话，它发现的 Job 留在 Project 里，事件里的 Session 当历史；删 Project 才连 Job 一起挪走（Job 属于 Project）。
+3. 界面照 OpenMAIC 侧栏：行上悬停出现的按钮（和已有的改名笔并排，不另做 ⋯ 菜单），一个确认框写清楚挪走什么、留下什么，只问一次；删的是当前页时回到全局。
+4. 正在跑的：Session 照 OpenMAIC「删除 = 结束运行」，在跑时请它停下、停下后挪走，不让用户先停再删；Project 范围大、牵涉申请线程和浏览器标签页，有对话或申请在跑 / 排队时 409，说是哪几个。
+5. 不学 langgraph 的硬删：删错了没有回头路；也不学它不检查在跑的运行（我们的运行在写同一批文件）。

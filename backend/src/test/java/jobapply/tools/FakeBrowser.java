@@ -147,12 +147,6 @@ public final class FakeBrowser {
         return save();
     }
 
-    /** 之后 {@code browser_find} 原样返回这段文字（模仿真实 MCP 在结果后面带上 Open tabs、Page 等小节）。 */
-    public synchronized FakeBrowser findText(String raw) {
-        scenario.put("findText", raw);
-        return save();
-    }
-
     public synchronized FakeBrowser callDelay(Duration delay) {
         scenario.put("callDelayMillis", delay.toMillis());
         return save();
@@ -201,6 +195,25 @@ public final class FakeBrowser {
                 .reduce((first, second) -> second)
                 .map(r -> (List<String>) r.get("roots"))
                 .orElse(List.of());
+    }
+
+    /** 收到过调用的 MCP 会话（按第一次出现的顺序）。 */
+    public List<String> sessions() {
+        return records().stream().filter(r -> "call".equals(r.get("event")))
+                .map(r -> String.valueOf(r.get("session"))).distinct().toList();
+    }
+
+    /** 做完的一次调用：哪个会话、什么工具、调用时那个会话的当前网址、开始和结束时间（微秒）。 */
+    public record Done(String session, String tool, String url, long started, long ended) {
+    }
+
+    /** 服务端做完的调用，按结束的顺序。 */
+    public List<Done> done() {
+        return records().stream().filter(r -> "done".equals(r.get("event")))
+                .map(r -> new Done(String.valueOf(r.get("session")), String.valueOf(r.get("tool")),
+                        String.valueOf(r.get("url")), ((Number) r.get("started")).longValue(),
+                        ((Number) r.get("ended")).longValue()))
+                .toList();
     }
 
     public int starts() {

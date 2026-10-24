@@ -37,7 +37,7 @@ Frontend
         ↓
 Spring Boot 应用层（API、配置、权限、业务服务）
         ↓
-申请线程（workflow）：排队 · 运行状态存盘 · 用户回复后接着跑
+申请线程（workflow）：Worker 池并发、超出排队（C011）· 运行状态存盘 · 用户回复后接着跑
         ↓
 Custom Agent Harness（自研 Model → Tool → Model，LLM 主持流程）
   Context / Memory / Tool / Skill / 兜底上限

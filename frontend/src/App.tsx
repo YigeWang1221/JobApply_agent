@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, errorText, type ProjectSummary, type SessionSummary } from "./api";
 import BrowserBanner from "./BrowserBanner";
+import { DeleteConfirm, type DeleteTarget } from "./DeleteConfirm";
 import { Icon } from "./chat/icons";
 import { useGlobalChanges } from "./chat/useLiveUpdates";
 import Global from "./pages/Global";
@@ -155,6 +156,19 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
   const current = (r: Route) => href(r) === href(route);
   // 正在改名的那一项（双击进入）：project:<id> 或 session:<id>
   const [renaming, setRenaming] = useState<string | null>(null);
+  // 正在确认删除的那一项（C013）
+  const [deleting, setDeleting] = useState<DeleteTarget | null>(null);
+  // 删掉的正是当前看的（或当前 Session 所在的 Project）时回到全局
+  async function afterDelete(target: DeleteTarget) {
+    const gone = target.kind === "session"
+      ? route.kind === "session" && route.id === target.session.id
+      : (route.kind === "project" && route.id === target.project.id)
+        || (route.kind === "session" && target.project.sessions.some((s) => s.id === route.id));
+    if (gone) {
+      go({ kind: "global" });
+    }
+    await onCreated();
+  }
   return (
     <aside className="side" aria-label="Project 与 Session">
       <div className="brand">
@@ -186,6 +200,8 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
                   </button>
                   <button className="iconbtn renamebtn" title="改名" aria-label={`给 ${p.title} 改名`}
                     onClick={() => setRenaming(`project:${p.id}`)}><Icon name="pencil" size={13} /></button>
+                  <button className="iconbtn renamebtn delbtn" title="删除 Project" aria-label={`删除 ${p.title}`}
+                    onClick={() => setDeleting({ kind: "project", project: p })}><Icon name="trash" size={13} /></button>
                 </div>
               )}
             {groupByDay(p.sessions).map(([day, list]) => (
@@ -207,6 +223,8 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
                           </button>
                           <button className="iconbtn renamebtn" title="改名" aria-label={`给 ${s.title} 改名`}
                             onClick={() => setRenaming(`session:${s.id}`)}><Icon name="pencil" size={12} /></button>
+                          <button className="iconbtn renamebtn delbtn" title="删除对话" aria-label={`删除 ${s.title}`}
+                            onClick={() => setDeleting({ kind: "session", session: s })}><Icon name="trash" size={12} /></button>
                         </div>
                       )}
                     </li>
@@ -218,6 +236,9 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
         ))}
         <NewProject onCreated={onCreated} />
       </div>
+      {deleting && (
+        <DeleteConfirm target={deleting} onClose={() => setDeleting(null)} onDeleted={() => afterDelete(deleting)} />
+      )}
       <div className="bottom">
         <p className="note">
           Project = 一份资料版本 + 偏好，不代表岗位类别。Session 是一次对话，可以只调研、调研加投递，或者回来更新面试情况；岗位（Job）跨多个 Session。

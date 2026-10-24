@@ -26,10 +26,13 @@ jobapply:
       # npx 不在 PATH 里时（例如从 IDE 启动），改成绝对路径
       command: npx
       # 写操作的返回不附带快照、不写快照文件；console 只留错误；不返回图片；不收集页面注册的 WebMCP 工具。
+      # 动作超时（等元素可见、稳定、能接收点击）从默认 5 秒放到 15 秒：真实招聘站点有加载遮罩，5 秒常常还没消失。
       # --output-dir（storage/cache/playwright-mcp）由程序按 storage 追加；不加 --caps
       # 远程调试模式（--cdp-endpoint chrome）：在 chrome://inspect/#remote-debugging 打开开关，只有第一次连接要确认，不用装扩展
+      # 程序还会追加 --port <随机空闲端口> --host 127.0.0.1 --shared-browser-context（C011）：一个服务进程、一条 CDP 连接，
+      # 每个申请 / 调研各开一个 HTTP 会话（自己的标签页），另有一个空闲会话保住连接，Chrome 只弹一次允许
       args: ["-y", "@playwright/mcp@0.0.83", "--cdp-endpoint", "chrome", "--snapshot-mode", "none", "--console-level", "error",
-             "--image-responses", "omit", "--no-webmcp"]
+             "--image-responses", "omit", "--no-webmcp", "--timeout-action", "15000"]
       # 要长于 Chrome 等待用户同意第一次连接的时间
       call-timeout: 60s
   search:
@@ -48,3 +51,7 @@ jobapply:
     same-element-failures: 3
     same-result-repeats: 3
     unchanged-actions: 6
+    # 同时跑的申请线程数（C011 Worker 池），多出来的排队按顺序轮到。下面两项是默认值：设置页「同时申请」改过后存在 storage/settings/workers.yaml，以它为准（C012）
+    application-workers: 3
+    # 同一个网站上同时最多这么多个申请（礼貌限速，免得同站点请求过多被限流）；多出来的排队
+    applications-per-site: 2

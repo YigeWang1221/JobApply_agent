@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api, ApiError, awaitingSubmit, errorText, type ApplicationQuestion, type ApplicationStatus, type Asset,
   type BrowserTab, type FileSlot,
-  type JobDetail, type JobEventView, type PlanItem, type ReplyBody, type SentAttachment,
+  type JobDetail, type JobEventView, type PlanItem, type ReplyBody, type ResumeChoice, type SentAttachment,
 } from "../api";
 import { ChatSkeleton } from "../chat/ChatSkeleton";
 import { eventsUrl, subscribe } from "../chat/eventStream";
@@ -20,6 +20,7 @@ const PLAN: Record<string, string> = { todo: "待做", doing: "进行中", done:
 const WAITING = new Set(["waiting_user", "ready", "failed", "interrupted"]);
 // 你已经提交了（等确认）：和后端 reply 的 409 同一条规则，不再回复申请 Agent。暂停的可以回复（接着做）
 const USER_DECIDED = new Set(["user_submitting", "verification_pending", "unconfirmed"]);
+const RESUME_SLOT = /简历|履历|resume|cv/i;
 
 interface ReplyForm {
   key: string;
@@ -88,7 +89,11 @@ export default function JobPage({ id }: { id: string }) {
     return pollError ? <p className="error pad">{pollError}</p> : <ChatSkeleton />;
   }
   const { job, application: status, steps, events } = detail;
-  const session = status?.session ?? job.discoveredIn;
+  // 发消息用的 Session 由后端挑（记录里的 Session 删了时换成 Project 最新的一个，C013）
+  const session = detail.session;
+  const discoveredDeleted = !!job.discoveredIn && detail.deletedSessions.includes(job.discoveredIn);
+  // 回复申请线程时记它自己的 Session：删掉了后端也接受（申请属于 Job，C013）
+  const replyAs = status?.session ?? session;
   // 能不能开始由服务器判断（和后端 start 同一条规则：状态允许、有岗位链接、还没有申请线程）
   const canStart = !status && job.canStart;
   const waiting = !!status && WAITING.has(status.status);
@@ -97,9 +102,16 @@ export default function JobPage({ id }: { id: string }) {
 
   // 同一次等待算一份表单：轮询拿到同样的内容时不重置用户已经填的东西
   const formKey = status ? replyKey(status) : "";
-  const current: ReplyForm = form.key === formKey ? form : { key: formKey, answers: {}, picked: {} };
   const questions = waiting ? status?.questions ?? [] : [];
   const slots = waiting ? status?.fileSlots ?? [] : [];
+  // C008：简历的上传位置默认选中对话 Agent 排名选定的那份（只有一个上传位置时也选它），你仍可改选
+  const chosen = job.resumeChoice?.asset;
+  const fresh: ReplyForm = {
+    key: formKey, answers: {},
+    picked: chosen ? Object.fromEntries(slots.filter((slot) => slots.length === 1 || RESUME_SLOT.test(slot.label))
+      .map((slot) => [slot.id, chosen])) : {},
+  };
+  const current: ReplyForm = form.key === formKey ? form : fresh;
   const answerable = questions.filter((q) => q.fieldClass !== "C");
   const missingAnswers = answerable.filter((q) => q.required && !current.answers[q.id]?.trim());
   const missingFiles = slots.filter((slot) => slot.required !== false && !current.picked[slot.id]);
@@ -110,7 +122,7 @@ export default function JobPage({ id }: { id: string }) {
     ? "还没有开始申请"
     : job.phase !== "prep" || USER_DECIDED.has(job.prepState ?? "")
       ? `这个申请现在是「${job.label}」，你已经定下了，不用再回复申请 Agent；之后的进展在 Session 对话里告诉 Agent`
-    : running ? "Agent 正在做；它要你做什么时可以在这里回复" : waiting ? null : "现在不需要回复";
+    : running || waiting ? null : "现在不需要回复";
   // 挡住发送的只有这一条；必填问题没答、上传位置空着都不挡，Agent 会再问（C006-fix 第 5 节、第 6 节）
   const hints = [
     ready && !text.trim() && "要求修改时写明要改什么",
@@ -121,16 +133,23 @@ export default function JobPage({ id }: { id: string }) {
   ].filter(Boolean) as string[];
 
   async function send() {
-    if (!status || !session) {
+    if (!status || !replyAs) {
       toast("这个申请没有 Session", "error");
       return;
     }
     const filled = Object.fromEntries(
       answerable.filter((q) => current.answers[q.id]?.trim()).map((q) => [q.id, current.answers[q.id].trim()]),
     );
+    if (running) {
+      // 运行中插话（C010）：只发这一句，附件留在输入框里等它停下再发
+      if (await call(() => api.reply(job.id, { session: replyAs, text: text.trim() }))) {
+        setText("");
+      }
+      return;
+    }
     const files = attach.ready.map((file) => file.id);
     const body: ReplyBody = {
-      session,
+      session: replyAs,
       ...(text.trim() ? { text: text.trim() } : {}),
       ...(Object.keys(filled).length > 0 ? { answers: filled } : {}),
       ...(slots.length > 0 ? { files: slots.map((slot) => current.picked[slot.id] ?? "") } : {}),
@@ -150,13 +169,15 @@ export default function JobPage({ id }: { id: string }) {
             <h1>{job.company} · {job.title}</h1>
             <span className="muted small headmeta">
               {[job.city.join("、"), job.type, job.site].filter(Boolean).join(" · ")}
+              {job.resumeChoice?.file && <span title="对话 Agent 按这个岗位排名选定的简历">拟用简历：{job.resumeChoice.file}</span>}
               {job.url && <a href={job.url} target="_blank" rel="noreferrer">岗位链接</a>}
               {job.officialUrl && <a href={job.officialUrl} target="_blank" rel="noreferrer">官方链接</a>}
               {sse.reconnecting && <span className="reconnecting" title="和后端的推送断开了，正在自动重连">重新连接中…</span>}
               <button className="linkbtn" onClick={() => go({ kind: "project", id: job.project })}>回到 Project</button>
-              {job.discoveredIn && (
+              {job.discoveredIn && !discoveredDeleted && (
                 <button className="linkbtn" onClick={() => go({ kind: "session", id: job.discoveredIn! })}>发现它的 Session</button>
               )}
+              {discoveredDeleted && <span title={`发现它的 Session（${job.discoveredIn}）已经删除，岗位留着`}>会话已删除</span>}
               {job.phase !== "closed" && job.leadStatus !== "closed" && job.leadStatus !== "skipped" && (
                 <button className="linkbtn" title="岗位已下线 / 停止招聘"
                   onClick={() => void call(() => api.postingClosed(job.id))}>岗位下线了</button>
@@ -169,7 +190,11 @@ export default function JobPage({ id }: { id: string }) {
             {!status && (
               <button className="primary" disabled={busy || !canStart || !session}
                 title={!session ? "没有可用的 Session" : !canStart ? "这个岗位现在不能开始申请" : undefined}
-                onClick={() => void call(() => api.startApplication(job.id, { project: job.project, session: session! }))}>
+                onClick={() => void call(async () => {
+                  // C008：开始申请前先排简历：交给发现它的 Session 里的对话 Agent，排完它自己开始申请
+                  await api.sendMessage(session!, `给 ${job.company} · ${job.title}（${job.id}）排一下简历，然后开始申请`);
+                  go({ kind: "session", id: session! });
+                })}>
                 开始申请
               </button>
             )}
@@ -180,7 +205,7 @@ export default function JobPage({ id }: { id: string }) {
           </div>
         </header>
         {pollError && <p className="error small pad">刷新失败：{pollError}</p>}
-        <MessageList messages={steps} running={running} jobs={[job]}
+        <MessageList messages={steps} running={running} jobs={[job]} inserted={status?.inserted ?? []}
           activity={sse.activity !== undefined ? sse.activity : detail.activity}
           onStop={() => void call(() => api.stop(job.id))}
           empty={
@@ -196,11 +221,16 @@ export default function JobPage({ id }: { id: string }) {
             <p className="composerhint">{[...hints, ...softHints].join(" · ")}</p>
           )}
           <Composer value={text} onChange={setText} running={running} disabled={busy}
-            attach={attach} allowEmpty={!ready} blocked={hints.length > 0} lockedReason={lockedReason}
+            attach={attach} allowEmpty={!ready && !running} blocked={hints.length > 0} lockedReason={lockedReason}
             sendLabel={ready ? "要求修改" : status?.status === "failed" ? "重试" : "回复，继续"}
             onSend={() => void send()}
             onStop={() => void call(() => api.stop(job.id))}
-            placeholder={ready ? "要修改时写明要改什么" : "回复 Agent（可选，例如「登录好了」），可以附文件和截图"} />
+            onInterrupt={replyAs ? () => void call(async () => {
+              await api.stop(job.id);
+              await api.reply(job.id, { session: replyAs, text: text.trim() });
+              setText("");
+            }) : undefined}
+            placeholder={running ? "Agent 正在做，可以随时插话（例如「先别填这个，改成…」），它下一步会看到" : ready ? "要修改时写明要改什么" : "回复 Agent（可选，例如「登录好了」），可以附文件和截图"} />
           {ready && <p className="privacy composerhint">修改说明原文会记进过程日志（run-log.jsonl），不要写个人信息。</p>}
         </div>
       </div>
@@ -221,10 +251,11 @@ export default function JobPage({ id }: { id: string }) {
           {slots.length > 0 && (
             <Files slots={slots} offered={status?.assets ?? null} attachments={attachable} picked={current.picked}
               setPicked={(update) => setForm((old) => {
-                const base = old.key === formKey ? old : { key: formKey, answers: {}, picked: {} };
+                const base = old.key === formKey ? old : fresh;
                 return { ...base, picked: update(base.picked) };
               })} />
           )}
+          <ResumeRank choice={job.resumeChoice ?? null} />
           <Plan plan={status?.plan ?? []} />
           {status && <HandTab jobId={job.id} />}
           {status && (ready || status.report) && <section className="sidesec"><Report jobId={job.id} /></section>}
@@ -270,6 +301,42 @@ function Plan({ plan }: { plan: PlanItem[] }) {
           <li key={index}><span><span className="muted small">[{PLAN[item.status] ?? item.status}]</span> {item.text}</span></li>
         ))}
       </ol>
+    </section>
+  );
+}
+
+// 简历排名（C008）：对话 Agent 开始申请前按这个岗位排的名次、理由、缺口和修改建议
+function ResumeRank({ choice }: { choice: ResumeChoice | null }) {
+  if (!choice) {
+    return null;
+  }
+  const day = choice.at.slice(0, 16).replace("T", " ");
+  return (
+    <section className="sidesec">
+      <strong className="small">简历排名</strong> <span className="muted small">{day}</span>
+      {choice.skipped ? <p className="muted small">没有排：{choice.skipped}</p> : (
+        <>
+          <ol className="questions">
+            {(choice.ranking ?? []).map((row) => (
+              <li key={row.key}>
+                <span>
+                  <strong>{row.rank}. {row.file}</strong>{row.key === choice.asset && <span className="muted small">（拟用）</span>}
+                  <br /><span className="small">{row.reason}</span>
+                  {row.gap && <><br /><span className="muted small">缺口：{row.gap}</span></>}
+                </span>
+              </li>
+            ))}
+          </ol>
+          {(choice.suggestions ?? []).length > 0 && (
+            <>
+              <strong className="small">修改建议</strong>
+              <ul className="questions">
+                {choice.suggestions!.map((text, index) => <li key={index}><span className="small">{text}</span></li>)}
+              </ul>
+            </>
+          )}
+        </>
+      )}
     </section>
   );
 }

@@ -65,7 +65,8 @@ export function LeadPool({ leads, applications, showProject, sessionTitle, onMar
               </span>
             </button>
             {expanded && rows.map((job) => {
-              const from = job.discoveredIn ? sessionTitle(job.discoveredIn) ?? job.discoveredIn : null;
+              // 范围内找不到的 Session 是删掉的（C013）：Job 留着，只标一句
+              const from = job.discoveredIn ? sessionTitle(job.discoveredIn) ?? "会话已删除" : null;
               return (
                 <div key={job.id} className="lead">
                   <div className="nm">
@@ -74,7 +75,8 @@ export function LeadPool({ leads, applications, showProject, sessionTitle, onMar
                     </div>
                     <small>
                       {[job.city.join("、"), job.type, showProject ? job.project : null,
-                        from ? `发现于「${from}」` : null].filter(Boolean).join(" · ")}
+                        from ? `发现于「${from}」` : null,
+                        job.resumeChoice?.file ? `拟用简历：${job.resumeChoice.file}` : null].filter(Boolean).join(" · ")}
                       {job.officialUrl && <> · <a href={job.officialUrl} target="_blank" rel="noreferrer">官方链接</a></>}
                       {job.skipReason && ` · 不投：${job.skipReason}`}
                       {job.note && ` · ${job.note}`}

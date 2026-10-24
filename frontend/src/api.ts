@@ -354,6 +354,8 @@ export interface ApplicationStatus {
   error?: string | null;
   // 这个申请已经存下的附件（C006-fix）：上传位置也可以选它们（attachment:<id>）
   attachments?: SentAttachment[] | null;
+  // 运行中插了、Agent 还没看到的话（C010）
+  inserted?: string[] | null;
 }
 
 export interface ReplyBody {
@@ -430,6 +432,18 @@ export interface JobView {
   due: boolean;
   bucket: JobBucket;
   canStart: boolean;
+  // 简历排名（C008，job.md 的 resume_choice）：对话 Agent 开始申请前排的；用户说不用排时只有 skipped
+  resumeChoice?: ResumeChoice | null;
+}
+
+export interface ResumeChoice {
+  asset?: string;
+  file?: string;
+  ranking?: { key: string; file: string; rank: number; reason: string; gap: string }[];
+  suggestions?: string[];
+  skipped?: string;
+  at: string;
+  session?: string;
 }
 
 // 分组（服务器 JobBucket）：lead 候选池里还在考虑；preparing 准备中；waiting 准备中、要你做事（申请线程在等你 / 失败 / 中断，
@@ -532,6 +546,8 @@ export interface SessionView {
   messages: ChatMessage[];
   jobs: JobView[];
   activity?: Activity | null;
+  // 运行中插了、Agent 还没看到的消息（C010）
+  inserted?: string[] | null;
 }
 
 export interface JobEventView {
@@ -550,6 +566,19 @@ export interface JobDetail {
   application: ApplicationStatus | null;
   steps: ChatMessage[];
   activity?: Activity | null;
+  // 从这个页面发消息用哪个 Session（申请线程的、发现它的；都删了时用 Project 最新的一个，C013）
+  session: string | null;
+  // 记录里引用、但已经删除的 Session
+  deletedSessions: string[];
+}
+
+// 同时申请（C012）：两个上限和此刻在跑、排队的个数
+export interface WorkerSettings {
+  workers: number;
+  perSite: number;
+  maxWorkers: number;
+  running: number;
+  queued: number;
 }
 
 const MODELS = "/api/settings/models";
@@ -568,6 +597,10 @@ export const api = {
     request<TestResult>("POST", `${MODELS}/providers/${encodeURIComponent(id)}/test`, { model }),
   assign: (main: Assignment | null, auxiliary: Assignment | null, crossCheck: Assignment | null) =>
     request<Partial<Record<Usage, Assignment>>>("PUT", `${MODELS}/assignments`, { main, auxiliary, crossCheck }),
+
+  workerSettings: () => request<WorkerSettings>("GET", "/api/settings/workers"),
+  saveWorkerSettings: (workers: number, perSite: number) =>
+    request<WorkerSettings>("PUT", "/api/settings/workers", { workers, perSite }),
 
   assets: () => request<{ assets: Asset[] }>("GET", "/api/assets"),
   upload: (file: File) => uploadFile<UploadResult>("/api/assets", file),
@@ -610,6 +643,9 @@ export const api = {
   session: (id: string) => request<SessionView>("GET", `/api/sessions/${enc(id)}`),
   renameSession: (id: string, title: string) => request<SessionView>("PATCH", `/api/sessions/${enc(id)}`, { title }),
   renameProject: (id: string, title: string) => request<ProjectSummary>("PATCH", `/api/projects/${enc(id)}`, { title }),
+  // 删除（C013）：挪进 storage/.trash/。Session 还在跑时先停下再挪走（status: deleting）
+  deleteSession: (id: string) => request<{ id: string; status: "deleted" | "deleting" }>("DELETE", `/api/sessions/${enc(id)}`),
+  deleteProject: (id: string) => request<{ id: string }>("DELETE", `/api/projects/${enc(id)}`),
   sendMessage: (id: string, text: string, attachments: string[] = []) =>
     request<SessionView>("POST", `/api/sessions/${enc(id)}/messages`,
       attachments.length > 0 ? { text, attachments } : { text }),
