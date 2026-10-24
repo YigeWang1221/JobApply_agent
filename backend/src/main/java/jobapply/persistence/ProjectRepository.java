@@ -20,7 +20,7 @@ public final class ProjectRepository {
 
     public ProjectRepository(StorageLayout layout, Clock clock) {
         this.layout = layout;
-        this.tracker = new TrackerWriter(layout);
+        this.tracker = new TrackerWriter(layout, clock);
     }
 
     public boolean exists(String projectId) {

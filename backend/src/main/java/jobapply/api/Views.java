@@ -22,6 +22,7 @@ import jobapply.domain.LeadStatus;
 import jobapply.domain.Phase;
 import jobapply.domain.PrepState;
 import jobapply.domain.ProjectSpec;
+import jobapply.domain.HiringRound;
 import jobapply.domain.SessionRecord;
 import jobapply.domain.Timestamps;
 import jobapply.harness.policies.SubmitWords;
@@ -64,7 +65,22 @@ final class Views {
                    String phase, String prepState, String label, String verified, String officialUrl, String note,
                    String application, String appliedAt, String lastCheckedAt, String nextCheckAt,
                    boolean pageLooksSubmitted, List<PhaseEvent> events, boolean due, String bucket,
-                   boolean canStart, Map<?, ?> resumeChoice) {
+                   boolean canStart, Map<?, ?> resumeChoice, List<RoundView> rounds) {
+    }
+
+    /**
+     * 一轮（C014-A）。{@code result} 已经按今天算过 unknown（用户未同步）；{@code review} 表示写过复盘
+     * （正文用 {@code GET /api/jobs/{id}/rounds/{seq}/review} 读）；{@code topics} 是复盘里每道题的主题。
+     */
+    record RoundView(int seq, String name, String type, String scheduledAt, String happenedAt, String format,
+                     String interviewerRole, String result, String resultSource, boolean review, int questionCount,
+                     List<String> topics) {
+    }
+
+    static List<RoundView> rounds(Job job, LocalDate today) {
+        return HiringRound.of(job).stream().map(r -> new RoundView(r.seq(), r.name(), r.type(), r.scheduledAt(),
+                r.happenedAt(), r.format(), r.interviewerRole(), r.effectiveResult(today), r.resultSource(),
+                r.review() != null, r.questionCount(), r.topics())).toList();
     }
 
     /**
@@ -184,7 +200,8 @@ final class Views {
                 application == null && job.status().canStartApplication()
                         && job.posting().url() != null && !job.posting().url().isBlank(),
                 // C008 简历排名：job.md 里 resume_choice 原样给前端（asset、file、ranking、suggestions、at，或 skipped）
-                job.extra().get("resume_choice") instanceof Map<?, ?> choice ? choice : null);
+                job.extra().get("resume_choice") instanceof Map<?, ?> choice ? choice : null,
+                rounds(job, today));
     }
 
     /**

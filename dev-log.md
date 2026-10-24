@@ -802,3 +802,11 @@
 - 指令：用户说明已在本机真实测试，都正常投递；记录里不再写「用户口述、非本会话证据」这类话。
 - 结果：C011「验收」表里的只弹一次允许、运行中插话、填表阶段后台点击改为通过（用户本机测试），结论改为用户真实 Chrome 冒烟通过；C011 状态和 `dev-plan.md` 索引行改为完成。K1 照旧记为已知问题。
 - 验证：只改文档。
+
+## 2026-10-24 · C014-A 面试轮次与复盘
+
+- 日期：2026-10-24
+- 指令：按 C014 工作包 A 施工：对话 Agent 新工具 `record_round`、`save_review`（阶段由轮次推出，复盘直接写），生成轮次表、题库、按公司汇总，unknown 在生成台账时算；前端 Job 页轮次和复盘、Dashboard ⑦、申请总表「进度」。
+- 结果：新增 `domain/HiringRound`、`persistence/RoundReviews`、`persistence/ReviewWriter`、`dashboard/Reviews.tsx`；`JobLedger` 加 `recordRound`、`saveReview`；`TrackerWriter` 写 `tracker/rounds.md` / `rounds.csv`，申请总表「进度」「同步」两列填上；全局生成时写 `review/questions.md`、`review/companies/<company>.md`；事件加 `round_recorded`、`review_saved`，Session 标签加 `review`；`ResearchTools` / `SessionLoop` 加两个工具，`ResearchAgent` 加一段提示词；`JobView` 加 `rounds`，新接口 `GET /api/jobs/{id}/rounds/{seq}/review`；工作台右栏「轮次」、申请总表「进度」列、Dashboard「复盘概览」。细节见 C014「实际结果 · A」。
+- 验证：`backend/` 下 `mvn -B -q clean verify` 退出码 0；`frontend/` 下 `npm run build` 通过。临时场景（临时 storage、虚构公司，跑完删除，未提交）：一面 → 重复调用不多记 → 写复盘 → 二面 → 一面 passed → 12 天后二面 failed，阶段 applied → interview → closed:rejected，轮次表、进度圆点、⚠ unknown、题库、按公司汇总、Session 标签都和预期一致。真实对话里模型调用这两个工具：未运行。
+- 偏差：unknown 阈值固定 7 天，没有做 Project 偏好里可改；公司流程模板的空心圆、看板卡片进度点没做（计划没点名）。

@@ -27,6 +27,7 @@ import jobapply.domain.JobPosting;
 import jobapply.domain.LeadStatus;
 import jobapply.domain.Outcome;
 import jobapply.domain.Phase;
+import jobapply.domain.HiringRound;
 import jobapply.domain.Transition;
 import jobapply.harness.context.Conversation;
 import jobapply.harness.context.SkillCatalog;
@@ -44,6 +45,7 @@ import jobapply.persistence.FrontmatterFile;
 import jobapply.persistence.JobLedger;
 import jobapply.persistence.JobRepository;
 import jobapply.persistence.PlaybookSeeder;
+import jobapply.persistence.RoundReviews;
 import jobapply.persistence.SessionPages;
 import jobapply.persistence.StorageLayout;
 import jobapply.tools.BrowserException;
@@ -297,6 +299,8 @@ public final class SessionLoop {
                             args, new AttachmentStore(layout.sessionAttachmentsDir(project, session))));
                     case ResearchTools.MARK_SUBMITTED -> result(call, markSubmitted(args));
                     case ResearchTools.RECORD_STATUS -> result(call, recordStatus(args));
+                    case ResearchTools.RECORD_ROUND -> result(call, recordRound(args));
+                    case ResearchTools.SAVE_REVIEW -> result(call, saveReview(args));
                     case ResearchTools.ASK_USER -> askUser(call, text(args.get("message")));
                     case ResearchTools.READ_SKILL -> readSkill(call, text(args.get("name")));
                     default -> failed(call, "失败：没有这个工具：" + name);
@@ -673,6 +677,56 @@ public final class SessionLoop {
             }
             return jobId + "：记下了（现在是 " + job.status().label() + "）"
                     + (next == null ? "，不再提醒。" : "，下次 " + next + " 提醒。");
+        }
+
+        /** 记下或更新一轮（C014-A）：阶段跟着轮次走，结果里给出 seq，之后 save_review 用。 */
+        private String recordRound(Map<String, Object> args) {
+            String jobId = job(text(args.get("job"))).id();
+            Integer seq = args.get("seq") instanceof Number number ? number.intValue() : null;
+            Map<String, String> fields = new LinkedHashMap<>();
+            for (String key : List.of("name", "type", "scheduled_at", "happened_at", "format", "interviewer_role",
+                    "result", "result_source")) {
+                fields.put(key, text(args.get(key)));
+            }
+            int events = ledger.events(project, jobId).size();
+            Job job = ledger.recordRound(project, jobId, session, seq, fields, text(args.get("note")));
+            List<HiringRound> rounds = HiringRound.of(job);
+            String name = fields.get("name");
+            HiringRound round = rounds.stream().filter(r -> seq != null ? r.seq() == seq : r.name().equalsIgnoreCase(name))
+                    .findFirst().orElse(rounds.getLast());
+            String what = "第 " + round.seq() + " 轮「" + round.name() + "」（" + round.type() + "，" + round.result() + "）";
+            if (ledger.events(project, jobId).size() == events) {
+                return "已经是这样了：" + jobId + " 的" + what + "，没有再记一次。";
+            }
+            String next = job.extraString("next_check_at");
+            return jobId + "：记下了" + what + "，现在是 " + job.status().label()
+                    + (next == null ? "，不再提醒。" : "，下次 " + next + " 提醒。")
+                    + "要写复盘时用 save_review，seq 写 " + round.seq() + "。";
+        }
+
+        /** 写一轮的复盘（C014-A）：直接写进文件，回复里给用户看写了什么。 */
+        private String saveReview(Map<String, Object> args) {
+            String jobId = job(text(args.get("job"))).id();
+            if (!(args.get("seq") instanceof Number seq)) {
+                throw new IllegalArgumentException("save_review 要写 seq（record_round 的结果里有）");
+            }
+            List<RoundReviews.Question> questions = new ArrayList<>();
+            if (args.get("questions") instanceof List<?> list) {
+                for (Object item : list) {
+                    if (item instanceof Map<?, ?> q) {
+                        List<String> topics = strings(q.get("topic")).stream().map(RoundReviews::topic).toList();
+                        String canonical = text(q.get("canonical"));
+                        questions.add(new RoundReviews.Question(text(q.get("title")), topics,
+                                canonical == null ? null : RoundReviews.topic(canonical), text(q.get("answer")),
+                                text(q.get("self_review")), text(q.get("follow_up")), text(q.get("status"))));
+                    }
+                }
+            }
+            RoundReviews.Review review = new RoundReviews.Review(text(args.get("summary")), questions,
+                    text(args.get("feedback")), strings(args.get("lessons")));
+            Path file = ledger.saveReview(project, jobId, session, seq.intValue(), review);
+            return "已写好复盘：" + layout.relative(file) + "（" + questions.size() + " 道题），题库和按公司汇总也更新了。"
+                    + "在回复里把写了什么简短告诉用户（经过、每道题、教训），用户要改就再调一次 save_review。";
         }
 
         private Job job(String jobId) {

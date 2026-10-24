@@ -1,6 +1,6 @@
 import type { JobView } from "../api";
 import { go } from "../route";
-import { ApplicationChip, PHASE, phaseText } from "../status";
+import { ApplicationChip, PHASE, phaseText, RoundProgress } from "../status";
 import { applications, md } from "./metrics";
 
 // 申请总表按阶段分组的顺序（示意页：在做的在上，结束的在最下）
@@ -16,7 +16,7 @@ export function AppsTable({ jobs, showProject, onPostingClosed }: {
   if (apps.length === 0) {
     return <div className="panel"><p className="empty">还没有转为申请的岗位。在候选池里点「开始申请」。</p></div>;
   }
-  const cols = ["#", "公司", "岗位", ...(showProject ? ["Project"] : []), "城市", "类型", "投递日", "阶段", "最近查看",
+  const cols = ["#", "公司", "岗位", ...(showProject ? ["Project"] : []), "城市", "类型", "投递日", "阶段", "进度", "最近查看",
     "下次查看", "链接", ""];
   let n = 0;
   return (
@@ -47,6 +47,7 @@ export function AppsTable({ jobs, showProject, onPostingClosed }: {
                       {job.due && <span className="chip wait">该查看了</span>}{" "}
                       <ApplicationChip status={job.application} />
                     </td>
+                    <td><RoundProgress rounds={job.rounds ?? []} /></td>
                     <td className="num">{md(job.lastCheckedAt)}</td>
                     <td className="num">{job.phase === "closed" ? "—" : md(job.nextCheckAt)}</td>
                     <td>

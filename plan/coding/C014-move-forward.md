@@ -57,4 +57,23 @@
 
 ## 实际结果
 
-（施工后写）
+
+### 实际结果 · A（2026-10-24）
+
+改了什么：
+- 轮次：`domain/HiringRound`（叫 `HiringRound` 是因为 `SessionLoop` 里已经有内部类 `Round`）是一轮的摘要，读写 job.md 的 `rounds`；`phaseOf` 按 tracking.md 从轮次推阶段（最新一轮 failed → closed:rejected，出现 offer-call → offer，最新一轮是 oa / written-test / assessment → assessment，其它 → interview）；`effectiveResult` 算 unknown（约定时间，没有时用实际时间，过了 7 天还是 pending）。unknown 不存，只在生成台账和视图时算。
+- `JobLedger.recordRound`：给了 seq 只改给了的字段，没给 seq 时同名的一轮就是同一轮，没有才加在最后；结果从 pending 变了记 `result_at`，之前算作 unknown 的事件里写明；阶段变化走状态机（另记一条 phase_changed / closed），已在 offer 的不退回，已结束的只改轮次；`next_event` 是最近一个还没到的 pending 轮次，`next_check_at` 从这一轮的日子（还没到时）或今天往后推。事件新增 `round_recorded`、`review_saved`，Session 自动标签加 `review`。和现在一样时不写（可重放）。
+- `JobLedger.saveReview` + `persistence/RoundReviews`：写 `jobs/<id>/rounds/<seq>-<type>.md`，格式照 tracking.md（frontmatter + 经过 / 题目 / 面试官反馈 / 教训），再写一次整个替换；轮次摘要里记 `review`、`question_count`、`topics`。题库从复盘文件读题目，只认 `## 题目` 下的 `###` 标题和 topic / canonical / 复习状态三行，用户手改也能读。
+- 生成文件：`TrackerWriter` 每个 Project 多写 `tracker/rounds.md` / `rounds.csv`；申请总表的「进度」（●◐✕⊘ + 最新一轮名称和结果）、「同步」（✓ / ⚠ unknown：有一轮 unknown，或投递后最近动态过了 7 天）填上了，csv 同。全局生成时 `persistence/ReviewWriter` 写 `review/questions.md`（按 canonical 归并，没有 canonical 按题目；按第一个主题分组，主题和题目都按出现次数排）和 `review/companies/<company>.md`（公司名里字母数字汉字以外换成 `-`；公司没有轮次了时删掉以前生成的那份）。
+- 对话 Agent：`ResearchTools` 加 `record_round`、`save_review` 定义，`SessionLoop` 加两个分支；`ResearchAgent` 加一段「笔试、面试和复盘」，写清什么时候用 record_round + save_review、什么时候还是 record_status，复盘直接写、写完给用户看。
+- 接口和前端：`JobView` 多了 `rounds`（结果已算过 unknown）；`GET /api/jobs/{id}/rounds/{seq}/review` 返回复盘 Markdown。工作台右栏加「轮次」（圆点、每轮的类型时间形式结果，写过复盘的点开看正文）；申请总表加「进度」列；Dashboard 加「⑦ 复盘概览」（常考主题 Top 8、挂在第几轮），和每周节奏并排。
+
+怎么确认的：
+- `backend/` 下 `mvn -B -q clean verify` 退出码 0；`frontend/` 下 `npm run build`（tsc + vite）通过。
+- 用一个临时场景（临时 storage、虚构公司，跑完删掉，没有提交）走了一遍：投递 → 记一面 → 同样的调用再来一次不多记 → 写一面复盘（两道题）→ 记二面（约定时间）→ 一面改成 passed → 过 12 天 → 二面改成 failed。看到阶段 applied → interview → closed:rejected，事件依次记下（「二面 failed，之前算作 unknown」「挂在第 2 轮 二面」），轮次表、申请总表进度「●◐ 二面 · 未同步」和同步「⚠ unknown」、rounds.csv、题库、按公司汇总、Session 标签 review 都对。
+- 真实对话里让模型调用这两个工具：未运行（等用户在本机试）。
+
+偏差：
+- unknown 阈值固定 7 天（`HiringRound.UNKNOWN_AFTER_DAYS`），没有做「在 Project 偏好里改」：视图层拿不到 Project 偏好，先不加。
+- 公司流程模板（空心圆的预计轮次）没做，计划里也没点名；圆点只画已经发生的轮次。
+- 看板卡片上的进度点没加（计划只点名了申请总表）。

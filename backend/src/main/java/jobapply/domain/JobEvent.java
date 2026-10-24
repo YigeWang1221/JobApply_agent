@@ -31,7 +31,11 @@ public record JobEvent(
         /** 用户反馈看过了、没有变化（C007）。不改状态，只推后下一次查看。 */
         STATUS_CHECKED,
         /** 对话 Agent 按这个岗位给简历排了名、选了一份（C008）。不改状态，只做记录。 */
-        RESUME_CHOSEN;
+        RESUME_CHOSEN,
+        /** 记下或更新了一轮（C014-A）。阶段跟着变时另有一条 phase_changed / closed。 */
+        ROUND_RECORDED,
+        /** 写了一轮的复盘（C014-A）。不改状态。 */
+        REVIEW_SAVED;
 
         public String value() {
             return name().toLowerCase(Locale.ROOT);
