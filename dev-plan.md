@@ -6,7 +6,7 @@
 
 ## 现在做什么
 
-产品：**JobApply**（求职投递 Agent），放在本仓库。Spring Boot 在 `backend/`。按本地个人资料找岗位，用 Playwright MCP 在本机 Chrome 里代填申请，提交前停下由用户审阅并亲自提交，本地 md + csv 台账跟踪进度。业务行为尚未开始。
+产品：**JobApply**（求职投递 Agent），放在本仓库。Spring Boot 在 `backend/`。按本地个人资料找岗位，用 Playwright MCP 在本机 Chrome 里代填申请，提交前停下由用户审阅并亲自提交，本地 md + csv 台账跟踪进度。
 
 ## Master Plan（`plan/master/`，已全部确认）
 
@@ -50,6 +50,8 @@
 | [C013](plan/coding/C013-delete-session-project.md) | 删除 Session / Project：挪进 storage/.trash/（软删、可手动恢复），侧栏一个确认框；删 Session 时 Job 留在 Project 里 | 已施工，等用户试（2026-10-24；memory.md 加 `.trash/` 待确认） |
 | [C014](plan/coding/C014-move-forward.md) | Move forward：面试轮次与复盘、Agent 自己更新 memory、Cover Letter、敏感信息占位符（原 C009） | 已施工，等用户试（2026-10-24；A、B、D 合并后 `mvn verify` 和 `npm run build` 通过） |
 | [C005-fix 开场](plan/coding/C005-fix-session-opening.md) | 新建 Session 不再自动写项目总结：空白对话，项目状态看 Project 主页 | 已施工，等用户试（2026-10-24） |
+
+| [C015](plan/coding/C015-readme.md) | README：目的、框架、技术选型与源码借鉴、图片显示修正 | 完成（2026-10-24；第二次修改与本地渲染验证） |
 
 ## 参考（不是施工步骤）
 

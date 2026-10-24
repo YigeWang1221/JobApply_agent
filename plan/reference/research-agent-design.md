@@ -188,3 +188,10 @@
 4. `kind skill`：只做 patch（old_string 唯一匹配，改正文，不动 frontmatter，改完不超过 skill 正文预算 8000 字），不做整篇重写；站点特有的写 site，不写进 skill（memory.md「Memory 写入」第 4 条）。
 5. 什么时候记、先看已有的、同一件事 replace，写进预置 skill `memory-update`，两个 Agent 的提示词各用一两句指过去。
 6. 不学的：Hermes 把 memory 全文每次放进提示词；我们的事实已经在上下文里，站点记录也在申请 Agent 的上下文里，公司记忆由 `read_jd` 读，经验文件暂时不放进上下文。
+
+
+## SillyTavern 与分层 Memory（用户补充，2026-10-24）
+
+用户说明早期已与开发代理讨论过 SillyTavern（酒馆），本项目从中获得了「上层概要 + 下层原始资料 + 链接按需展开」的启发。模型先读上层资料，根据任务需要再通过引用读取详情。原始、清洗整理、运行阶段的数据分别保留，避免仅按语义相似度召回时丢失同一 Project / Job 的逻辑关系。
+
+来源为用户本次明确说明，未提供当时阅读的提交或源码路径；本次没有补造研究版本，也未核验 SillyTavern 内部实现。Master memory.md 已记录选型理由，README 将其作为设计借鉴介绍，不声称实现了通用链接递归读取器。
