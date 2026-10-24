@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorText, type ProjectSummary, type SessionSummary } from "./api";
 import { toast } from "./toast";
 
@@ -8,6 +8,17 @@ export type DeleteTarget =
   | { kind: "session"; session: SessionSummary }
   | { kind: "project"; project: ProjectSummary };
 
+/** 删除请求最多等这么久，超时报错（框不会一直卡在「删除中」）。 */
+const TIMEOUT_MS = 20_000;
+
+function withTimeout<T>(promise: Promise<T>): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error("20 秒没有回应，可能没删成：刷新页面看看，再试一次")), TIMEOUT_MS)),
+  ]);
+}
+
 export function DeleteConfirm({ target, onClose, onDeleted }: {
   target: DeleteTarget;
   onClose: () => void;
@@ -15,33 +26,47 @@ export function DeleteConfirm({ target, onClose, onDeleted }: {
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 用户已经关掉框：请求晚回来时只弹提示，不再改框里的状态
+  const closed = useRef(false);
+
+  // 取消、Esc、点框外任何时候都能关（请求没回来也一样，不用刷新页面）
+  const close = useCallback(() => {
+    closed.current = true;
+    onClose();
+  }, [onClose]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busy) {
-        onClose();
+      if (e.key === "Escape") {
+        close();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [busy, onClose]);
+  }, [close]);
 
   async function remove() {
     setBusy(true);
     setError(null);
     try {
       if (target.kind === "session") {
-        const result = await api.deleteSession(target.session.id);
+        const result = await withTimeout(api.deleteSession(target.session.id));
         toast(result.status === "deleting"
           ? `「${target.session.title}」：Agent 停下后挪进回收站`
           : `已删除「${target.session.title}」`);
       } else {
-        await api.deleteProject(target.project.id);
+        await withTimeout(api.deleteProject(target.project.id));
         toast(`已删除 Project「${target.project.title}」`);
       }
-      onClose();
+      if (!closed.current) {
+        onClose();
+      }
       await onDeleted();
     } catch (e) {
+      if (closed.current) {
+        toast(`删除没有完成：${errorText(e)}`, "error");
+        return;
+      }
       // 409（还在运行等）原样显示，框不关
       setError(errorText(e));
       setBusy(false);
@@ -50,7 +75,7 @@ export function DeleteConfirm({ target, onClose, onDeleted }: {
 
   const name = target.kind === "session" ? target.session.title : target.project.title;
   return (
-    <div className="dialogback" onClick={() => !busy && onClose()}>
+    <div className="dialogback" onClick={close}>
       <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="delete-title"
         onClick={(e) => e.stopPropagation()}>
         <h3 id="delete-title">删除{target.kind === "session" ? "对话" : " Project"}「{name}」？</h3>
@@ -67,11 +92,13 @@ export function DeleteConfirm({ target, onClose, onDeleted }: {
             <li>有对话或申请在运行时不能删，先停止。</li>
           </ul>
         )}
-        <p className="muted small">不是真删：放在 storage/.trash/，把文件夹挪回原处就恢复。</p>
+        <p className="dialog-note">不是真删：放在 storage/.trash/，把文件夹挪回原处就恢复。</p>
         {error && <p className="error small">{error}</p>}
-        <div className="row">
-          <button className="danger" disabled={busy} onClick={() => void remove()} autoFocus>删除</button>
-          <button disabled={busy} onClick={onClose}>取消</button>
+        <div className="dialog-actions">
+          <button onClick={close} autoFocus>取消</button>
+          <button className="danger-solid" disabled={busy} onClick={() => void remove()}>
+            {busy ? "删除中…" : "删除"}
+          </button>
         </div>
       </div>
     </div>

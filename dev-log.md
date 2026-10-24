@@ -792,3 +792,7 @@
 - 结果：参考结论写进 `plan/reference/research-agent-design.md`「删除会话 / 项目」（deep-agents-ui `f6a4f34` 没有删除；OpenMAIC `dff201b` 软删 + 侧栏 ⋯ 先问一句 + 删文件夹留课程；langgraphjs `c6675bf` 硬删级联）。新增 `Trash`（挪进 `storage/.trash/<时间>-<kind>-<id>/`，照原路径摆放，写 `RESTORE.md`）、`DELETE /api/sessions/{id}`（在跑时请停、停下后挪走，202）、`DELETE /api/projects/{id}`（在跑 / 被继承 409）。台账写入和回复申请线程接受已删除的 Session（否则删掉发起申请的 Session 后申请推进不了）；回收站里的编号不再分配。侧栏 Project / Session 行加垃圾桶和确认框；已删除的 Session 在 Session 页、Job 页、候选池显示「会话已删除」。细节见 [C013](plan/coding/C013-delete-session-project.md)。
 - 验证：新增 `DeleteSessionProjectTest`（临时 storage、虚构数据：删 Session 只挪这一个目录、其余文件逐字节不变、Job 还能更新、编号不复用；删 Project 只挪它和它的 Job 的 runs / uploads，base、settings、playbook、另一个 Project 逐字节不变，`jobs-index.md` 没有它了；有申请在跑时删 Project 409）通过。`JAVA_HOME=… mvn -B -q clean verify` 退出码 0；`frontend/` 下 `npm ci` 后 `npm run build` 通过。真实应用、真实浏览器：未运行（用户的应用在 8080 上）。
 - 偏差：没做 ⋯ 菜单，垃圾桶和改名笔并排；没做恢复接口（手动挪回）；`plan/master/memory.md` 目录树加 `.trash/` 等用户确认。
+
+## 2026-10-24 · C013 删除确认框修正（用户反馈）
+
+- 无头 Chromium 复现：删除请求没回来时「取消」/ Esc / 点框外都关不掉，只能刷新。改成任何时候都能关、请求 20 秒超时、默认焦点在「取消」；框加宽加间距、按钮靠右、「删除」实心红；侧栏删除图标改成红色、悬停红底。`npm run build` 通过，无头实测 6 项都过（没有真的删任何东西）。

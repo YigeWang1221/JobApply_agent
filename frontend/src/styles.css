@@ -2474,26 +2474,71 @@ table.apps tr.grp td {
   border: 1px solid var(--line);
   border-radius: var(--r);
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.22);
-  padding: 18px 20px;
-  width: min(460px, 100%);
+  padding: 22px 24px 20px;
+  width: min(520px, 100%);
 }
 
 .dialog h3 {
-  margin: 0 0 10px;
-  font-size: 15px;
+  margin: 0 0 14px;
+  font-size: 16px;
+  line-height: 1.4;
 }
 
 .dialog ul {
-  margin: 0 0 10px;
-  padding-left: 18px;
-  font-size: 13px;
+  margin: 0 0 14px;
+  padding-left: 20px;
+  font-size: 13.5px;
+  line-height: 1.65;
   color: var(--ink-2);
 }
 
 .dialog li + li {
-  margin-top: 4px;
+  margin-top: 8px;
+}
+
+.dialog-note {
+  margin: 0 0 4px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: var(--surface-2);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.dialog .error {
+  margin: 10px 0 0;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.dialog-actions button {
+  min-width: 76px;
+  padding: 7px 14px;
+}
+
+button.danger-solid {
+  background: var(--crit);
+  border-color: var(--crit);
+  color: #fff;
+  font-weight: 500;
+}
+
+button.danger-solid:hover:not(:disabled) {
+  background: var(--crit-ink);
+  border-color: var(--crit-ink);
+}
+
+/* 侧栏的删除按钮：出现时就是红色，悬停时加红底，和背景分得开 */
+.side .delbtn {
+  color: var(--crit);
 }
 
 .side .delbtn:hover {
-  color: var(--crit-ink);
+  color: #fff;
+  background: var(--crit);
 }
