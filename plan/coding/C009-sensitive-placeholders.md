@@ -1,6 +1,6 @@
 # C009 · 敏感信息用占位符记在本地，填表时由系统换成真实值
 
-**状态：待用户确认**（改动 `dev-limit.md` 和 `plan/master/` 里「C 级不存不填」的线，确认前不写代码、不改边界文档）。
+**状态：并入 [C014](C014-move-forward.md)（用户定下，2026-10-24）**：占位符写成 `{KEY}`，真实值在 `storage/settings/personal.env`。下面是原来的草稿。
 
 - 依据：用户（2026-10-23，真实跑通小米 Agent工程师后，[C006-fix-real-run](C006-fix-real-run.md) 第 7 条）：年龄、身份证、籍贯、居住地点这类敏感信息也希望记在本地 memory 里，投递时自动填；每次投递确认前和 Agent 对话，Agent 按对话更新 Session / Project 的资料。
 - 现状：
