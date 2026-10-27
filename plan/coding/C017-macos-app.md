@@ -3,7 +3,7 @@
 - 对应 Master：[ui.md](../master/ui.md)「前端框架：由 Spring Boot 提供静态文件」与「设置」；[architecture.md](../master/architecture.md) `frontend/` 一行（第 7 段）；[memory.md](../master/memory.md) storage 结构；[base.md](../master/base.md)「后置：部署」。确认后回写：base.md 把这一项改成「本机 App：C017」；memory.md 加「storage 根目录由用户选，记在 storage 外面的 App 配置里」；ui.md 设置页加「数据位置」。
 - 依据：用户（2026-10-24）：「这个项目可以打包成一个一体的 macOS app」；选了 Swift 原生窗口。用户（2026-10-27）：数据位置要在前后端设计成用户自己选，把打包的 plan 写下来。
 - 状态：已施工，等用户双击试（2026-10-27）；master 回写已完成。
-- 不做：签名公证、上架、自动更新、dmg、给别人分发；Windows / Linux；自动搬数据（换位置时不复制、不移动、不删旧文件夹）；改 Agent、工具、浏览器连接方式（仍是用户正在用的 Chrome + `--cdp-endpoint chrome`）。
+- 不做：签名公证、上架、自动更新；Intel Mac；Windows / Linux；自动搬数据（换位置时不复制、不移动、不删旧文件夹）；改 Agent、工具、浏览器连接方式（仍是用户正在用的 Chrome + `--cdp-endpoint chrome`）。
 
 ## 1. 现在要几样东西才能跑
 

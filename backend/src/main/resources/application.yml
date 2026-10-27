@@ -10,6 +10,8 @@ spring:
 # 本地 HTTP 只监听本机（plan/master/architecture.md「api」）
 server:
   address: 127.0.0.1
+  # 关闭时不等还没结束的请求（Boot 默认 graceful，最多等 30 秒）：界面一直开着 /api/events 推送，graceful 每次都等满 30 秒（C017-fix）
+  shutdown: immediate
   tomcat:
     # 超过上传上限时仍读完请求体，才能把 413 返回给客户端，而不是直接断开连接
     max-swallow-size: 64MB
@@ -33,11 +35,14 @@ jobapply:
       # --init-page（storage/cache/playwright-init/no-bring-to-front.cjs）也由程序追加：切标签页时不把 Chrome 拉到所有应用前面（C011-fix）
       # 启动时还带 NODE_OPTIONS=--require storage/cache/playwright-init/skip-unresponsive-tabs.cjs（C011-fix 2026-10-25）：
       # Chrome 里睡着、卡住的标签页不再拖住连接（每页最多等 5 秒）和每次调用（取标题最多等 2 秒）
-      # 远程调试模式（--cdp-endpoint chrome）：连用户自己正在用的 Chrome（用户的 profile 和登录），在
-      # chrome://inspect/#remote-debugging 打开开关，只有第一次连接要确认，不用装扩展
+      # 远程调试模式：连用户自己正在用的 Chrome（用户的 profile 和登录），在
+      # chrome://inspect/#remote-debugging 打开开关，只有第一次连接要确认，不用装扩展。
+      # 直接连 ws://127.0.0.1:9222/devtools/browser（开关打开后 Chrome 默认监听 9222），不用 --cdp-endpoint chrome：
+      # 那样 MCP 要去读 Chrome 资料夹里的 DevToolsActivePort，打包后的 App 读别的应用的数据会被 macOS 拦下（C017-fix）。
+      # 写 127.0.0.1 不写 localhost：Chrome 只监听 IPv4
       # 程序还会追加 --port <随机空闲端口> --host 127.0.0.1 --shared-browser-context（C011）：一个服务进程、一条 CDP 连接，
       # 每个申请 / 调研各开一个 HTTP 会话（自己的标签页），另有一个空闲会话保住连接，Chrome 只弹一次允许
-      args: ["-y", "@playwright/mcp@0.0.83", "--cdp-endpoint", "chrome", "--snapshot-mode", "none", "--console-level", "error",
+      args: ["-y", "@playwright/mcp@0.0.83", "--cdp-endpoint", "ws://127.0.0.1:9222/devtools/browser", "--snapshot-mode", "none", "--console-level", "error",
              "--image-responses", "omit", "--no-webmcp", "--timeout-action", "15000", "--timeout-navigation", "25000"]
       # 普通调用的超时：MCP 这么久没回话 = 浏览器卡住了（多半是 Chrome 里有标签页没响应），不当成断开、不重连（C011-fix）
       call-timeout: 30s

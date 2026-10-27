@@ -15,12 +15,12 @@ trap 'rm -rf "$TMP"' EXIT
 
 stage() { echo; echo "==> $*"; }
 
-stage "1/6 前端 npm run build"
+stage "1/7 前端 npm run build"
 cd "$REPO/frontend"
 [[ -d node_modules ]] || npm ci
 npm run build
 
-stage "2/6 后端 mvn package（JAVA_HOME=${JAVA_HOME}）"
+stage "2/7 后端 mvn package（JAVA_HOME=${JAVA_HOME}）"
 cd "$REPO/backend"
 mvn -B -q package -DskipTests
 JAR="$(ls target/*.jar | grep -v -- '-plain.jar$' | head -n1)"
@@ -32,7 +32,7 @@ mkdir -p "$APP/Contents/MacOS" "$RES"
 cp "$JAR" "$RES/jobapply.jar"
 cp -R "$REPO/frontend/dist" "$RES/web"
 
-stage "3/6 jdeps + jlink 运行时"
+stage "3/7 jdeps + jlink 运行时"
 mkdir -p "$TMP/jar"
 (cd "$TMP/jar" && unzip -q "$RES/jobapply.jar")
 MODS="$("$JAVA_HOME/bin/jdeps" --ignore-missing-deps --print-module-deps --multi-release 25 \
@@ -44,7 +44,7 @@ echo "modules: $MODS"
 "$JAVA_HOME/bin/jlink" --add-modules "$MODS" --strip-debug --no-header-files --no-man-pages \
   --compress zip-6 --output "$RES/runtime"
 
-stage "4/6 node + @playwright/mcp@$MCP_VERSION"
+stage "4/7 node + @playwright/mcp@$MCP_VERSION"
 NODE="${NODE_BIN:-$(command -v node || true)}"
 if [[ -z "$NODE" ]]; then
   # Finder / 非交互 shell 没有 nvm 的 PATH，退到 nvm 默认版本
@@ -61,7 +61,7 @@ MCP_BIN="$("$NODE" -e 'const b=require(process.argv[1]+"/package.json").bin; con
 echo "MCP 入口: $MCP_PKG/${MCP_BIN#./}"
 [[ -f "$MCP_PKG/${MCP_BIN#./}" ]] || { echo "MCP 入口不存在" >&2; exit 1; }
 
-stage "5/6 swiftc 外壳 + Info.plist"
+stage "5/7 swiftc 外壳 + Info.plist"
 swiftc -O -framework AppKit -framework WebKit "$MACOS_DIR/JobApply/main.swift" -o "$APP/Contents/MacOS/JobApply"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -95,7 +95,17 @@ for size in 16 32 128 256 512; do
 done
 iconutil -c icns "$ICONSET" -o "$RES/AppIcon.icns"
 
-stage "6/6 ad-hoc 签名"
+stage "6/7 ad-hoc 签名"
 codesign --force --deep -s - "$APP"
 du -sh "$APP"
 echo "完成: $APP"
+
+stage "7/7 dmg"
+# 磁盘映像里放 App 和一个指向「应用程序」的快捷方式，打开后拖进去即可
+DMG="$REPO/appBuild/JobApply-macos-arm64.dmg"
+mkdir -p "$TMP/dmg"
+cp -R "$APP" "$TMP/dmg/"
+ln -s /Applications "$TMP/dmg/Applications"
+hdiutil create -volname JobApply -srcfolder "$TMP/dmg" -ov -format UDZO "$DMG" >/dev/null
+du -sh "$DMG"
+echo "完成: $DMG"

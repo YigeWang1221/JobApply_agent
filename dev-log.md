@@ -1073,3 +1073,21 @@
 - 指令：App 产物放仓库根目录 `appBuild/`、默认不上传，删掉原来的 `macos/build/`。
 - 结果：`build-app.sh` 输出改为 `appBuild/JobApply.app`；`.gitignore` 的 `macos/build/` 换成 `appBuild/`；删除 `macos/build/`；C017 计划同步。
 - 验证：`macos/build-app.sh` 退出码 0；`git check-ignore appBuild/JobApply.app` 命中。
+
+## 2026-10-27 · C017 打包时产出 dmg
+
+- 指令：发布用 dmg，加进打包脚本。
+- 结果：`macos/build-app.sh` 加第 7 段，产出 `appBuild/JobApply-macos-arm64.dmg`（App + 「应用程序」快捷方式）；C017「不做」去掉 dmg、给别人分发，加 Intel Mac。
+- 验证：`macos/build-app.sh` 退出码 0，dmg 215MB；`hdiutil verify` 退出码 0；`git check-ignore` 命中。挂载后拖装、双击：未运行。
+
+## 2026-10-27 · C017-fix App 连不上 Chrome
+
+- 指令：用户在 MacBook Air 上用打包 App 测试，远程调试开着仍报连不上，Chrome 无弹窗。
+- 结果：根因是 macOS 拦下 App 读 Chrome 的 `DevToolsActivePort`（Air 上 TCC 日志 `kTCCServiceSystemPolicyAppDataDetailed`）。`--cdp-endpoint` 改成 `ws://127.0.0.1:9222/devtools/browser`（两个 yml）；`PlaywrightMcpClient` 认 `ECONNREFUSED`。见 `plan/coding/C017-fix-chrome-port.md`。
+- 验证：`mvn -B -q clean verify` 退出码 0；`macos/build-app.sh` 退出码 0。Air 上真实连接：未运行。
+
+## 2026-10-27 · C017-fix 关闭 App 卡住
+
+- 指令：用户反映关闭 / 退出 / 强制退出 App 时卡一会儿；先定位，之后同意保留已做的修改。
+- 结果：根因是 Spring Boot graceful shutdown 等满 30 秒（`/api/events` 一直开着）；强制退出会留下后端进程。`server.shutdown: immediate`；外壳管道 + `config/ShellWatch.java`。见 `plan/coding/C017-fix-chrome-port.md`「追加」。
+- 验证：`mvn -B -q clean verify` 退出码 0；`macos/build-app.sh` 退出码 0；18080 上实测关闭约 0 秒（改前 30 秒）、外壳管道关闭后后端立即退出。双击 App 后关闭：未运行。
