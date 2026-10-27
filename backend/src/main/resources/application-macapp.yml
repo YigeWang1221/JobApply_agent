@@ -1,7 +1,7 @@
 # 只在 macOS App 里生效（--spring.profiles.active=macapp，plan/coding/C017-macos-app.md 第 2 节）。
 # JOBAPPLY_RESOURCES 由 Swift 外壳传入，是 JobApply.app/Contents/Resources
 server:
-  # 端口固定：开发版后端在跑时 App 报「端口被占」，避免两个后端同时写一份 storage
+  # 端口固定 8088（本机 8080 被 Docker 占着）；开发版仍是 8080，两边能同时跑，别让它们用同一份 storage
   port: 8088
 
 spring:
@@ -16,10 +16,12 @@ jobapply:
   app:
     # 没有命令行 / 环境变量指定、也没有 app.yaml 时，界面先让用户选数据位置（C017 第 3 节）
     require-storage-choice: true
+    # 外壳被强制退出时后端跟着退出（不留下占着 8088 的进程，C017-fix）
+    exit-with-shell: true
   browser:
     mcp:
       # App 自带的 node 和预装的 @playwright/mcp@0.0.83（npm install -g --prefix Resources/node）；其余参数同 application.yml
       command: ${JOBAPPLY_RESOURCES}/node/bin/node
-      args: ["${JOBAPPLY_RESOURCES}/node/lib/node_modules/@playwright/mcp/cli.js", "--cdp-endpoint", "chrome",
+      args: ["${JOBAPPLY_RESOURCES}/node/lib/node_modules/@playwright/mcp/cli.js", "--cdp-endpoint", "ws://127.0.0.1:9222/devtools/browser",
              "--snapshot-mode", "none", "--console-level", "error", "--image-responses", "omit", "--no-webmcp",
              "--timeout-action", "15000", "--timeout-navigation", "25000"]

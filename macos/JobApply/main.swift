@@ -12,6 +12,7 @@ final class Backend {
     let logURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Logs/JobApply/backend.log")
     private(set) var process: Process?
+    private var shellAlive: Pipe?
     private var stopping = false
     // 后端意外退出时回调（主线程），参数是退出码。
     var onUnexpectedExit: ((Int32) -> Void)?
@@ -37,6 +38,10 @@ final class Backend {
         p.environment = env
         p.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
         p.standardOutput = log
+        // 后端读这个管道；外壳不管怎么退出（包括强制退出），写端都会被系统关掉，后端读到结尾就自己退出
+        let shellAlive = Pipe()
+        p.standardInput = shellAlive
+        self.shellAlive = shellAlive
         p.standardError = log
         p.terminationHandler = { [weak self] proc in
             DispatchQueue.main.async {

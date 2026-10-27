@@ -55,7 +55,7 @@ public final class PlaywrightMcpClient implements AutoCloseable {
      */
     private static final List<String> CONNECTION_ERRORS = List.of(
             "did not connect within", "extension connection", "has been closed", "browser has disconnected",
-            "target closed", "not connected", "could not connect to chrome", "initializeserver");
+            "target closed", "not connected", "could not connect to chrome", "initializeserver", "econnrefused");
 
     private static final Logger log = LoggerFactory.getLogger(PlaywrightMcpClient.class);
 
@@ -799,6 +799,9 @@ public final class PlaywrightMcpClient implements AutoCloseable {
         if (lower.contains("initializeserver") && lower.contains("timeout")) {
             return "30 秒内没有连上 Chrome：Chrome 可能在等你允许这次远程调试连接（看看 Chrome 有没有弹出提示，点允许），"
                     + "也可能 Chrome 本身没有响应";
+        }
+        if (lower.contains("econnrefused")) {
+            return "连不上 Chrome（127.0.0.1:9222 没有在监听）：Chrome 没有开着，或者没打开远程调试（chrome://inspect/#remote-debugging 里的开关）";
         }
         if (lower.contains("could not connect to chrome")) {
             return "连不上 Chrome：Chrome 没有开着，或者没打开远程调试（chrome://inspect/#remote-debugging 里的开关）";
