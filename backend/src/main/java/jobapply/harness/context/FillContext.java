@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.function.Function;
 import jobapply.agents.ApplyAgent;
 import jobapply.domain.AgentRun;
+import jobapply.domain.ApplicationState;
 import jobapply.persistence.AttachmentStore;
 import jobapply.domain.Claim;
 import jobapply.domain.FactClass;
@@ -23,8 +24,9 @@ import org.springframework.ai.chat.messages.Message;
  * <ol>
  *   <li>系统提示词（{@link ApplyAgent#systemPrompt()}）；</li>
  *   <li>资料和上下文：有效资料（中英两种写法都给，由模型按页面选）、本次答案、可上传的文件编号、skill 目录、
- *       这个站点的记录、计划；</li>
- *   <li>对话（{@link AgentRun#conversation()}），由 {@link Conversation} 拼成消息。</li>
+ *       这个站点的记录（一次运行里基本不变，前缀缓存能一直命中）；</li>
+ *   <li>对话（{@link AgentRun#conversation()}），由 {@link Conversation} 拼成消息；</li>
+ *   <li>申请状态（C019，{@link StateView}）：接在最后一条消息的末尾，紧跟最新页面。</li>
  * </ol>
  */
 public final class FillContext {
@@ -39,11 +41,12 @@ public final class FillContext {
      * @param catalog   所有 skill 的名字和描述
      * @param suggested 这个站点建议先读的 skill 名字
      * @param siteNotes 这个站点的记录；没有时为 null
-     * @param plan      模型的计划
+     * @param goal      一句话目标（公司 · 岗位）
+     * @param state     申请状态（C019）
      */
     public record Inputs(Map<String, ResolvedFact> profileZh, Map<String, ResolvedFact> profileEn,
                          List<JobAnswers.Answer> answers, List<String> files, List<SkillCatalog.Skill> catalog,
-                         List<String> suggested, String siteNotes, List<AgentRun.PlanItem> plan) {
+                         List<String> suggested, String siteNotes, String goal, ApplicationState state) {
 
         public Inputs {
             profileZh = profileZh == null ? Map.of() : profileZh;
@@ -52,7 +55,7 @@ public final class FillContext {
             files = files == null ? List.of() : List.copyOf(files);
             catalog = catalog == null ? List.of() : List.copyOf(catalog);
             suggested = suggested == null ? List.of() : List.copyOf(suggested);
-            plan = plan == null ? List.of() : List.copyOf(plan);
+            state = state == null ? ApplicationState.empty() : state;
         }
     }
 
@@ -97,7 +100,8 @@ public final class FillContext {
     /** @param attachments 用户附的文件存在哪里（C006 附件）；为 null 时图片不发 */
     public static List<Message> messages(Inputs inputs, List<AgentRun.Turn> turns, Conversation.LatestPage latest,
                                          AttachmentStore attachments) {
-        return Conversation.messages(ApplyAgent.systemPrompt(), context(inputs), turns, latest, attachments);
+        return Conversation.messages(ApplyAgent.systemPrompt(), context(inputs), turns, latest, attachments,
+                StateView.render(inputs.goal(), inputs.state()));
     }
 
     private static String context(Inputs inputs) {
@@ -159,14 +163,6 @@ public final class FillContext {
 
         if (inputs.siteNotes() != null && !inputs.siteNotes().isBlank()) {
             out.append("\n# 这个站点以前的记录\n\n").append(inputs.siteNotes().strip()).append('\n');
-        }
-
-        out.append("\n# 你的计划\n\n");
-        if (inputs.plan().isEmpty()) {
-            out.append("（还没有，用 update_plan 写下）\n");
-        }
-        for (AgentRun.PlanItem item : inputs.plan()) {
-            out.append("- [").append(item.status()).append("] ").append(item.text()).append('\n');
         }
         return out.toString();
     }

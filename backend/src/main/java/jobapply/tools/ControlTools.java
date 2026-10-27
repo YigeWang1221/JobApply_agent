@@ -11,7 +11,8 @@ import org.springframework.ai.tool.definition.ToolDefinition;
  * <ul>
  *   <li>{@link #ASK_USER}：要用户的地方都用它（登录、验证码、不知道的必填项、选上传文件、C 级字段、拿不准、卡住）；
  *       结束这一次运行，用户的回复作为下一条消息接上</li>
- *   <li>{@link #UPDATE_PLAN}：模型自己的计划和进度</li>
+ *   <li>{@link #UPDATE_STATE}：申请状态（C019）：现在在哪一步、计划、字段清单、决定；字段按 id 合并。
+ *       旧名 {@link #UPDATE_PLAN} 不再给模型，旧对话里调了照旧接受（只改计划）</li>
  *   <li>{@link #READ_SKILL}：读一个 skill 的正文</li>
  *   <li>{@link #READ_RESUME}：读「可上传的文件」里一份简历的文字（C 级的值已去掉），填项目、实习、描述时用</li>
  *   <li>{@link #FINISH}：能填的都填了，停在最终提交前</li>
@@ -22,6 +23,8 @@ import org.springframework.ai.tool.definition.ToolDefinition;
 public final class ControlTools {
 
     public static final String ASK_USER = "ask_user";
+    public static final String UPDATE_STATE = "update_state";
+    /** C019 之前的计划工具：不再给模型，调了照旧接受（写进申请状态的计划）。 */
     public static final String UPDATE_PLAN = "update_plan";
     public static final String READ_SKILL = "read_skill";
     public static final String FINISH = "finish";
@@ -29,8 +32,8 @@ public final class ControlTools {
     public static final String READ_JD = "read_jd";
     public static final String REMEMBER = "remember";
 
-    private static final Set<String> NAMES = Set.of(ASK_USER, UPDATE_PLAN, READ_SKILL, FINISH, READ_RESUME, READ_JD,
-            REMEMBER);
+    private static final Set<String> NAMES = Set.of(ASK_USER, UPDATE_STATE, UPDATE_PLAN, READ_SKILL, FINISH, READ_RESUME,
+            READ_JD, REMEMBER);
 
     private static final ToolDefinition ASK = definition(ASK_USER,
             "Hand control to the user and wait for their reply. Use it when only the user can act or decide: log in, "
@@ -57,15 +60,35 @@ public final class ControlTools {
             "required":{"type":"boolean"},"note":{"type":"string"}},"required":["label"]}}},\
             "required":["message"]}""");
 
-    private static final ToolDefinition PLAN = definition(UPDATE_PLAN,
-            "Write down your plan for this application and keep it current: the pages or sections of the form and "
-                    + "their status, what is still missing. Replaces the previous plan. Use it at the start and when "
-                    + "you move to a new page; skip it for single field changes.",
+    private static final ToolDefinition STATE = definition(UPDATE_STATE,
+            "Keep the application state current. It is your working sheet for this application and is shown to you "
+                    + "at the end of every step, right after the latest page. Write it at the start and whenever you "
+                    + "reach a new page or section: stage (where you are in the site's flow), the field list of this "
+                    + "page (id, section, label, widget, value to fill and its source, status), dropdown options you "
+                    + "have seen, decisions and site quirks (notes), and your plan (steps). Then work from it: pick "
+                    + "the next todo fields, look up only their refs in the snapshot, do not list or analyse the whole "
+                    + "page again. The system records fill results by itself (filled, verified, needs_user, options "
+                    + "seen, why a field was not filled); write field: <id> in fill calls so it lands on the right "
+                    + "field. Send only what changed: fields merge by id (keys you omit stay; remove: true deletes "
+                    + "one), steps replaces the whole plan, notes adds lines, drop_notes removes lines.",
             """
-            {"type":"object","properties":{"items":{"type":"array","minItems":1,"items":{"type":"object",\
+            {"type":"object","properties":{\
+            "stage":{"type":"string","description":"Where you are in the site's flow, e.g. step 2 of 4: education"},\
+            "steps":{"type":"array","description":"Your plan; replaces the previous one","items":{"type":"object",\
             "properties":{"text":{"type":"string"},\
-            "status":{"type":"string","enum":["todo","doing","done","blocked"]}},\
-            "required":["text","status"]}}},"required":["items"]}""");
+            "status":{"type":"string","enum":["todo","doing","done","blocked"]}},"required":["text","status"]}},\
+            "fields":{"type":"array","description":"Fields to add or change, merged by id","items":{"type":"object",\
+            "properties":{"id":{"type":"string","description":"Short stable id, e.g. edu1.start"},\
+            "section":{"type":"string"},"label":{"type":"string","description":"The field's label on the page"},\
+            "widget":{"type":"string","description":"text, textarea, select, cascader, date, radio, checkbox, file..."},\
+            "value":{"type":"string","description":"Value to fill; a {KEY} placeholder for class C"},\
+            "source":{"type":"string","description":"Profile key, ans-NNN, resume, cover_letter or none"},\
+            "status":{"type":"string","enum":["todo","filled","verified","needs_user","skipped"]},\
+            "note":{"type":"string"},\
+            "options":{"type":"array","items":{"type":"string"},"description":"Dropdown options seen, verbatim"},\
+            "remove":{"type":"boolean"}},"required":["id"]}},\
+            "notes":{"type":"array","items":{"type":"string"},"description":"Decisions and site quirks to add"},\
+            "drop_notes":{"type":"array","items":{"type":"string"},"description":"Notes to remove, verbatim"}}}""");
 
     private static final ToolDefinition SKILL = definition(READ_SKILL,
             "Read the full text of a skill from the catalog (experience with a kind of control or a job site). Read "
@@ -156,7 +179,7 @@ public final class ControlTools {
     }
 
     public static List<ToolCallback> definitions() {
-        return List.of(callback(ASK), callback(PLAN), callback(SKILL), callback(RESUME), callback(JD),
+        return List.of(callback(ASK), callback(STATE), callback(SKILL), callback(RESUME), callback(JD),
                 callback(REMEMBER_DEFINITION), callback(DONE));
     }
 

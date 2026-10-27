@@ -22,8 +22,9 @@ import tools.jackson.databind.json.JsonMapper;
  * 工具调用原样留在响应里，由 Harness 循环自己执行。工具名和 MCP 的工具名相同，和 {@link BrowserToolPolicy}
  * 的模型白名单一一对应（不开放 {@code handle_dialog}；{@code browser_tabs} 另由 {@link #tabs()} 定义，系统代发）。
  * <p>
- * 比 MCP 多出来的参数：{@code browser_fill_form} 的每个字段、{@code browser_type}、{@code browser_select_option}
- * 可以带 {@code fact}、{@code confidence}、{@code language}（都可选，写了就进报告）（{@link FieldIntent}）；{@code browser_click} 可以带
+ * 比 MCP 多出来的参数：{@code browser_fill_form} 的每个字段、{@code browser_type}、{@code browser_select_option}、
+ * {@code browser_set_date}（C016，不是 MCP 的工具，系统用固定脚本代发）可以带 {@code fact}、{@code confidence}、{@code language}（都可选，写了就进报告）
+ * 和 {@code field}（申请状态里的字段 id，C019）（{@link FieldIntent}）；{@code browser_click} 可以带
  * {@code purpose}、{@code final_step_suspected}、{@code evidence}（{@code final_step_suspected} 决定软边界按钮放不放行）（{@link SubmitGuard.ClickIntent}）；
  * {@code browser_file_upload} 只收文件编号（{@code files}，从 1 开始；可带上传位置的 {@code target}），系统换成 {@code storage/uploads/<job-id>/}
  * 下的路径，模型看不到路径。{@link #translate} 先取出这些参数并去掉，再交给白名单和守卫。
@@ -36,7 +37,8 @@ public final class BrowserTools {
 
     /**
      * 申请 Agent 的标签页工具（名字同 MCP 的 {@code browser_tabs}，但不在 {@link #definitions()} 里、不经 {@link #translate}）：
-     * 由 Harness 循环交给 {@link BrowserSession#tabs} / {@link BrowserSession#select}，只能看、只能切到这个 Job 自己的标签页（新开的、点击弹出的、用户转交的）。
+     * 由 Harness 循环交给 {@link BrowserSession#tabs} / {@link BrowserSession#select}：列出 Chrome 里所有的标签页、能切到任何一页，
+     * 用哪一页由提示词约束。
      */
     public static final String TABS = BrowserToolPolicy.TABS;
 
@@ -50,7 +52,8 @@ public final class BrowserTools {
             "fact":{"type":"string","description":"Optional: the profile key or answer id (ans-NNN) the value comes from; resume if taken from the resume text (read_resume); cover_letter for a cover letter you wrote; none if you inferred it"},\
             "confidence":{"type":"string","enum":["high","medium","low"],"description":"Optional"},\
             "language":{"type":"string","enum":["zh","en"],\
-            "description":"Optional: use the value in this language instead of the page language"}""";
+            "description":"Optional: use the value in this language instead of the page language"},\
+            "field":{"type":"string","description":"Optional: the id of this field in the application state; the system records the result there"}""";
 
     private static final String TARGET = """
             "target":{"type":"string","description":"ref from the latest snapshot, e.g. e12"},\
@@ -75,14 +78,16 @@ public final class BrowserTools {
                     {"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}"""),
             definition(BrowserToolPolicy.CLICK,
                     "Click a button, link, tab, dropdown or option. Buttons whose name looks like submitting "
-                            + "(Submit, Apply, Confirm, 提交, 投递, 申请, 确认...) are rejected: the user clicks those. "
-                            + "For Next / Continue / Save buttons, look at the page first (step indicator, progress, text "
+                            + "(Submit, Apply, Send, 提交, 投递, 申请...) are rejected: the user clicks those. So is a "
+                            + "Confirm / OK / 确定 / 确认 inside a dialog that asks whether to submit or send the application. "
+                            + "For Next / Continue / Save buttons and for confirm buttons (确定, 确认, 完成, Confirm, Done) in "
+                            + "dialogs, cards, date panels and cascaders, look at the page first (step indicator, progress, text "
                             + "near the button) and pass final_step_suspected with evidence: false lets the click through; "
                             + "true means the system asks the user first (via ask_user) for this one button on this page. "
                             + "Without final_step_suspected such buttons are not clicked. Other elements need no notes.",
                     """
                     {"type":"object","properties":{%s,\
-                    "purpose":{"type":"string","enum":["next_step","save_draft","open_control","unsure"]},\
+                    "purpose":{"type":"string","enum":["next_step","save_draft","confirm","open_control","unsure"]},\
                     "final_step_suspected":{"type":"boolean"},\
                     "evidence":{"type":"string","description":"Why, e.g. progress shows step 2 of 4"}},\
                     "required":["target"]}""".formatted(TARGET)),
@@ -90,12 +95,15 @@ public final class BrowserTools {
                     "Type text into one editable field (replaces its content). Use it for one field, rich text areas and "
                             + "autocomplete inputs (then wait for suggestions and click one). Never presses Enter.",
                     """
-                    {"type":"object","properties":{%s,"text":{"type":"string"},%s},\
+                    {"type":"object","properties":{%s,"text":{"type":"string"},\
+                    "slowly":{"type":"boolean","description":"Optional: press the keys one by one instead of pasting the text; \
+                    for autocomplete inputs that only react to key presses. Slower."},%s},\
                     "required":["target","text"]}""".formatted(TARGET, FIELD_EXTRA)),
             definition(BrowserToolPolicy.FILL_FORM,
                     "Fill several fields at once: text boxes, checkboxes, radios, native comboboxes. Prefer this to fill "
-                            + "everything you are sure about on the current page in one call. Custom dropdowns that open a "
-                            + "list usually need browser_click instead.",
+                            + "everything you are sure about on the current page in one call. Read-only boxes (date and "
+                            + "dropdown widgets) and custom dropdowns are skipped and listed in the result: use "
+                            + "browser_select_option for dropdowns and browser_set_date for dates.",
                     """
                     {"type":"object","properties":{"fields":{"type":"array","minItems":1,"items":{"type":"object",\
                     "properties":{"target":{"type":"string"},"name":{"type":"string"},\
@@ -104,11 +112,27 @@ public final class BrowserTools {
                     "required":["target","name","type","value"]}}},\
                     "required":["fields"]}""".formatted(FIELD_EXTRA)),
             definition(BrowserToolPolicy.SELECT_OPTION,
-                    "Select option(s) in a native dropdown (select / listbox). Values must match the option text on the "
-                            + "page.",
+                    "Choose an item in any dropdown in one call: native select, custom dropdown (also an unnamed combobox "
+                            + "or a read-only box that opens a list), searchable dropdown, cascader. target is the box you "
+                            + "would click to open it. The system opens it, scrolls / filters the list, clicks the item and "
+                            + "reads the box back. For a cascader give one value per level, e.g. [\"广东\", \"深圳\"]. If "
+                            + "nothing or several items match, nothing is clicked and the visible options of that level are "
+                            + "returned: pick the exact text from them and call again; if none means the same, ask the user.",
                     """
-                    {"type":"object","properties":{%s,"values":{"type":"array","items":{"type":"string"}},%s},\
+                    {"type":"object","properties":{%s,"values":{"type":"array","minItems":1,"items":{"type":"string"},\
+                    "description":"Option text; one per level for a cascader"},\
+                    "search":{"type":"boolean","description":"Optional: type the first value into the box first (remote \
+                    search, e.g. school or city lookups)"},%s},\
                     "required":["target","values"]}""".formatted(TARGET, FIELD_EXTRA)),
+            definition(BrowserToolPolicy.SET_DATE,
+                    "Set a date field in one call: native date / month input, a box you can type into, or a read-only box "
+                            + "that opens a calendar panel. target is the date box. The system types it in the box's format "
+                            + "or picks it on the panel (jumping by year / month tables) and reads the value back. Give only "
+                            + "as much as the field needs: YYYY-MM for a month field, YYYY for a year field.",
+                    """
+                    {"type":"object","properties":{%s,\
+                    "date":{"type":"string","description":"YYYY-MM-DD, YYYY-MM or YYYY"},%s},\
+                    "required":["target","date"]}""".formatted(TARGET, FIELD_EXTRA)),
             definition(BrowserToolPolicy.FILE_UPLOAD,
                     "Upload files. Pass file numbers from the available files. With target (the ref of the upload "
                             + "button or upload area, e.g. 选择文件 / 上传简历): the system sets the files directly on that "
@@ -156,11 +180,10 @@ public final class BrowserTools {
     }
 
     private static final ToolDefinition TABS_DEFINITION = definition(TABS,
-            "List or switch browser tabs. list shows every open tab (index, title, URL) and marks the one you are "
-                    + "using and the ones that are yours. Only operate tabs you opened yourself, tabs your clicks "
-                    + "opened, and tabs the user explicitly handed to you; never touch tabs the user opened earlier. "
-                    + "select switches to an index from list and returns its snapshot. Use it when a click opened a "
-                    + "new tab, when the user handed you a tab, or when the system says your tab was not found.",
+            "List or switch tabs in the user's Chrome. list shows every open tab (index, title, URL) and marks the "
+                    + "one you are using, the ones that are yours, and the ones another task is using (never touch "
+                    + "those). Use the user's own tabs when the user asks you to, or to get back to a page you were "
+                    + "working on. select switches to an index from list and returns its snapshot.",
             """
             {"type":"object","properties":{"action":{"type":"string","enum":["list","select"]},\
             "index":{"type":"integer","minimum":0,"description":"For select: an index from list"}},\
@@ -197,7 +220,7 @@ public final class BrowserTools {
             case BrowserToolPolicy.CLICK ->
                     new Call(tool, SubmitGuard.ClickIntent.strip(args), List.of(), SubmitGuard.ClickIntent.from(args),
                             List.of());
-            case BrowserToolPolicy.TYPE, BrowserToolPolicy.SELECT_OPTION -> {
+            case BrowserToolPolicy.TYPE, BrowserToolPolicy.SELECT_OPTION, BrowserToolPolicy.SET_DATE -> {
                 FieldIntent intent = checked(tool, FieldIntent.from(args));
                 yield new Call(tool, FieldIntent.strip(args), List.of(intent), null, List.of());
             }

@@ -14,7 +14,9 @@ import jobapply.tools.SnapshotIndex;
 
 /**
  * 点击守卫（agent-runtime.md 7.6）：名字含提交类词（硬边界）的按钮一律不点，由用户自己点。纯函数：输入最新一次快照和
- * 这次调用，输出 {@link GuardDecision}。「下一步」「继续」「保存」这类按钮（软边界）由模型判断是不是最后一步
+ * 这次调用，输出 {@link GuardDecision}。确认类按钮（「确定」「完成」「确认」，C006-fix-real-run 第 18 条）是软边界，
+ * 但所在的对话框（没有对话框时是它的上一层）文字里有提交类词时（「确认提交申请？」里的「确定」）仍是硬边界。
+ * 「下一步」「继续」「保存」这类按钮（软边界）由模型判断是不是最后一步
  * （{@code final_step_suspected}，C006-fix-runtime-2）：不是就放行；怀疑是、或者页面上看得出「下一步」可能直接提交
  * （已经是最后一步、同一页上还有提交类按钮；夹具 {@code submitted-page} 里「下一步」直接完成了投递）时先问用户
  * （{@link GuardDecision.AskUser}），用户的批准只对这一页的这一个按钮有效一次（{@link Approval}）。
@@ -23,6 +25,12 @@ import jobapply.tools.SnapshotIndex;
 public final class SubmitGuard {
 
     static final String HARD_REASON = "这个按钮可能完成提交，由用户自己点";
+    static final String CONFIRM_REASON = "这个确认按钮所在的对话框在问要不要提交 / 投递，可能完成提交，由用户自己点";
+
+    /** 快照里的一行：缩进、角色（解析不出时为空）。 */
+    private static final Pattern LINE_ROLE = Pattern.compile("^\\s*- '?([a-z][a-zA-Z]*)");
+    /** 确认类按钮往上找的容器角色：找到最近的一个就看它的文字。 */
+    private static final Set<String> CONTAINERS = Set.of("dialog", "alertdialog", "tooltip");
 
     private SubmitGuard() {
     }
@@ -31,7 +39,7 @@ public final class SubmitGuard {
      * 模型点击时多给的说明：{@code final_step_suspected} 决定软边界按钮放不放行，其它只进日志。调用方发给 MCP 之前用
      * {@link #strip(Map)} 去掉。
      *
-     * @param purpose            {@code next_step} / {@code save_draft} / {@code open_control} / {@code unsure}
+     * @param purpose            {@code next_step} / {@code save_draft} / {@code confirm} / {@code open_control} / {@code unsure}
      * @param finalStepSuspected 是否像是最后一步
      * @param evidence           依据，例如「进度条显示第 2/4 步」
      */
@@ -156,7 +164,62 @@ public final class SubmitGuard {
         if (SubmitWords.isHard(label)) {
             return new GuardDecision.Reject(HARD_REASON + "（「" + label.strip() + "」）");
         }
+        if (SubmitWords.isConfirm(label) && SubmitWords.isHard(around(latest.snapshot(), ref))) {
+            return new GuardDecision.Reject(CONFIRM_REASON + "（「" + label.strip() + "」）");
+        }
         return GuardDecision.allow();
+    }
+
+    /**
+     * 确认类按钮所在的地方的文字：最近的对话框 / 提示框祖先的整棵子树；没有时是它的上一层的子树；在最外层时是整页。
+     * 去掉 {@code /url:} 行（网址里的 apply 之类不算）。拿不准时宁可多看（整页），多看只会让它回到硬边界。
+     */
+    static String around(String snapshot, String ref) {
+        String[] lines = (snapshot == null ? "" : snapshot).replace("\r\n", "\n").split("\n");
+        int at = -1;
+        for (int i = 0; i < lines.length && at < 0; i++) {
+            if (lines[i].contains("[ref=" + ref + "]")) {
+                at = i;
+            }
+        }
+        if (at < 0) {
+            return String.join("\n", lines);
+        }
+        int parent = -1;
+        int container = -1;
+        int indent = indent(lines[at]);
+        for (int i = at - 1; i >= 0 && indent > 0 && container < 0; i--) {
+            if (lines[i].isBlank() || indent(lines[i]) >= indent) {
+                continue;
+            }
+            indent = indent(lines[i]);
+            if (parent < 0) {
+                parent = i;
+            }
+            Matcher role = LINE_ROLE.matcher(lines[i]);
+            if (role.find() && CONTAINERS.contains(role.group(1))) {
+                container = i;
+            }
+        }
+        int root = container >= 0 ? container : parent;
+        if (root < 0) {
+            return String.join("\n", lines);
+        }
+        StringBuilder text = new StringBuilder(lines[root]);
+        for (int i = root + 1; i < lines.length && (lines[i].isBlank() || indent(lines[i]) > indent(lines[root])); i++) {
+            if (!lines[i].strip().startsWith("- /url:")) {
+                text.append('\n').append(lines[i]);
+            }
+        }
+        return text.toString();
+    }
+
+    private static int indent(String line) {
+        int i = 0;
+        while (i < line.length() && line.charAt(i) == ' ') {
+            i++;
+        }
+        return i;
     }
 
     /** 页面上看得出「下一步」可能直接提交的硬信号；没有时为 null。看不出第几步不算（交给模型判断）。 */

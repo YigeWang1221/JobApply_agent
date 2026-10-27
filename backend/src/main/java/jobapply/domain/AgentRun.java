@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 一次申请的运行状态（agent-runtime.md 7.1）：和模型的对话、模型的计划、现在给用户的话，以及用量。
+ * 一次申请的运行状态（agent-runtime.md 7.1）：和模型的对话、申请状态（字段清单和计划，C019）、现在给用户的话，以及用量。
  * 每轮之后存一次；用户回复时读回，把回答追加成下一条消息，接着跑。对话里不存快照全文，只存工具结果的说明。
  *
  * @param status       {@link #RUNNING} / {@link #WAITING_USER} / {@link #READY} / {@link #FAILED}
@@ -13,6 +13,8 @@ import java.util.List;
  * @param fileSlots    {@code ask_user} 带的上传位置
  *                     （浏览器断开不再存在这里，由全局的连接状态推出来，C006-fix-browser 第 1 节；旧文件里的
  *                     {@code disconnected} 键读的时候忽略）
+ * @param state        申请状态（C019）：现在在哪一步、计划、字段清单、决定；旧记录里只有 {@code plan}，读的时候由
+ *                     {@code AgentRunStore} 换成 {@code state.steps}
  * @param files        已经复制到 {@code uploads/<job-id>/} 的文件，编号从 1 开始
  * @param round        报告第几轮（定稿后用户要求修改时加一）
  * @param error        失败的原因；没有时为 null
@@ -30,7 +32,7 @@ public record AgentRun(
         String message,
         List<Question> questions,
         List<FileSlot> fileSlots,
-        List<PlanItem> plan,
+        ApplicationState state,
         List<StagedFile> files,
         int round,
         Usage usage,
@@ -54,7 +56,7 @@ public record AgentRun(
     public AgentRun {
         questions = questions == null ? List.of() : List.copyOf(questions);
         fileSlots = fileSlots == null ? List.of() : List.copyOf(fileSlots);
-        plan = plan == null ? List.of() : List.copyOf(plan);
+        state = state == null ? ApplicationState.empty() : state;
         files = files == null ? List.of() : List.copyOf(files);
         conversation = conversation == null ? List.of() : List.copyOf(conversation);
         usage = usage == null ? new Usage(0, 0, 0) : usage;
@@ -78,21 +80,26 @@ public record AgentRun(
             turns.add(reply);
         }
         return new AgentRun(project, job, session, company, title, url, RUNNING, null, null, null,
-                plan, files, round, usage, null, turns, lastPage == null ? null : lastPage.submitted(false));
+                state, files, round, usage, null, turns, lastPage == null ? null : lastPage.submitted(false));
     }
 
-    public AgentRun withProgress(List<PlanItem> plan, Usage usage, List<Turn> conversation) {
+    public AgentRun withProgress(ApplicationState state, Usage usage, List<Turn> conversation) {
         return new AgentRun(project, job, session, company, title, url, status, message, questions, fileSlots,
-                plan, files, round, usage, error, conversation, lastPage);
+                state, files, round, usage, error, conversation, lastPage);
+    }
+
+    public AgentRun withState(ApplicationState state) {
+        return new AgentRun(project, job, session, company, title, url, status, message, questions, fileSlots,
+                state, files, round, usage, error, conversation, lastPage);
     }
 
     public AgentRun waiting(String message, List<Question> questions, List<FileSlot> fileSlots) {
         return new AgentRun(project, job, session, company, title, url, WAITING_USER, message, questions, fileSlots,
-                plan, files, round, usage, null, conversation, lastPage);
+                state, files, round, usage, null, conversation, lastPage);
     }
 
     public AgentRun ready(String message) {
-        return new AgentRun(project, job, session, company, title, url, READY, message, null, null, plan,
+        return new AgentRun(project, job, session, company, title, url, READY, message, null, null, state,
                 files, round, usage, null, conversation, lastPage);
     }
 
@@ -103,19 +110,19 @@ public record AgentRun(
     }
 
     public AgentRun failed(String error) {
-        return new AgentRun(project, job, session, company, title, url, FAILED, null, null, null, plan,
+        return new AgentRun(project, job, session, company, title, url, FAILED, null, null, null, state,
                 files, round, usage, error, conversation, lastPage);
     }
 
     /** 记下浏览器那边的状态（每轮存盘前由申请循环更新）。 */
     public AgentRun withLastPage(LastPage lastPage) {
         return new AgentRun(project, job, session, company, title, url, status, message, questions, fileSlots,
-                plan, files, round, usage, error, conversation, lastPage);
+                state, files, round, usage, error, conversation, lastPage);
     }
 
     public AgentRun withFiles(List<StagedFile> files) {
         return new AgentRun(project, job, session, company, title, url, status, message, questions, fileSlots,
-                plan, files, round, usage, error, conversation, lastPage);
+                state, files, round, usage, error, conversation, lastPage);
     }
 
     /** 结束时页面像已经投递成功了（模型在 {@code finish} 里判断）。 */
@@ -149,7 +156,8 @@ public record AgentRun(
      * @param text    文字；{@code tool} 时为 null
      * @param calls   {@code assistant} 的工具调用
      * @param results  {@code tool} 的结果（不含快照全文）
-     * @param thinking {@code assistant} 时供应商真的给出的思考原文（C006-agent）；只给界面看，不发回给模型。没有时为 null
+     * @param thinking {@code assistant} 时供应商真的给出的思考原文（C006-agent）；给界面看，OpenAI 兼容格式下同一次运行里
+     *                 还作为 {@code reasoning_content} 发回给模型（{@link jobapply.harness.context.Conversation}）。没有时为 null
      * @param attachments {@code user} 时用户附的文件（C006 附件）；旧记录里没有，为空
      */
     public record Turn(String role, String text, List<ToolCall> calls, List<ToolResult> results, String thinking,
@@ -255,10 +263,6 @@ public record AgentRun(
 
     /** 页面上的一个上传位置。 */
     public record FileSlot(String id, String label, String accept, boolean required, String note) {
-    }
-
-    /** 模型计划里的一项。{@code status}：{@code todo} / {@code doing} / {@code done} / {@code blocked}。 */
-    public record PlanItem(String text, String status) {
     }
 
     /**

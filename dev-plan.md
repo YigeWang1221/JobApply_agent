@@ -46,12 +46,17 @@
 | [C009](plan/coding/C009-sensitive-placeholders.md) | 敏感信息用占位符记在资料里，真实值在本地密钥文件，填表时替换 | 并入 C014（2026-10-24） |
 | [C010](plan/coding/C010-steer.md) | 运行中插话（steer）：Agent 跑着时也能发消息，下一步看到；「打断并发送」 | 已施工，等用户试（2026-10-24；master 回写已完成） |
 | [C011](plan/coding/C011-concurrent-workers.md) | 多个申请 Worker 并发：共享一个 Chrome、各自的标签页，Worker 池 | 完成（用户真实 Chrome 冒烟通过，2026-10-24；同站点对话框卡住 K1 仍是已知问题） |
+| [C011-fix](plan/coding/C011-fix-stuck-tab.md) | 一个标签页没响应时整个浏览器工具卡住（被误判成「断开」）：卡住和断开分开、超时缩短；Agent 看得到 Chrome 里所有标签页（用哪页由提示词约束）；越用越卡、抢焦点：停下时关自己开的页、焦点模拟只留在用的页、不抢焦点；卡住不再停下申请；睡着的标签页不再拖住连接和调用（MCP preload）。方案 B（另起 Chrome）已撤回 | 已施工，等用户试（2026-10-25） |
 | [C012](plan/coding/C012-worker-settings.md) | 设置页改 Worker 数量（同时申请数、每站上限），保存后马上生效、存进 settings/workers.yaml | 已施工，等用户试（2026-10-24） |
 | [C013](plan/coding/C013-delete-session-project.md) | 删除 Session / Project：挪进 storage/.trash/（软删、可手动恢复），侧栏一个确认框；删 Session 时 Job 留在 Project 里 | 已施工，等用户试（2026-10-24；memory.md 加 `.trash/` 待确认） |
 | [C014](plan/coding/C014-move-forward.md) | Move forward：面试轮次与复盘、Agent 自己更新 memory、Cover Letter、敏感信息占位符（原 C009） | 已施工，等用户试（2026-10-24；A、B、D 合并后 `mvn verify` 和 `npm run build` 通过） |
 | [C005-fix 开场](plan/coding/C005-fix-session-opening.md) | 新建 Session 不再自动写项目总结：空白对话，项目状态看 Project 主页 | 已施工，等用户试（2026-10-24） |
 
 | [C015](plan/coding/C015-readme.md) | README：目的、框架、技术选型与源码借鉴、图片显示修正 | 完成（2026-10-24；第二次修改与本地渲染验证） |
+| [C016](plan/coding/C016-dropdowns.md) | 下拉框、级联、日期控件：参考开源做法改工具和 skill | 已施工；实跑后修正（下拉淡入、弹出层留整页、发回思考、去掉来回提醒、日期 need_day、第 18 条放行）已施工，等用户在真实网站试（2026-10-25） |
+| [C017](plan/coding/C017-macos-app.md) | 打包成本机自用的 macOS App：Swift 窗口外壳 + 自带 Java 运行时、node 和 Playwright MCP；数据位置由用户在首次打开和设置页里选 | 已施工，等用户双击试（2026-10-27） |
+| [C018](plan/coding/C018-tool-call-limits.md) | 工具调用上限在设置页由用户自己定（申请每次运行、对话每轮），可设为不限 | 已施工，等用户试（2026-10-25） |
+| [C019](plan/coding/C019-application-state.md) | 每次投递一份申请状态（字段清单 + 计划），模型每步在它上面读和更新，不再每步重读整页 | 已施工，等用户试（2026-10-25） |
 
 ## 参考（不是施工步骤）
 

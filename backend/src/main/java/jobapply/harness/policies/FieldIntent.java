@@ -13,20 +13,27 @@ import java.util.Set;
  * @param fact       资料键、答案编号，或 {@code none}（模型推断）；没写时为 null
  * @param confidence {@code high} / {@code medium} / {@code low}；没写时为 null
  * @param language   {@code zh} / {@code en}：指明用另一种语言的值；没有时为 null（按页面语言）
+ * @param field      申请状态里这个字段的 id（C019）：系统把填写结果记到它上面；没写时为 null（按标签找）
  */
-public record FieldIntent(String ref, String label, String fact, String confidence, String language) {
+public record FieldIntent(String ref, String label, String fact, String confidence, String language, String field) {
 
     public static final String FACT = "fact";
     public static final String CONFIDENCE = "confidence";
     public static final String LANGUAGE = "language";
+    /** 申请状态里的字段 id（C019）。 */
+    public static final String FIELD = "field";
     public static final String NONE = "none";
     /** {@code fact: resume}：值取自简历原文（read_resume），报告里来源写「简历原文」。 */
     public static final String RESUME = "resume";
     /** {@code fact: cover_letter}：Agent 按 JD、简历和资料起草的 Cover Letter（C014），报告里来源写「Cover Letter：Agent 起草」。 */
     public static final String COVER_LETTER = "cover_letter";
-    static final Set<String> KEYS = Set.of(FACT, CONFIDENCE, LANGUAGE);
+    static final Set<String> KEYS = Set.of(FACT, CONFIDENCE, LANGUAGE, FIELD);
     public static final Set<String> CONFIDENCES = Set.of("high", "medium", "low");
     public static final Set<String> LANGUAGES = Set.of("zh", "en");
+
+    public FieldIntent(String ref, String label, String fact, String confidence, String language) {
+        this(ref, label, fact, confidence, language, null);
+    }
 
     /** 从一个字段的参数里取出（不检查取值；检查用 {@link #problem()}）。 */
     public static FieldIntent from(Map<String, Object> field) {
@@ -37,10 +44,11 @@ public record FieldIntent(String ref, String label, String fact, String confiden
                 label instanceof String text ? text : null,
                 arguments.get(FACT) instanceof String fact ? fact.strip() : null,
                 arguments.get(CONFIDENCE) instanceof String confidence ? confidence.strip() : null,
-                arguments.get(LANGUAGE) instanceof String language ? language.strip() : null);
+                arguments.get(LANGUAGE) instanceof String language ? language.strip() : null,
+                arguments.get(FIELD) instanceof String id && !id.isBlank() ? id.strip() : null);
     }
 
-    /** 去掉 {@code fact}、{@code confidence}、{@code language} 之后的字段参数，发给 MCP。 */
+    /** 去掉 {@code fact}、{@code confidence}、{@code language}、{@code field} 之后的字段参数，发给 MCP。 */
     public static Map<String, Object> strip(Map<String, Object> field) {
         Map<String, Object> rest = new LinkedHashMap<>(field == null ? Map.of() : field);
         rest.keySet().removeAll(KEYS);

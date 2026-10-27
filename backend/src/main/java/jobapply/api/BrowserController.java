@@ -26,7 +26,7 @@ public class BrowserController {
         return view(browser.state());
     }
 
-    /** 连着就不动；否则试一次。连不上时也是 200，状态里写着原因。 */
+    /** 连着就不动；卡住了先问一次原来的连接，答不了才重建；断开了试一次。连不上时也是 200，状态里写着原因。 */
     @PostMapping("/api/browser/reconnect")
     public Map<String, Object> reconnect() {
         return view(browser.reconnect());

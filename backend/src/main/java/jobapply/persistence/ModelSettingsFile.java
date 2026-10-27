@@ -67,7 +67,8 @@ public final class ModelSettingsFile {
      *
      * @param showThinking 「显示思考」（C006-agent）。现在不改变请求：Anthropic 的 extended thinking 带工具调用时要把上一轮的
      *                     thinking 块（含签名）原样发回，本项目每一轮从存下的对话重新拼消息，Spring AI 2.0.1 的
-     *                     thinking 内容类型不公开，拼不回去；OpenAI 兼容格式的推理字段不用开关，有就显示。
+     *                     thinking 内容类型不公开，拼不回去；OpenAI 兼容格式的推理字段不用开关，有就显示，
+     *                     同一次运行里也发回给模型（{@code reasoning_content}，C016 实跑后修正）。
      */
     public record Assignment(String provider, String model, Boolean showThinking) {
 

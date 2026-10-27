@@ -46,7 +46,8 @@ async function parse<T>(response: Response): Promise<T> {
 
 // 全应用只有一份的浏览器连接状态：generation 是第几次连上（还没连上过为 0）
 export interface BrowserState {
-  state: "not_connected" | "connecting" | "connected" | "disconnected";
+  // stalled：连着，但浏览器没回话（多半是有页面没响应，C011-fix）
+  state: "not_connected" | "connecting" | "connected" | "stalled" | "disconnected";
   reason: string | null;
   since: string | null;
   generation: number;
@@ -335,6 +336,24 @@ export interface PlanItem {
   status: "todo" | "doing" | "done" | "blocked" | string;
 }
 
+// 申请状态里的一个字段（C019）。值不在侧栏显示
+export interface StateField {
+  id: string;
+  section?: string | null;
+  label: string;
+  widget?: string | null;
+  status?: "todo" | "filled" | "verified" | "needs_user" | "skipped" | string | null;
+  note?: string | null;
+}
+
+// 申请状态（C019）：现在在哪一步、计划、字段清单、决定和站点规律
+export interface ApplicationState {
+  stage?: string | null;
+  steps?: PlanItem[] | null;
+  fields?: StateField[] | null;
+  notes?: string[] | null;
+}
+
 export interface ApplicationStatus {
   job: string;
   project?: string | null;
@@ -345,7 +364,7 @@ export interface ApplicationStatus {
   fileSlots?: FileSlot[] | null;
   assets?: Asset[] | null;
   disconnected?: boolean;
-  plan?: PlanItem[] | null;
+  state?: ApplicationState | null;
   usage?: { modelCalls: number; toolCalls: number; tokens: number } | null;
   prepState?: string | null;
   // 报告的状态：draft（填写中的草稿）、final（停在提交前时定稿）；还没有报告时为 null。正文用 api.report 读
@@ -601,6 +620,14 @@ export interface WorkerSettings {
   queued: number;
 }
 
+// 工具调用上限（C018）：申请每次运行、对话每条消息最多几次工具调用；0 = 不限。default* 是 application.yml 的默认值
+export interface ToolCallSettings {
+  perRun: number;
+  perMessage: number;
+  defaultPerRun: number;
+  defaultPerMessage: number;
+}
+
 // 敏感信息（C014-D）：一个键的名字和「已设置 / 未设置」，从不带值
 export interface PersonalKey {
   key: string;
@@ -615,6 +642,25 @@ const MODELS = "/api/settings/models";
 const PERSONAL = "/api/settings/personal";
 const enc = encodeURIComponent;
 const jobPath = (jobId: string) => `/api/jobs/${encodeURIComponent(jobId)}/application`;
+
+// 数据位置（C017 第 3 节）：source 是根目录从哪来（命令行 / 环境变量、app.yaml、默认）
+export interface AppStorage {
+  root: string;
+  source: "override" | "app-config" | "default";
+  needsChoice: boolean;
+  existingData: boolean;
+  projects: number;
+  defaultRoot: string;
+}
+
+// 只读检查一个候选位置：kind 是空文件夹 / 已有 JobApply 数据 / 有别的文件
+export interface StorageCheck {
+  path: string;
+  ok: boolean;
+  problem: string | null;
+  kind: "empty" | "jobapply" | "other" | null;
+  projects: number;
+}
 
 export const api = {
   modelSettings: () => request<ModelSettings>("GET", MODELS),
@@ -632,6 +678,9 @@ export const api = {
   workerSettings: () => request<WorkerSettings>("GET", "/api/settings/workers"),
   saveWorkerSettings: (workers: number, perSite: number) =>
     request<WorkerSettings>("PUT", "/api/settings/workers", { workers, perSite }),
+  toolCallSettings: () => request<ToolCallSettings>("GET", "/api/settings/tool-calls"),
+  saveToolCallSettings: (perRun: number, perMessage: number) =>
+    request<ToolCallSettings>("PUT", "/api/settings/tool-calls", { perRun, perMessage }),
 
   personalKeys: () => request<{ keys: PersonalKey[] }>("GET", PERSONAL),
   savePersonal: (key: string, value: string, label?: string) =>
@@ -732,6 +781,11 @@ export const api = {
     }
     return response.text();
   },
+  // 数据位置（C017 第 3 节）：保存后要重启后端才生效
+  appStorage: () => request<AppStorage>("GET", "/api/app/storage"),
+  checkAppStorage: (path: string) => request<StorageCheck>("POST", "/api/app/storage/check", { path }),
+  saveAppStorage: (path: string) =>
+    request<{ saved: boolean; restartRequired: boolean; path: string }>("PUT", "/api/app/storage", { path }),
 };
 
 export function errorText(error: unknown): string {

@@ -142,6 +142,7 @@ const OTHER: Record<string, [IconName, string]> = {
   read_skill: ["skill", "读 skill"],
   ask_user: ["ask", "问你"],
   update_plan: ["tool", "更新计划"],
+  update_state: ["tool", "更新申请状态"],
   save_draft: ["tool", "保存草稿"],
   finish: ["tool", "停在提交前"],
 };

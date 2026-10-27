@@ -13,22 +13,28 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import jobapply.agents.ApplyAgent;
 import jobapply.config.HarnessProperties;
 import jobapply.domain.AgentRun;
+import jobapply.domain.ApplicationState;
 import jobapply.domain.Fact;
 import jobapply.domain.FactClass;
 import jobapply.domain.Language;
 import jobapply.domain.Placeholder;
 import jobapply.harness.context.Conversation;
 import jobapply.harness.context.FillContext;
+import jobapply.harness.context.PopupView;
 import jobapply.harness.context.SkillCatalog;
 import jobapply.harness.policies.BrowserToolPolicy;
 import jobapply.harness.policies.FieldClassGuard;
@@ -59,6 +65,7 @@ import jobapply.tools.BrowserSession;
 import jobapply.tools.BrowserTools;
 import jobapply.tools.ControlTools;
 import jobapply.tools.PageSnapshot;
+import jobapply.tools.PlaywrightMcpClient;
 import jobapply.tools.SnapshotIndex;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.metadata.Usage;
@@ -83,20 +90,28 @@ import org.springframework.ai.chat.model.ChatResponse;
  * 那个按钮有效一次）、C 级字段（{@link FieldClassGuard}）和白名单以外的操作
  * （{@link BrowserToolPolicy}），拒绝的原因作为工具结果交回模型。重复操作、页面出现验证或弹窗都只在结果里提醒。
  * <p>
- * 填过什么记在报告草稿里（{@link FillReportWriter#writeDraft}）；过程日志只记工具、元素的角色和名字、页面标题和地址、
- * 守卫的判断和 token 数，不记值、快照和对话。
+ * 申请状态（C019，{@link ApplicationState}）：模型用 {@code update_state} 改，填写工具的结果出来时系统自动记（填了、
+ * 核对上了、没填的原因、见过的选项、要问用户）；每一步由 {@link FillContext} 接在最后一条消息末尾。填过什么记在申请状态的
+ * 字段清单里，报告草稿（{@link FillReportWriter#writeDraft}）的字段行从它生成；过程日志只记工具、元素的角色和名字、
+ * 页面标题和地址、守卫的判断和 token 数，不记值、快照和对话。
  */
 public final class HarnessLoop {
 
     static final String STOPPED = "已按你的要求停下。回复后接着做。";
 
     private static final Set<String> TEXT_INPUTS = Set.of("textbox", "searchbox", "spinbutton");
+    /** 选下拉没选中时结果里的一个选项（{@code PlaywrightMcpClient.choices} 的写法）。 */
+    private static final Pattern OPTION_LINE = Pattern.compile("^\\s*- option \"(.*)\"\\s*$");
+    /** {@code finish} 时系统按申请状态补进「未解决」的行的开头（每次定稿前先去掉上一次补的）。 */
+    static final String FROM_STATE = "申请状态：";
 
     private final ChatModel model;
     private final BrowserSession browser;
     private final StorageLayout layout;
     private final Clock clock;
     private final HarnessProperties limits;
+    /** 一次运行最多几次工具调用（设置页可改，0 = 不限，C018）。 */
+    private final IntSupplier toolCallsPerRun;
     private final ProfileResolver resolver;
     private final JobAnswers answers;
     private final FillReportWriter reports;
@@ -113,11 +128,18 @@ public final class HarnessLoop {
 
     public HarnessLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock,
                        HarnessProperties limits) {
+        this(model, browser, layout, clock, limits, null);
+    }
+
+    /** @param toolCallsPerRun 一次运行最多几次工具调用，每步读一次（设置页改了马上生效，C018）；为 null 时用 {@code limits} 的值 */
+    public HarnessLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock,
+                       HarnessProperties limits, IntSupplier toolCallsPerRun) {
         this.model = model;
         this.browser = browser;
         this.layout = layout;
         this.clock = clock;
         this.limits = limits == null ? HarnessProperties.defaults() : limits;
+        this.toolCallsPerRun = toolCallsPerRun == null ? this.limits::toolCallsPerRun : toolCallsPerRun;
         this.resolver = new ProfileResolver(layout, clock);
         this.answers = new JobAnswers(layout, clock);
         this.reports = new FillReportWriter(layout, clock);
@@ -157,37 +179,31 @@ public final class HarnessLoop {
         return new Round(run, stop, progress, observer == null ? LoopObserver.NONE : observer, inbox).go();
     }
 
-    /** 一个 Job 的报告草稿：按「页面 + 字段」去重，后填的覆盖先填的。 */
+    /**
+     * 一个 Job 的报告草稿里不属于字段清单的部分：附件、未解决、守卫记录。字段行从申请状态生成（C019），不在这里累积。
+     */
     private static final class Draft {
 
         private String company;
         private String title;
         private int round = 1;
-        private final Map<String, FillReportWriter.Field> fields = new LinkedHashMap<>();
         private final Map<String, FillReportWriter.Attachment> attachments = new LinkedHashMap<>();
         private final Set<String> unresolved = new LinkedHashSet<>();
         private final Set<FillReportWriter.GuardNote> guardNotes = new LinkedHashSet<>();
-
-        void field(FillReportWriter.Field field) {
-            String key = field.page() + "\u0000" + field.label();
-            fields.remove(key);
-            fields.put(key, field);
-        }
 
         void attach(FillReportWriter.Attachment attachment) {
             attachments.put(attachment.fileName(), attachment);
         }
 
-        /** 从读回的报告开始累积（字段行是 {@link FillReportWriter.Recorded}，原样保留）。 */
+        /** 从读回的报告接着累积附件、未解决和守卫记录。 */
         void restore(FillReportWriter.Report report) {
-            report.fields().forEach(this::field);
             report.attachments().forEach(this::attach);
             unresolved.addAll(report.unresolved());
             guardNotes.addAll(report.guardNotes());
         }
 
-        FillReportWriter.Report report() {
-            return new FillReportWriter.Report(company, title, round, List.copyOf(fields.values()),
+        FillReportWriter.Report report(List<FillReportWriter.Field> fields) {
+            return new FillReportWriter.Report(company, title, round, fields,
                     List.copyOf(attachments.values()), List.copyOf(unresolved), List.copyOf(guardNotes));
         }
     }
@@ -203,7 +219,10 @@ public final class HarnessLoop {
         private final AgentLoop<AgentRun> loop;
         private final LoopDetector detector;
         private final Draft draft = new Draft();
-        private List<AgentRun.PlanItem> plan;
+        /** 申请状态（C019）：每轮和对话一起交给调用方存盘。 */
+        private ApplicationState state;
+        /** 新开始的申请（对话里只有开场那一条）：不接上一次的报告。 */
+        private final boolean fresh;
         private long modelCalls;
         private long tokens;
         private List<JobAnswers.Answer> sessionAnswers;
@@ -224,14 +243,23 @@ public final class HarnessLoop {
             this.progress = progress == null ? ignored -> {
             } : progress;
             // 调模型回来时用户已经要求停止：丢掉这条回复直接停（和对话 Agent 不同，见 AgentLoop）
-            this.loop = new AgentLoop<>(model, ApplyAgent.tools(), clock, limits.toolCallsPerRun(), true, stop,
+            this.loop = new AgentLoop<>(model, ApplyAgent.tools(), clock, toolCallsPerRun, true, stop,
                     observer, run.conversation(), null, inbox);
             this.detector = new LoopDetector(limits);
-            this.plan = run.plan();
+            this.state = run.state();
             this.modelCalls = run.usage().modelCalls();
             this.tokens = run.usage().tokens();
-            // 每次运行都从文件读回草稿：应用重启后前面的行还在
-            reports.load(run.project(), run.job()).ifPresent(draft::restore);
+            // 每次运行都从文件读回附件、未解决和守卫记录：应用重启后前面的还在。旧运行记录里还没有字段清单时，
+            // 把报告里的字段行放进申请状态（C019 之前的申请照样接着做）
+            this.fresh = run.conversation().size() <= 1;
+            if (!fresh) {
+                reports.load(run.project(), run.job()).ifPresent(report -> {
+                    draft.restore(report);
+                    if (state.fields().stream().noneMatch(field -> field.report() != null)) {
+                        state = seeded(state, report.fields());
+                    }
+                });
+            }
             draft.company = run.company();
             draft.title = run.title();
             draft.round = run.round();
@@ -249,18 +277,28 @@ public final class HarnessLoop {
             placeholders = new LinkedHashSet<>();
             profileZh.values().stream().filter(fact -> fact.factClass() == FactClass.C)
                     .forEach(fact -> Placeholder.keyOf(fact.value()).ifPresent(placeholders::add));
+            if (fresh && reports.read(run.project(), run.job()).isPresent()) {
+                writeDraft(); // 重新开始的申请：上一次的报告换成这一次的（现在还是空的）
+            }
 
             try {
                 latest = startPage();
             } catch (BrowserException.Disconnected e) {
                 return disconnected(e.getMessage());
+            } catch (BrowserException.Stalled e) {
+                // 浏览器这次没回应：不停下，告诉模型，由它再打开或换做法（C011-fix）
+                latest = null;
+                loop.add(AgentRun.Turn.page("系统打开岗位页时浏览器没有回应（" + e.getMessage() + "）。用 browser_navigate 再打开一次"
+                        + "岗位链接 " + run.url() + "；一直没有回应时用 ask_user 请用户看一下 Chrome。"));
             } catch (BrowserException.ToolFailed e) {
                 return waiting("读不到当前页面（" + e.getMessage() + "）。确认 Chrome 里这个页面开着，然后回复，我再试一次。");
             }
             seen(latest);
-            loop.showPage(latest);
-            detector.startAt(pageText(latest));
-            SubmitGuard.pageWarning(latest).ifPresent(warning -> loop.add(AgentRun.Turn.user("系统提醒：" + warning)));
+            if (latest != null) {
+                loop.showPage(latest);
+                detector.startAt(pageText(latest));
+                SubmitGuard.pageWarning(latest).ifPresent(warning -> loop.add(AgentRun.Turn.user("系统提醒：" + warning)));
+            }
             return loop.run(this);
         }
 
@@ -326,8 +364,7 @@ public final class HarnessLoop {
             } else {
                 loop.add(AgentRun.Turn.page("系统打开了岗位链接 " + run.url() + "。上次做到的页面是 " + lastUrl
                         + "（应用重启、浏览器重连或者那一页被关掉后，系统不再记得它在哪个标签页）。那一页要是还开着、"
-                        + "上面有填了一半的内容，用 ask_user 请用户在申请工作台上把那个标签页交给你（browser_tabs list "
-                        + "只列你自己的页，看不到它），交过来以后 select 过去接着做。"));
+                        + "上面有填了一半的内容，用 browser_tabs list 找到它（网址对得上的那页），select 过去接着做。"));
             }
             return opened;
         }
@@ -372,7 +409,7 @@ public final class HarnessLoop {
             String notes = host == null ? null : sites.read(host).map(SiteNotes.Site::notes).orElse(null);
             return new FillContext.Inputs(profileZh, profileEn, sessionAnswers,
                     run.files().stream().map(AgentRun.StagedFile::uploadName).toList(), catalog.skills(), suggested,
-                    notes, plan);
+                    notes, run.company() + " · " + run.title() + "：替用户填好这份申请，停在最终提交前", state);
         }
 
         /** 到了这一次运行的上限：让模型总结做到哪了（不再执行工具），交给用户决定要不要继续。 */
@@ -386,7 +423,8 @@ public final class HarnessLoop {
         @Override
         public AgentRun summarized(String text, String thinking) {
             loop.reply(AgentRun.Turn.assistant(text, List.of(), thinking));
-            return waiting((text.isEmpty() ? "这一次运行做了很多步，到了上限。" : text) + "\n\n回复「继续」我接着做。");
+            return waiting((text.isEmpty() ? "这一次运行做了很多步，到了上限。" : text) + "\n\n回复「继续」我接着做。"
+                    + AgentLoop.RAISE_LIMIT);
         }
 
         // ---- 工具调用 ----
@@ -439,10 +477,45 @@ public final class HarnessLoop {
                     }
                 }
             }
+            String targetRole = SnapshotIndex.of(latest).find(ref).map(SnapshotIndex.Node::role).orElse(null);
+            if ((BrowserToolPolicy.SELECT_OPTION.equals(tool) || BrowserToolPolicy.SET_DATE.equals(tool))
+                    && ("button".equals(targetRole) || "generic".equals(targetRole))) {
+                // 选下拉、设日期会真实点击 target 来打开它（C016）：target 是按钮或没有角色的元素时照点击守卫判断，
+                // 提交类按钮一样不点（下拉框、输入框本身点了不会提交，不拦）
+                GuardDecision opens = SubmitGuard.click(latest, ref);
+                if (opens instanceof GuardDecision.Reject reject) {
+                    return rejected(call, translated, ref, reject.reason(), buttonName(latest, ref));
+                }
+                if (!(opens instanceof GuardDecision.Allow)) {
+                    return rejected(call, translated, ref, tool + " 会点击 target 来打开它，只用在下拉框和日期框上；"
+                            + "这个元素像是翻页或保存按钮，不能用它点", null);
+                }
+            }
             if (!translated.fields().isEmpty()) {
                 Step classC = classC(call, translated);
                 if (classC != null) {
                     return classC;
+                }
+            }
+            // 只读框、自定义下拉上键入必然等满动作超时（C016 A）：发出之前查一次，这些字段不发，其余照常
+            String skipped = null;
+            if (BrowserToolPolicy.TYPE.equals(tool) || BrowserToolPolicy.FILL_FORM.equals(tool)) {
+                Map<String, String> skip = cannotFill(translated);
+                if (!skip.isEmpty()) {
+                    String reasons = reasons(translated, skip);
+                    // 没填的原因记在申请状态的字段上（C019）
+                    for (FieldIntent field : translated.fields()) {
+                        if (skip.containsKey(field.ref())) {
+                            noteField(field, "没有填：" + skip.get(field.ref()));
+                        }
+                    }
+                    BrowserTools.Call rest = without(translated, skip.keySet());
+                    if (rest == null) {
+                        return failed(call, tool, ref, translated.args().toString(), true,
+                                "没有填，这次调用没有发出：" + reasons + "。");
+                    }
+                    translated = rest;
+                    skipped = "这些字段没有填：" + reasons + "。其余字段照常填了。";
                 }
             }
 
@@ -461,8 +534,13 @@ public final class HarnessLoop {
                 return rejected(call, translated, ref, e.getMessage(), null);
             } catch (BrowserException.Disconnected e) {
                 return ended(call, current -> disconnectedRun(current, e.getMessage()));
+            } catch (BrowserException.Stalled e) {
+                return stalled(call, e.getMessage());
             } catch (BrowserException.ToolFailed e) {
-                return failed(call, tool, ref, translated.args().toString(), translated.write(), e.getMessage());
+                // 选下拉、设日期没成时，说明里有页面上的选项原文：照快照一样过脱敏（C016）
+                String message = SnapshotRedactor.redact(e.getMessage());
+                notFilled(translated, message);
+                return failed(call, tool, ref, translated.args().toString(), translated.write(), message);
             } catch (BrowserSession.TabLost e) {
                 return tabLost(call, e.getMessage());
             } catch (IllegalStateException e) {
@@ -472,9 +550,10 @@ public final class HarnessLoop {
             latest = after;
             seen(after);
             boolean changedPage = !(after.url() + after.title()).equals(before.url() + before.title());
+            String notice = browser.takeNotice(run.job());
             if (translated.write()) {
-                recordFields(translated, before);
-                recordUploads(translated, after);
+                recordFields(translated, before, after, notice);
+                recordUploads(translated, before, after);
             }
             SubmitGuard.ClickIntent click = translated.click();
             log(RunLog.Entry.toolCall(run.session(), step(), tool, ref, element(before, ref),
@@ -482,9 +561,11 @@ public final class HarnessLoop {
                     changedPage ? "page_changed" : "ok"));
 
             StringBuilder text = new StringBuilder(resultText(translated));
-            String notice = browser.takeNotice(run.job());
+            if (skipped != null) {
+                text.append("\n系统：").append(skipped);
+            }
             if (notice != null) {
-                text.append("\n系统：").append(notice);
+                text.append("\n系统：").append(SnapshotRedactor.redact(notice));
             }
             String handed = withHandover("");
             if (!handed.isEmpty()) {
@@ -497,7 +578,45 @@ public final class HarnessLoop {
                                 page(after)));
                         text.append('\n').append(reminder);
                     });
-            return Step.<AgentRun>done(call, text.toString()).withPage(after);
+            // 点开了下拉、级联、日期面板：只给弹出层那一块（C016 F）；判断不了时给整页
+            PageSnapshot shown = BrowserToolPolicy.CLICK.equals(tool) || BrowserToolPolicy.TYPE.equals(tool)
+                    ? PopupView.of(before, after, ref).orElse(after) : after;
+            return Step.<AgentRun>done(call, text.toString()).withPage(shown);
+        }
+
+        /** 这次 {@code browser_type} / {@code browser_fill_form} 里键入不会生效的字段 → 原因（C016 A）；查不了时为空。 */
+        private Map<String, String> cannotFill(BrowserTools.Call call) {
+            SnapshotIndex index = SnapshotIndex.of(latest);
+            Map<String, String> fields = new LinkedHashMap<>();
+            if (BrowserToolPolicy.TYPE.equals(call.tool()) && call.args().get("target") instanceof String target) {
+                fields.put(target, "textbox");
+            } else if (call.args().get("fields") instanceof List<?> list) {
+                for (Object item : list) {
+                    if (item instanceof Map<?, ?> map && map.get("target") instanceof String target
+                            && map.get("type") instanceof String type) {
+                        fields.putIfAbsent(target, type);
+                    }
+                }
+            }
+            fields.keySet().removeIf(target -> !index.contains(target));
+            try {
+                return browser.cannotFill(run.job(), fields);
+            } catch (RuntimeException e) {
+                return Map.of(); // 检查不了就照常发出，出错由那次调用报
+            }
+        }
+
+        /** 「名字」原因；「名字」…… */
+        private String reasons(BrowserTools.Call call, Map<String, String> skip) {
+            SnapshotIndex index = SnapshotIndex.of(latest);
+            List<String> out = new ArrayList<>();
+            skip.forEach((target, reason) -> {
+                String label = call.fields().stream().filter(field -> target.equals(field.ref())).map(HarnessLoop::fieldLabel)
+                        .filter(Objects::nonNull).findFirst()
+                        .orElse(index.find(target).map(SnapshotIndex.Node::name).filter(name -> !name.isBlank()).orElse(target));
+                out.add("「" + label + "」（" + target + "）" + reason);
+            });
+            return String.join("；", out);
         }
 
         /**
@@ -518,7 +637,8 @@ public final class HarnessLoop {
                     log(RunLog.Entry.toolCall(run.session(), step(), BrowserTools.TABS, null, null, null, null,
                             page(latest), "ok"));
                     return result(call, withHandover(listed.isEmpty() ? "现在没有标签页。"
-                            : "你的标签页（你开的、点击弹出的、用户交给你的；序号是你自己的编号，select 用它）：\n"
+                            : "Chrome 里所有的标签页（序号是浏览器里的序号，select 用它）。（你的）= 你开的、点击弹出的、"
+                            + "用户交给你的；（别的任务在用）= 别的申请或调研正在用，不要碰；其余是用户自己开着的页：\n"
                             + tabLines(listed)));
                 }
                 if ("select".equals(action)) {
@@ -541,6 +661,8 @@ public final class HarnessLoop {
                 return failedResult(call, "失败：" + e.getMessage() + "。");
             } catch (BrowserException.Disconnected e) {
                 return ended(call, current -> disconnectedRun(current, e.getMessage()));
+            } catch (BrowserException.Stalled e) {
+                return stalled(call, e.getMessage());
             } catch (BrowserException.ToolFailed e) {
                 return failedResult(call, "失败：" + e.getMessage());
             }
@@ -580,7 +702,12 @@ public final class HarnessLoop {
                     labels.add(label);
                     log(RunLog.Entry.guard(run.session(), step(), tool, field.ref(), element(latest, field.ref()),
                             "handoff", page(latest), "C 级字段由用户亲自填写"));
-                    draft.field(new FillReportWriter.UserFilled(latest.title(), label));
+                    // 申请状态里记成要用户填，报告里是「用户亲填」（C019）
+                    ApplicationState.ReportRow userFilled = new ApplicationState.ReportRow(latest.title(), null, null,
+                            null, null, FactClass.C.name());
+                    ApplicationState.Located at = state.locate(field.field(), label);
+                    state = at.state().update(at.id(), f -> f.filled(null, null, null, ApplicationState.NEEDS_USER,
+                            "C 级：由用户在浏览器里亲自填", userFilled));
                     draft.guardNotes.add(new FillReportWriter.GuardNote(label, FillReportWriter.GuardOutcome.HANDOFF));
                 }
             }
@@ -603,6 +730,8 @@ public final class HarnessLoop {
                 return tabLost(call, e.getMessage());
             } catch (BrowserException.Disconnected | IllegalStateException e) {
                 return ended(call, current -> disconnectedRun(current, e.getMessage()));
+            } catch (BrowserException.Stalled e) {
+                return stalled(call, e.getMessage());
             } catch (BrowserException.ToolFailed e) {
                 return failed(call, translated.tool(), null, translated.args().toString(), false, e.getMessage());
             }
@@ -652,6 +781,7 @@ public final class HarnessLoop {
             }
             return switch (call.name()) {
                 case ControlTools.ASK_USER -> askUser(call, args);
+                case ControlTools.UPDATE_STATE -> updateState(call, args);
                 case ControlTools.UPDATE_PLAN -> updatePlan(call, args);
                 case ControlTools.READ_SKILL -> readSkill(call, text(args.get("name")));
                 case ControlTools.READ_RESUME -> readResume(call, args.get("file"));
@@ -694,20 +824,82 @@ public final class HarnessLoop {
                     current -> current.waiting(message, questions, slots));
         }
 
+        /** C019 之前的计划工具（旧对话里、或者模型照习惯调了）：写进申请状态的计划。 */
         private Step<AgentRun> updatePlan(AgentRun.ToolCall call, Map<String, Object> args) {
-            List<AgentRun.PlanItem> items = new ArrayList<>();
-            for (Map<?, ?> item : maps(args.get("items"))) {
-                String text = text(item.get("text"));
-                if (text != null) {
-                    String status = text(item.get("status"));
-                    items.add(new AgentRun.PlanItem(text, status == null ? "todo" : status));
-                }
+            List<ApplicationState.Step> items;
+            try {
+                items = steps(args.get("items"));
+            } catch (IllegalArgumentException e) {
+                return failedResult(call, "失败：" + e.getMessage());
             }
             if (items.isEmpty()) {
                 return failedResult(call, "失败：update_plan 至少要有一项");
             }
-            plan = List.copyOf(items);
-            return result(call, "计划已更新。");
+            state = state.withSteps(items);
+            return result(call, "计划已更新（以后用 update_state 的 steps）。");
+        }
+
+        /**
+         * {@code update_state}（C019）：只写变了的。阶段替换；计划整表替换；字段按 id 合并（没给的键不变，
+         * {@code remove: true} 删掉）；{@code notes} 加几行，{@code drop_notes} 去掉几行。哪一项不对就整个不改。
+         */
+        private Step<AgentRun> updateState(AgentRun.ToolCall call, Map<String, Object> args) {
+            ApplicationState next = state;
+            List<String> said = new ArrayList<>();
+            try {
+                if (args.containsKey("stage")) {
+                    next = next.withStage(text(args.get("stage")));
+                }
+                if (args.get("steps") instanceof List<?>) {
+                    next = next.withSteps(steps(args.get("steps")));
+                }
+                for (Map<?, ?> item : maps(args.get("fields"))) {
+                    String id = text(item.get("id"));
+                    if (id == null) {
+                        throw new IllegalArgumentException("fields 里每一项都要写 id");
+                    }
+                    if (Boolean.TRUE.equals(item.get("remove"))) {
+                        next = next.remove(id);
+                        continue;
+                    }
+                    String status = text(item.get("status"));
+                    if (status != null && !ApplicationState.FIELD_STATUSES.contains(status)) {
+                        throw new IllegalArgumentException("字段 " + id + " 的 status 只能是 todo、filled、verified、needs_user、skipped");
+                    }
+                    String label = text(item.get("label"));
+                    String value = text(item.get("value"));
+                    String known = label != null ? label : next.find(id).map(ApplicationState.Field::label).orElse(null);
+                    if (value != null && storable(known, value) == null) {
+                        value = null;
+                        said.add("「" + known + "」是 C 级字段，值只记占位符 {KEY}，这次写的值没有记");
+                    }
+                    next = next.merge(new ApplicationState.Field(id, text(item.get("section")), label,
+                            text(item.get("widget")), value, text(item.get("source")), status, text(item.get("note")),
+                            strings(item.get("options")), null));
+                }
+                next = next.withNotes(strings(args.get("notes")), strings(args.get("drop_notes")));
+            } catch (IllegalArgumentException e) {
+                return failedResult(call, "失败：" + e.getMessage() + "。申请状态没有改。");
+            }
+            state = next;
+            return result(call, "申请状态已更新：" + counts(state) + (said.isEmpty() ? "" : "。" + String.join("；", said))
+                    + "。");
+        }
+
+        /** 「字段 N 个（待填 a、已填 b……）」 */
+        private static String counts(ApplicationState state) {
+            List<String> parts = new ArrayList<>();
+            Map<String, String> names = Map.of(ApplicationState.TODO, "待填", ApplicationState.FILLED, "已填",
+                    ApplicationState.VERIFIED, "已核对", ApplicationState.NEEDS_USER, "要问用户",
+                    ApplicationState.SKIPPED, "跳过");
+            for (String status : List.of(ApplicationState.TODO, ApplicationState.FILLED, ApplicationState.VERIFIED,
+                    ApplicationState.NEEDS_USER, ApplicationState.SKIPPED)) {
+                long n = state.count(status);
+                if (n > 0) {
+                    parts.add(names.get(status) + " " + n);
+                }
+            }
+            return "字段 " + state.fields().size() + " 个" + (parts.isEmpty() ? "" : "（" + String.join("、", parts) + "）");
         }
 
         private Step<AgentRun> readSkill(AgentRun.ToolCall call, String name) {
@@ -774,7 +966,20 @@ public final class HarnessLoop {
         }
 
         private Step<AgentRun> finish(AgentRun.ToolCall call, Map<String, Object> args) {
-            draft.unresolved.addAll(strings(args.get("unresolved")));
+            List<String> unresolved = strings(args.get("unresolved"));
+            draft.unresolved.addAll(unresolved);
+            // 申请状态里还没好的字段（要用户填 / 还没填），模型没提到的补进「未解决」（C019）；上一次补的先去掉
+            draft.unresolved.removeIf(line -> line.startsWith(FROM_STATE));
+            for (ApplicationState.Field field : state.fields()) {
+                boolean open = ApplicationState.NEEDS_USER.equals(field.status())
+                        || ApplicationState.TODO.equals(field.status());
+                if (open && unresolved.stream().noneMatch(line -> line.contains(field.label()))) {
+                    draft.unresolved.add(FROM_STATE + "「" + field.label() + "」"
+                            + (field.section() == null ? "" : "（" + field.section() + "）")
+                            + (ApplicationState.NEEDS_USER.equals(field.status()) ? "要你填或回答" : "还没填")
+                            + (field.note() == null ? "" : "：" + field.note()));
+                }
+            }
             writeDraft();
             String summary = text(args.get("summary"));
             log(RunLog.Entry.waiting(run.session(), step(), "finish", page(latest), null));
@@ -791,47 +996,61 @@ public final class HarnessLoop {
 
         // ---- 报告 ----
 
-        private void recordFields(BrowserTools.Call call, PageSnapshot before) {
+        /**
+         * 填写成功：每个字段记进申请状态（C019）——值、来源、控件、状态和报告那一行。新快照里输入框的文字和填的值一样、
+         * 选下拉 / 设日期读回对得上时记成「已核对」，否则「已填」。
+         */
+        private void recordFields(BrowserTools.Call call, PageSnapshot before, PageSnapshot after, String notice) {
             if (call.fields().isEmpty()) {
                 return;
             }
             List<String> values = values(call);
+            List<String> widgets = widgets(call);
             SnapshotIndex index = SnapshotIndex.of(before);
             // 页面原值只从遮掉 C 级值以后的快照里取
             SnapshotIndex shown = SnapshotIndex.of(SnapshotRedactor.redact(before));
+            SnapshotIndex now = SnapshotIndex.of(after);
+            boolean readBack = PlaywrightMcpClient.readBackMatched(notice);
             for (int i = 0; i < call.fields().size(); i++) {
                 FieldIntent field = call.fields().get(i);
                 String value = i < values.size() ? values.get(i) : "";
-                String label = fieldLabel(field);
-                if (label == null) {
-                    label = index.find(field.ref()).map(SnapshotIndex.Node::name).filter(n -> !n.isBlank())
-                            .orElse(field.ref() == null ? "（未命名字段）" : field.ref());
-                }
+                String label = label(field, index);
                 Language language = field.language() == null ? null : Language.of(field.language());
                 FillReportWriter.Confidence confidence = confidence(field.confidence());
                 String replaced = replacedValue(shown, field.ref(), value);
+                FillReportWriter.Recorded row;
                 if (FieldIntent.RESUME.equals(field.fact())) {
                     // 取自简历原文：来源写「简历原文」（C006-fix-real-run 第 3 条，报告写明每个值的来源）
-                    draft.field(new FillReportWriter.Recorded(before.title(), label,
+                    row = new FillReportWriter.Recorded(before.title(), label,
                             replaced == null ? value : value + "（页面原值：" + replaced + "，已改正）",
                             FillReportWriter.RESUME_SOURCE, language == null ? null : language.code(),
-                            confidence == null ? null : confidence.code(), FactClass.A.name()));
-                    continue;
-                }
-                if (FieldIntent.COVER_LETTER.equals(field.fact())) {
+                            confidence == null ? null : confidence.code(), FactClass.A.name());
+                } else if (FieldIntent.COVER_LETTER.equals(field.fact())) {
                     // Agent 按 JD、简历和资料起草的 Cover Letter（C014）：来源写「Cover Letter：Agent 起草」
-                    draft.field(new FillReportWriter.Recorded(before.title(), label, value,
+                    row = new FillReportWriter.Recorded(before.title(), label, value,
                             FillReportWriter.COVER_LETTER_SOURCE, language == null ? null : language.code(),
-                            confidence == null ? null : confidence.code(), FactClass.A.name()));
-                    continue;
+                            confidence == null ? null : confidence.code(), FactClass.A.name());
+                } else {
+                    ResolvedFact fact = field.inferred() ? null : fact(field.fact(), language, value);
+                    FillReportWriter.Filled filled = fact == null
+                            ? FillReportWriter.Filled.inferred(before.title(), label, value, confidence, FactClass.A,
+                            language)
+                            : FillReportWriter.Filled.fromFact(before.title(), label, value, fact, confidence,
+                            fact.language() != null ? fact.language() : language);
+                    row = FillReportWriter.asRecorded(replaced == null ? filled : filled.replacing(replaced));
                 }
-                ResolvedFact fact = field.inferred() ? null : fact(field.fact(), language, value);
-                FillReportWriter.Filled row = fact == null
-                        ? FillReportWriter.Filled.inferred(before.title(), label, value, confidence, FactClass.A,
-                        language)
-                        : FillReportWriter.Filled.fromFact(before.title(), label, value, fact, confidence,
-                        fact.language() != null ? fact.language() : language);
-                draft.field(replaced == null ? row : row.replacing(replaced));
+                String widget = i < widgets.size() ? widgets.get(i) : null;
+                boolean verified = BrowserToolPolicy.SELECT_OPTION.equals(call.tool())
+                        || BrowserToolPolicy.SET_DATE.equals(call.tool()) ? readBack
+                        : ("text".equals(widget) && now.find(field.ref()).filter(node -> TEXT_INPUTS.contains(node.role()))
+                        .map(node -> node.text().strip().equals(value.strip())).orElse(false));
+                ApplicationState.ReportRow cells = new ApplicationState.ReportRow(row.page(), row.value(), row.source(),
+                        row.language(), row.confidence(), row.grade());
+                String source = field.inferred() ? FieldIntent.NONE : field.fact();
+                ApplicationState.Located at = state.locate(field.field(), label);
+                state = at.state().update(at.id(), f -> f.filled(widget, value, source,
+                        verified ? ApplicationState.VERIFIED : ApplicationState.FILLED,
+                        replaced == null ? null : "页面原来的值不对，已改正", cells));
             }
             writeDraft();
         }
@@ -852,21 +1071,85 @@ public final class HarnessLoop {
             return zh != null ? zh : en;
         }
 
-        private void recordUploads(BrowserTools.Call call, PageSnapshot after) {
+        private void recordUploads(BrowserTools.Call call, PageSnapshot before, PageSnapshot after) {
             if (call.fileNumbers().isEmpty()) {
                 return;
             }
+            List<String> names = new ArrayList<>();
+            boolean allShown = true;
             for (int number : call.fileNumbers()) {
                 AgentRun.StagedFile file = run.files().get(number - 1);
-                String readBack = after.snapshot().contains(file.uploadName()) ? "页面显示了文件名" : "页面上没看到文件名";
+                boolean shown = after.snapshot().contains(file.uploadName());
+                allShown &= shown;
+                names.add(file.uploadName());
                 draft.attach(new FillReportWriter.Attachment(file.uploadName(), file.assetKey(), file.size(),
-                        file.sha256(), readBack));
+                        file.sha256(), shown ? "页面显示了文件名" : "页面上没看到文件名"));
             }
+            // 申请状态里一个上传字段（C019）：报告的附件表照旧，字段行不重复记
+            String target = call.args().get("target") instanceof String ref ? ref : null;
+            String label = Optional.ofNullable(buttonName(before, target)).filter(name -> !name.isBlank()).orElse("上传文件");
+            String value = String.join("、", names);
+            boolean verified = allShown;
+            ApplicationState.Located at = state.locate(null, label);
+            state = at.state().update(at.id(), f -> f.filled("file", value, null,
+                    verified ? ApplicationState.VERIFIED : ApplicationState.FILLED,
+                    verified ? null : "页面上没看到文件名，看新快照核对", f.report()));
             writeDraft();
         }
 
+        /** 这些字段这次没有填进去：原因记在申请状态的字段上（C019）。 */
+        private void noteField(FieldIntent field, String note) {
+            ApplicationState.Located at = state.locate(field.field(), label(field, SnapshotIndex.of(latest)));
+            String line = firstLine(note);
+            state = at.state().update(at.id(), f -> f.withNote(line));
+        }
+
+        /**
+         * 填写工具失败：每个字段记下原因；选下拉没选中时记下结果里列出的选项原文；日期 {@code need_day} 记成要问用户（C019）。
+         */
+        private void notFilled(BrowserTools.Call call, String message) {
+            List<String> options = new ArrayList<>();
+            if (BrowserToolPolicy.SELECT_OPTION.equals(call.tool())) {
+                message.lines().map(OPTION_LINE::matcher).filter(Matcher::matches)
+                        .forEach(m -> options.add(m.group(1).replace("\\\"", "\"").replace("\\\\", "\\")));
+            }
+            boolean needDay = BrowserToolPolicy.SET_DATE.equals(call.tool()) && message.contains("need_day");
+            for (FieldIntent field : call.fields()) {
+                ApplicationState.Located at = state.locate(field.field(), label(field, SnapshotIndex.of(latest)));
+                String line = firstLine(message);
+                state = at.state().update(at.id(), f -> {
+                    ApplicationState.Field noted = needDay
+                            ? f.withStatus(ApplicationState.NEEDS_USER, "need_day：要精确到日，问用户是哪一天")
+                            : f.withNote(line);
+                    return options.isEmpty() ? noted : noted.withOptions(options);
+                });
+            }
+        }
+
+        /** 字段名：模型给的名字，没有时取快照里的名字，再没有时是 ref。 */
+        private String label(FieldIntent field, SnapshotIndex index) {
+            String label = fieldLabel(field);
+            if (label != null) {
+                return label;
+            }
+            return index.find(field.ref()).map(SnapshotIndex.Node::name).filter(n -> !n.isBlank())
+                    .orElse(field.ref() == null ? "（未命名字段）" : field.ref());
+        }
+
+        /** 报告草稿：字段行从申请状态的字段清单生成（C019），附件、未解决、守卫记录在 {@link Draft} 里。 */
         private void writeDraft() {
-            reports.writeDraft(run.project(), run.job(), draft.report());
+            List<FillReportWriter.Field> rows = new ArrayList<>();
+            for (ApplicationState.Field field : state.fields()) {
+                ApplicationState.ReportRow row = field.report();
+                if (row == null) {
+                    continue;
+                }
+                rows.add(row.value() == null && FactClass.C.name().equals(row.grade())
+                        ? new FillReportWriter.UserFilled(row.page(), field.label())
+                        : new FillReportWriter.Recorded(row.page(), field.label(), row.value(), row.source(),
+                        row.language(), row.confidence(), row.grade()));
+            }
+            reports.writeDraft(run.project(), run.job(), draft.report(rows));
         }
 
         // ---- 结束一次运行 ----
@@ -894,6 +1177,15 @@ public final class HarnessLoop {
             return Step.<AgentRun>failed(call, "失败：浏览器连接断开了。").ending(() -> end.apply(current()));
         }
 
+        /**
+         * 浏览器这次没回应（MCP 没回话，连接还在）：只是这次调用失败，运行照常继续，由模型决定再试、换做法还是问用户
+         * （C011-fix；不停下等用户）。
+         */
+        private Step<AgentRun> stalled(AgentRun.ToolCall call, String reason) {
+            return failedResult(call, "失败：" + reason + "。这次操作没有完成；可以等一下再试、取一次快照核对、换个做法，"
+                    + "或者用 browser_navigate 重新打开页面；一直没有回应时用 ask_user 请用户看一下 Chrome。");
+        }
+
         /** 做成了，并且结束这次运行（交给用户、停在提交前）。 */
         private Step<AgentRun> ended(AgentRun.ToolCall call, String text, UnaryOperator<AgentRun> end) {
             return Step.<AgentRun>done(call, text).ending(() -> end.apply(current()));
@@ -919,7 +1211,7 @@ public final class HarnessLoop {
         }
 
         private AgentRun current() {
-            AgentRun progressed = run.withProgress(plan, new AgentRun.Usage(modelCalls, toolCalls(), tokens),
+            AgentRun progressed = run.withProgress(state, new AgentRun.Usage(modelCalls, toolCalls(), tokens),
                     loop.turns());
             // 最后的页面地址（接着做时按它认回原页）和用户批准过的那一次点击
             String url = latest != null ? latest.url() : run.lastPage() == null ? null : run.lastPage().url();
@@ -977,13 +1269,14 @@ public final class HarnessLoop {
         return "完成。系统取了新的快照：";
     }
 
-    /** 给模型看的标签页列表：一行一个，{@code - 序号: [标题](网址)}，标明正在用的和它自己的。 */
+    /** 给模型看的标签页列表：一行一个，{@code - 序号: [标题](网址)}，标明正在用的、它自己的和别的任务在用的。 */
     private static String tabLines(List<BrowserSession.TabInfo> tabs) {
         StringBuilder out = new StringBuilder();
         for (BrowserSession.TabInfo tab : tabs) {
             out.append("- ").append(tab.index()).append(": ")
                     .append(tab.inUse() ? "（正在用）" : "")
                     .append(tab.yours() ? "（你的）" : "")
+                    .append(tab.others() ? "（别的任务在用）" : "")
                     .append('[').append(tab.title()).append("](").append(tab.url()).append(")\n");
         }
         return out.toString().strip();
@@ -997,11 +1290,129 @@ public final class HarnessLoop {
         }
     }
 
+    /**
+     * 去掉 {@code refs} 这些字段之后的 {@code browser_fill_form}（C016 A）；一个都不剩、或者不是 fill_form 时为 null。
+     * 字段的 {@link FieldIntent} 和字段一一对应，一起去掉。
+     */
+    private static BrowserTools.Call without(BrowserTools.Call call, Set<String> refs) {
+        if (!BrowserToolPolicy.FILL_FORM.equals(call.tool()) || !(call.args().get("fields") instanceof List<?> list)) {
+            return null;
+        }
+        List<Object> kept = new ArrayList<>();
+        List<FieldIntent> intents = new ArrayList<>();
+        int at = 0;
+        for (Object item : list) {
+            if (!(item instanceof Map<?, ?> map)) {
+                kept.add(item);
+                continue;
+            }
+            FieldIntent intent = at < call.fields().size() ? call.fields().get(at) : null;
+            at++;
+            if (!refs.contains(map.get("target"))) {
+                kept.add(item);
+                if (intent != null) {
+                    intents.add(intent);
+                }
+            }
+        }
+        if (intents.isEmpty()) {
+            return null;
+        }
+        Map<String, Object> args = new LinkedHashMap<>(call.args());
+        args.put("fields", kept);
+        return new BrowserTools.Call(call.tool(), args, intents, call.click(), call.fileNumbers());
+    }
+
+    /**
+     * 申请状态里能记下的值：C 级标签的字段只记占位符 {@code {KEY}}（dev-limit「C 级占位符」），不是占位符时返回 null。
+     * 只是存数据的规矩，不拦任何操作。
+     */
+    static String storable(String label, String value) {
+        return value != null && label != null && FieldClassGuard.isClassC(label) && !Placeholder.is(value) ? null : value;
+    }
+
+    /** 每个字段的控件（申请状态里的 widget），顺序同 {@link BrowserTools.Call#fields()}。 */
+    private static List<String> widgets(BrowserTools.Call call) {
+        return switch (call.tool()) {
+            case BrowserToolPolicy.TYPE -> List.of("text");
+            case BrowserToolPolicy.SET_DATE -> List.of("date");
+            case BrowserToolPolicy.SELECT_OPTION -> List.of("select");
+            case BrowserToolPolicy.FILL_FORM -> {
+                List<String> widgets = new ArrayList<>();
+                if (call.args().get("fields") instanceof List<?> list) {
+                    for (Object item : list) {
+                        if (item instanceof Map<?, ?> map) {
+                            Object type = map.get("type");
+                            widgets.add("textbox".equals(type) ? "text" : "combobox".equals(type) ? "select"
+                                    : type == null ? null : String.valueOf(type));
+                        }
+                    }
+                }
+                yield widgets;
+            }
+            default -> List.of();
+        };
+    }
+
+    /** 计划的几项（{@code update_state} 的 steps、旧的 {@code update_plan} 的 items）；状态写错时抛出。 */
+    private static List<ApplicationState.Step> steps(Object value) {
+        List<ApplicationState.Step> steps = new ArrayList<>();
+        for (Map<?, ?> item : maps(value)) {
+            String text = text(item.get("text"));
+            if (text == null) {
+                continue;
+            }
+            String status = text(item.get("status"));
+            if (status != null && !ApplicationState.STEP_STATUSES.contains(status)) {
+                throw new IllegalArgumentException("计划的 status 只能是 todo、doing、done、blocked");
+            }
+            steps.add(new ApplicationState.Step(text, status == null ? "todo" : status));
+        }
+        return steps;
+    }
+
+    /**
+     * C019 之前的申请：报告里已有的字段行放进字段清单（已填；「用户亲填」的是要用户填），报告那一行原样保留。
+     */
+    private static ApplicationState seeded(ApplicationState state, List<FillReportWriter.Field> rows) {
+        ApplicationState seeded = state;
+        int n = seeded.fields().size();
+        for (FillReportWriter.Field row : rows) {
+            String id;
+            do {
+                id = "f" + ++n;
+            } while (seeded.find(id).isPresent());
+            ApplicationState.Field field = switch (row) {
+                case FillReportWriter.Recorded r -> new ApplicationState.Field(id, null, r.label(), null, r.value(), null,
+                        ApplicationState.FILLED, null, null, new ApplicationState.ReportRow(r.page(), r.value(),
+                        r.source(), r.language(), r.confidence(), r.grade()));
+                case FillReportWriter.UserFilled u -> new ApplicationState.Field(id, null, u.label(), null, null, null,
+                        ApplicationState.NEEDS_USER, "C 级：由用户在浏览器里亲自填", null,
+                        new ApplicationState.ReportRow(u.page(), null, null, null, null, FactClass.C.name()));
+                case FillReportWriter.Filled f -> {
+                    FillReportWriter.Recorded r = FillReportWriter.asRecorded(f);
+                    yield new ApplicationState.Field(id, null, r.label(), null, f.value(), null, ApplicationState.FILLED,
+                            null, null, new ApplicationState.ReportRow(r.page(), r.value(), r.source(), r.language(),
+                            r.confidence(), r.grade()));
+                }
+            };
+            seeded = seeded.merge(field);
+        }
+        return seeded;
+    }
+
+    /** 一段说明的第一行（截到 160 个字），记在申请状态的字段上。 */
+    private static String firstLine(String text) {
+        String line = text == null ? "" : text.strip().split("\n", 2)[0].strip();
+        return line.length() > 160 ? line.substring(0, 160) + "…" : line;
+    }
+
     /** 每个字段填进去的值，顺序同 {@link BrowserTools.Call#fields()}。只在内存里用来写报告。 */
     private static List<String> values(BrowserTools.Call call) {
         Map<String, Object> args = call.args();
         return switch (call.tool()) {
             case BrowserToolPolicy.TYPE -> List.of(String.valueOf(args.getOrDefault("text", "")));
+            case BrowserToolPolicy.SET_DATE -> List.of(String.valueOf(args.getOrDefault("date", "")));
             case BrowserToolPolicy.SELECT_OPTION -> List.of(args.get("values") instanceof List<?> list
                     ? String.join("、", list.stream().map(String::valueOf).toList()) : "");
             case BrowserToolPolicy.FILL_FORM -> {
@@ -1042,6 +1453,7 @@ public final class HarnessLoop {
         Map<String, Object> args = new LinkedHashMap<>(call.args());
         switch (call.tool()) {
             case BrowserToolPolicy.TYPE -> args.computeIfPresent("text", (key, text) -> real.apply(text));
+            case BrowserToolPolicy.SET_DATE -> args.computeIfPresent("date", (key, date) -> real.apply(date));
             case BrowserToolPolicy.SELECT_OPTION -> args.computeIfPresent("values", (key, values) ->
                     values instanceof List<?> list ? list.stream().map(real).toList() : values);
             case BrowserToolPolicy.FILL_FORM -> args.computeIfPresent("fields", (key, fields) ->

@@ -95,11 +95,20 @@ class BrowserToolPolicyTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"close", ""})
-    void tabsMayNotCloseTabs(String action) {
+    @ValueSource(strings = {"delete", ""})
+    void tabsOnlyAllowsKnownActions(String action) {
         assertThatThrownBy(() -> BrowserToolPolicy.check("browser_tabs", Map.of("action", action, "index", 0)))
                 .isInstanceOf(ToolNotAllowedException.class)
-                .hasMessageContaining("action=list、new 或 select");
+                .hasMessageContaining("action=list、new、select 或 close");
+    }
+
+    /** 系统停下时关自己开的页（C011-fix 2026-10-24）：只按序号关；不给序号（关当前页）不行，模型调不到。 */
+    @Test
+    void theSystemClosesTabsOnlyByIndex() {
+        BrowserToolPolicy.check("browser_tabs", Map.of("action", "close", "index", 2));
+        assertThatThrownBy(() -> BrowserToolPolicy.check("browser_tabs", Map.of("action", "close")))
+                .isInstanceOf(ToolNotAllowedException.class);
+        rejected("browser_tabs", Map.of("action", "close", "index", 2), "只能由系统调用");
     }
 
     @Test
@@ -233,11 +242,17 @@ class BrowserToolPolicyTest {
     // browser_select_option
 
     @Test
-    void selectOptionOnlyOnComboboxOrListbox() {
+    void selectOptionOnDropdownTriggersAndSetDateOnDateBoxes() {
         allowed("browser_select_option", Map.of("target", "e4", "values", List.of("本科")));
         allowed("browser_select_option", Map.of("target", "e6", "values", List.of("上海")));
-        rejected("browser_select_option", Map.of("target", "e2", "values", List.of("x")), "角色 textbox");
+        // C016：自定义下拉的触发元素常是只读的 textbox；级联每层一个值；可以先输入再选
+        allowed("browser_select_option", Map.of("target", "e2", "values", List.of("广东", "深圳"), "search", true));
+        rejected("browser_select_option", Map.of("target", "e7", "values", List.of("x")), "角色 link");
+        rejected("browser_select_option", Map.of("target", "e4", "values", List.of()), "values");
         rejected("browser_select_option", Map.of("target", "e44", "values", List.of("x")), "不在最新快照里");
+        allowed("browser_set_date", Map.of("target", "e2", "date", "2023-09"));
+        rejected("browser_set_date", Map.of("target", "e2", "date", "2023年9月"), "YYYY-MM-DD");
+        rejected("browser_set_date", Map.of("target", "e5", "date", "2023-09-01"), "角色 checkbox");
     }
 
     // browser_file_upload

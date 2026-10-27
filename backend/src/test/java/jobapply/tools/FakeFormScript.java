@@ -128,7 +128,21 @@ final class FakeFormScript {
             return text("### Result\n\"brought to front\"");
         }
         Matcher ref = Pattern.compile("aria-ref=([a-z0-9]+)").matcher(code);
-        if (code.contains("elementFromPoint") && ref.find()) {
+        // C016 的固定脚本（PageScripts）：开头一行 const args = {…}; 后面是标记 // jobapply:<名字>
+        Matcher args = Pattern.compile("const args = (.*);\n").matcher(code);
+        Map<String, Object> input = args.find() ? map(JSON.readValue(args.group(1), Map.class)) : Map.of();
+        if (code.contains("jobapply:inspect")) {
+            return text("### Result\n{}");
+        }
+        if (code.contains("jobapply:select")) {
+            return text("### Result\n" + JSON.writeValueAsString(Map.of("status", "native", "values", input.get("values"))));
+        }
+        if (code.contains("jobapply:date") && ref.find()) {
+            McpSchema.CallToolResult set = fill(form, List.of(Map.of("target", ref.group(1), "value", input.get("date"))));
+            return Boolean.TRUE.equals(set.isError()) ? set
+                    : text("### Result\n{\"status\":\"set\",\"how\":\"native\",\"verified\":true}");
+        }
+        if (code.contains("jobapply:diagnose") && ref.find()) {
             return diagnose(form, ref.group(1));
         }
         if (code.contains("clicked the element directly") && ref.find()) {

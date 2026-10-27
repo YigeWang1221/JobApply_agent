@@ -27,14 +27,22 @@ jobapply:
       command: npx
       # 写操作的返回不附带快照、不写快照文件；console 只留错误；不返回图片；不收集页面注册的 WebMCP 工具。
       # 动作超时（等元素可见、稳定、能接收点击）从默认 5 秒放到 15 秒：真实招聘站点有加载遮罩，5 秒常常还没消失。
+      # 导航超时 25 秒（默认 60 秒）：比下面的 call-timeout 短，页面加载不完时先由 MCP 自己报导航超时（连接还好），
+      # 不等到整个调用没有回话。
       # --output-dir（storage/cache/playwright-mcp）由程序按 storage 追加；不加 --caps
-      # 远程调试模式（--cdp-endpoint chrome）：在 chrome://inspect/#remote-debugging 打开开关，只有第一次连接要确认，不用装扩展
+      # --init-page（storage/cache/playwright-init/no-bring-to-front.cjs）也由程序追加：切标签页时不把 Chrome 拉到所有应用前面（C011-fix）
+      # 启动时还带 NODE_OPTIONS=--require storage/cache/playwright-init/skip-unresponsive-tabs.cjs（C011-fix 2026-10-25）：
+      # Chrome 里睡着、卡住的标签页不再拖住连接（每页最多等 5 秒）和每次调用（取标题最多等 2 秒）
+      # 远程调试模式（--cdp-endpoint chrome）：连用户自己正在用的 Chrome（用户的 profile 和登录），在
+      # chrome://inspect/#remote-debugging 打开开关，只有第一次连接要确认，不用装扩展
       # 程序还会追加 --port <随机空闲端口> --host 127.0.0.1 --shared-browser-context（C011）：一个服务进程、一条 CDP 连接，
       # 每个申请 / 调研各开一个 HTTP 会话（自己的标签页），另有一个空闲会话保住连接，Chrome 只弹一次允许
       args: ["-y", "@playwright/mcp@0.0.83", "--cdp-endpoint", "chrome", "--snapshot-mode", "none", "--console-level", "error",
-             "--image-responses", "omit", "--no-webmcp", "--timeout-action", "15000"]
-      # 要长于 Chrome 等待用户同意第一次连接的时间
-      call-timeout: 60s
+             "--image-responses", "omit", "--no-webmcp", "--timeout-action", "15000", "--timeout-navigation", "25000"]
+      # 普通调用的超时：MCP 这么久没回话 = 浏览器卡住了（多半是 Chrome 里有标签页没响应），不当成断开、不重连（C011-fix）
+      call-timeout: 30s
+      # 建立连接：要长于 Chrome 等待用户同意第一次连接的时间
+      connect-timeout: 60s
   search:
     # 可选：本机 SearXNG 的地址（例如 http://127.0.0.1:8888）；不写时跳过这一级。Brave 的 key 在 storage/settings/.env 的 BRAVE_API_KEY
     searxng-url: ""
@@ -45,8 +53,12 @@ jobapply:
       enabled: false
       domains: []
   harness:
-    # Agent 循环的兜底上限：一次运行最多这么多次工具调用，到了让模型总结做到哪了，交给用户决定要不要继续
+    # Agent 循环的兜底上限：到了让模型总结做到哪了，交给用户决定要不要继续；0 = 不限。
+    # 下面两项是默认值：设置页「工具调用上限」改过后存在 storage/settings/tool-calls.yaml，以它为准（C018）
+    # 申请 Agent 一次运行最多这么多次工具调用
     tool-calls-per-run: 150
+    # 对话 Agent 每条消息（一轮）最多这么多次工具调用
+    tool-calls-per-message: 40
     # 重复操作的提醒（只在工具结果里告诉模型，不强制停）
     same-element-failures: 3
     same-result-repeats: 3

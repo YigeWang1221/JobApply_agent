@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import jobapply.config.ModelFactory;
 import jobapply.domain.AgentRun;
@@ -31,6 +32,8 @@ import org.springframework.ai.tool.ToolCallback;
 final class AgentLoop<R> {
 
     static final String SKIPPED = "没有执行：这一次运行已经结束。";
+    /** 到了工具调用上限时，给用户的回复末尾加上这句（C018）。 */
+    static final String RAISE_LIMIT = "（上限可以在 设置 → 模型 →「工具调用上限」里调大，或者设为不限。）";
 
     /**
      * 一个 Agent 和循环之间的约定。
@@ -113,7 +116,7 @@ final class AgentLoop<R> {
     private final ChatModel model;
     private final List<ToolCallback> tools;
     private final Clock clock;
-    private final int toolCallLimit;
+    private final IntSupplier toolCallLimit;
     private final boolean dropReplyWhenStopped;
     private final BooleanSupplier stop;
     private final LoopObserver observer;
@@ -124,15 +127,16 @@ final class AgentLoop<R> {
     private int calls;
 
     /**
-     * @param toolCallLimit        这一次运行最多执行多少次工具调用，到了让模型总结
+     * @param toolCallLimit        这一次运行最多执行多少次工具调用，到了让模型总结；0 或负数 = 不限。每次调模型之前都读一次，
+     *                             所以设置页改了以后在跑的运行下一步就用新值（C018）
      * @param dropReplyWhenStopped 调模型回来时用户已经要求停止：true 时丢掉这条回复直接停（申请 Agent）；false 时
      *                             照常记下回复，它的工具调用写「没有执行」，下一轮再停（对话 Agent）
      * @param history              到现在的对话（复制一份，之后的新对话都加在这份上）
      * @param appended             每一条新对话都交给它（对话 Agent 写进 transcript）
      * @param inbox                取走运行中用户插的话（C010）；没有时返回空
      */
-    AgentLoop(ChatModel model, List<ToolCallback> tools, Clock clock, int toolCallLimit, boolean dropReplyWhenStopped,
-              BooleanSupplier stop, LoopObserver observer, List<AgentRun.Turn> history,
+    AgentLoop(ChatModel model, List<ToolCallback> tools, Clock clock, IntSupplier toolCallLimit,
+              boolean dropReplyWhenStopped, BooleanSupplier stop, LoopObserver observer, List<AgentRun.Turn> history,
               Consumer<AgentRun.Turn> appended, Supplier<List<AgentRun.Turn>> inbox) {
         this.model = model;
         this.tools = tools;
@@ -154,7 +158,8 @@ final class AgentLoop<R> {
                 return agent.stopped();
             }
             heard(agent);
-            if (calls >= toolCallLimit) {
+            int limit = toolCallLimit.getAsInt();
+            if (limit > 0 && calls >= limit) {
                 return limitReached(agent);
             }
             ChatResponse response = call(agent);
@@ -191,7 +196,8 @@ final class AgentLoop<R> {
                 observer.done(call, result);
                 if (step.page() != null) {
                     agent.sawPage(step.page());
-                    latestPage = new Conversation.LatestPage(step.page(), toolTurn, call.id());
+                    // 弹出层视图时留住之前那份整页（C016 实跑后修正）
+                    latestPage = Conversation.LatestPage.next(latestPage, step.page(), toolTurn, call.id());
                 }
                 end = step.end();
             }

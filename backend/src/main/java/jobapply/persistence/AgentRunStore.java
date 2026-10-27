@@ -6,10 +6,15 @@ import java.util.Optional;
 import jobapply.domain.AgentRun;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * {@code storage/runs/<job-id>.json}：一次申请的运行状态（{@link AgentRun}）。是运行状态，不是记忆。
+ * <p>
+ * C019 之前的记录只有模型的计划 {@code plan}（一张 {@code {text, status}} 表），没有申请状态 {@code state}：
+ * 读的时候把它放进 {@code state.steps}，旧申请照样能接着做。
  */
 public final class AgentRunStore {
 
@@ -34,7 +39,12 @@ public final class AgentRunStore {
             return Optional.empty();
         }
         try {
-            return Optional.of(JSON.readValue(AtomicFiles.read(path), AgentRun.class));
+            JsonNode tree = JSON.readTree(AtomicFiles.read(path));
+            if (tree instanceof ObjectNode run && !run.has("state") && run.get("plan") != null
+                    && run.get("plan").isArray()) {
+                run.putObject("state").set("steps", run.get("plan"));
+            }
+            return Optional.of(JSON.treeToValue(tree, AgentRun.class));
         } catch (JacksonException e) {
             throw new StorageFormatException(path.toString(), "运行状态不是合法的 JSON：" + e.getClass().getSimpleName(), e);
         }

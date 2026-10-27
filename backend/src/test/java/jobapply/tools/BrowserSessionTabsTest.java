@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Path;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -63,7 +64,7 @@ class BrowserSessionTabsTest {
     }
 
     @Test
-    void listShowsOnlyThisJobsTabsAndTheUiSeesTheRest(@TempDir Path dir) {
+    void listShowsEveryTabAndMarksThisJobsOwn(@TempDir Path dir) {
         String apply = "https://jobs.acme-demo.com/apply/42";
         String usersOwn = "https://jobs.acme-demo.com/apply/99";
         FakeBrowser fake = FakeBrowser.create(dir).tabs(0, USER_TAB, usersOwn);
@@ -74,11 +75,63 @@ class BrowserSessionTabsTest {
             assertThat(fake.toolCalls()).isEmpty();
 
             session.open(apply, JOB);
-            // 给模型的列表只有它自己的页，序号是它自己的编号（C011：别人的页不给模型看）
-            assertThat(session.tabs(JOB)).extracting(BrowserSession.TabInfo::url).containsExactly(apply);
-            assertThat(session.tabs(JOB)).allMatch(BrowserSession.TabInfo::yours);
+            // 给模型的列表是 Chrome 里所有的页（浏览器里的序号），标出它自己的；用哪一页由提示词约束
+            assertThat(session.tabs(JOB)).extracting(BrowserSession.TabInfo::url).containsExactly(USER_TAB, usersOwn, apply);
+            assertThat(session.tabs(JOB)).filteredOn(BrowserSession.TabInfo::yours)
+                    .extracting(BrowserSession.TabInfo::url).containsExactly(apply);
             assertThat(session.tabs(JOB)).filteredOn(BrowserSession.TabInfo::inUse)
-                    .extracting(BrowserSession.TabInfo::index).containsExactly(0);
+                    .extracting(BrowserSession.TabInfo::index).containsExactly(2);
+            assertThat(session.tabs(OTHER)).filteredOn(BrowserSession.TabInfo::others)
+                    .extracting(BrowserSession.TabInfo::url).containsExactly(apply);
+            // 用户自己开着的页也能切过去，切过去后记在名下
+            assertThat(session.select(JOB, 1).url()).isEqualTo(usersOwn);
+            assertThat(session.tabs(JOB)).filteredOn(BrowserSession.TabInfo::yours)
+                    .extracting(BrowserSession.TabInfo::url).containsExactly(usersOwn, apply);
+            assertThat(session.unowned()).extracting(BrowserSession.TabInfo::url).containsExactly(USER_TAB);
+        }
+    }
+
+    /**
+     * 停下时只关自己开的页（C011-fix 2026-10-24）：停在提交前留下填好的那页给用户审阅，用户转交的页、用户自己的页从不关；
+     * 彻底结束时关掉自己开的所有页。关错了就是用户的表单或用户自己的页没了。
+     */
+    @Test
+    void stoppingClosesOnlyTabsTheOwnerOpenedAndKeepsTheFormForReview(@TempDir Path dir) {
+        String extra = "https://jobs.acme-demo.com/help";
+        String apply = "https://jobs.acme-demo.com/apply/42";
+        String usersOwn = "https://jobs.acme-demo.com/apply/99";
+        FakeBrowser fake = FakeBrowser.create(dir).tabs(0, USER_TAB, usersOwn);
+
+        try (BrowserSession session = new BrowserSession(fake.launch())) {
+            session.open(extra, JOB);
+            session.open(apply, JOB);
+            session.handOver(JOB, 1, usersOwn);
+
+            // 停在提交前：多开的那页关掉，正在用的表单、转交的页、用户自己的页都留着；焦点模拟关掉
+            session.leave(JOB, BrowserSession.Leave.KEEP_CURRENT);
+            assertThat(FakeBrowser.readJson(fake.scenarioFile).get("tabs")).isEqualTo(List.of(USER_TAB, usersOwn, apply));
+            assertThat(fake.calls("browser_run_code_unsafe"))
+                    .anySatisfy(args -> assertThat(String.valueOf(args.get("code"))).contains("enabled: false"));
+
+            // 接着做（用户要求修改）：新会话里按网址找回那一页
+            assertThat(session.ownsTab(JOB)).isTrue();
+            assertThat(session.snapshot(JOB).url()).isEqualTo(apply);
+
+            // 彻底结束（已投递）：自己开的都关掉，转交的、用户自己的不关
+            session.release(JOB);
+            assertThat(FakeBrowser.readJson(fake.scenarioFile).get("tabs")).isEqualTo(List.of(USER_TAB, usersOwn));
+            assertThat(session.ownsTab(JOB)).isFalse();
+        }
+    }
+
+    @Test
+    void unownedListForTheUi(@TempDir Path dir) {
+        String apply = "https://jobs.acme-demo.com/apply/42";
+        String usersOwn = "https://jobs.acme-demo.com/apply/99";
+        FakeBrowser fake = FakeBrowser.create(dir).tabs(0, USER_TAB, usersOwn);
+
+        try (BrowserSession session = new BrowserSession(fake.launch())) {
+            session.open(apply, JOB);
             assertThat(session.unowned()).extracting(BrowserSession.TabInfo::url).containsExactly(USER_TAB, usersOwn);
         }
     }
@@ -99,10 +152,10 @@ class BrowserSessionTabsTest {
 
             assertThat(session.snapshot(JOB).url()).isEqualTo(usersOwn);
 
-            // Job 已经有正在用的页时再交一页：不偷换它脚下的页，由模型按它自己的编号 select 过去
-            assertThat(session.handOver(JOB, 0, USER_TAB).index()).isEqualTo(1);
+            // Job 已经有正在用的页时再交一页：不偷换它脚下的页，由模型按浏览器里的序号 select 过去
+            assertThat(session.handOver(JOB, 0, USER_TAB).index()).isEqualTo(0);
             assertThat(session.snapshot(JOB).url()).isEqualTo(usersOwn);
-            assertThat(session.select(JOB, 1).url()).isEqualTo(USER_TAB);
+            assertThat(session.select(JOB, 0).url()).isEqualTo(USER_TAB);
             assertThat(session.snapshot(JOB).url()).isEqualTo(USER_TAB);
             assertThat(session.tabs(JOB)).filteredOn(BrowserSession.TabInfo::yours).hasSize(2);
             assertThat(session.tabs(OTHER)).noneMatch(BrowserSession.TabInfo::yours);

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  api, ApiError, awaitingSubmit, errorText, type ApplicationQuestion, type ApplicationStatus, type Asset,
-  type BrowserTab, type FileSlot,
-  type JobDetail, type JobEventView, type PlanItem, type ReplyBody, type ResumeChoice, type RoundView,
-  type SentAttachment,
+  api, ApiError, awaitingSubmit, errorText, type ApplicationQuestion, type ApplicationState, type ApplicationStatus,
+  type Asset, type BrowserTab, type FileSlot,
+  type JobDetail, type JobEventView, type ReplyBody, type ResumeChoice, type RoundView,
+  type SentAttachment, type StateField,
 } from "../api";
 import { Markdown } from "../chat/Markdown";
 import { ChatSkeleton } from "../chat/ChatSkeleton";
@@ -20,6 +20,12 @@ import {
 import { toast } from "../toast";
 
 const PLAN: Record<string, string> = { todo: "待做", doing: "进行中", done: "完成", blocked: "卡住" };
+// 申请状态里字段的状态（C019）：小标签的文字和样式
+const FIELD: Record<string, [string, string]> = {
+  todo: ["待填", "chip inp"], filled: ["已填", "chip"], verified: ["已核对", "chip good"],
+  needs_user: ["要问你", "chip wait"], skipped: ["跳过", "chip muted"],
+};
+const FIELD_DONE = new Set(["filled", "verified", "skipped"]);
 // 中断（应用重启前还在跑）和等你一样：回复后接着做。排队和在跑一样：能停止、不能回复
 const WAITING = new Set(["waiting_user", "ready", "failed", "interrupted"]);
 // 你已经提交了（等确认）：和后端 reply 的 409 同一条规则，不再回复申请 Agent。暂停的可以回复（接着做）
@@ -33,7 +39,7 @@ interface ReplyForm {
 }
 
 // 申请工作台（C005-ui.md「页面」，C006-fix 改成整屏）：和 Session 页同一套布局。中间是 Agent 每一步做了什么，
-// 底部输入框就是回复（文字 + 附件）；右栏是现在要你做的事：问题、上传位置、计划、报告、用量、事件。
+// 底部输入框就是回复（文字 + 附件）；右栏是现在要你做的事：问题、上传位置、进度（申请状态，C019）、报告、用量、事件。
 // Agent 停在最终提交前，不会替你点提交。新内容走 /api/events?job= 推送，断了浏览器自己重连
 export default function JobPage({ id }: { id: string }) {
   const [detail, setDetail] = useState<JobDetail | null>(null);
@@ -261,7 +267,7 @@ export default function JobPage({ id }: { id: string }) {
           )}
           <Rounds jobId={job.id} rounds={job.rounds ?? []} />
           <ResumeRank choice={job.resumeChoice ?? null} />
-          <Plan plan={status?.plan ?? []} />
+          <Progress state={status?.state ?? null} />
           {status && <HandTab jobId={job.id} />}
           {status && (ready || status.report) && <section className="sidesec"><Report jobId={job.id} /></section>}
           {status?.usage && (
@@ -294,18 +300,60 @@ function StatusNote({ status }: { status: ApplicationStatus | null }) {
   );
 }
 
-function Plan({ plan }: { plan: PlanItem[] }) {
-  if (plan.length === 0) {
+// 进度（C019）：申请状态的现在在哪一步、计划、按区域的字段清单。每轮存盘后推送 changed，跟着刷新。不显示值
+function Progress({ state }: { state: ApplicationState | null }) {
+  const steps = state?.steps ?? [];
+  const fields = state?.fields ?? [];
+  const notes = state?.notes ?? [];
+  if (!state?.stage && steps.length === 0 && fields.length === 0) {
     return null;
   }
+  const done = fields.filter((f) => FIELD_DONE.has(f.status ?? "")).length;
+  const asking = fields.filter((f) => f.status === "needs_user").length;
+  const sections = new Map<string, StateField[]>();
+  for (const field of fields) {
+    const name = field.section || "其它";
+    sections.set(name, [...(sections.get(name) ?? []), field]);
+  }
   return (
-    <section className="sidesec">
-      <strong className="small">计划</strong>
-      <ol className="questions">
-        {plan.map((item, index) => (
-          <li key={index}><span><span className="muted small">[{PLAN[item.status] ?? item.status}]</span> {item.text}</span></li>
-        ))}
-      </ol>
+    <section className="sidesec progress">
+      <strong className="small">进度</strong>
+      {state?.stage && <p className="small">现在在：{state.stage}</p>}
+      {fields.length > 0 && (
+        <p className="muted small">字段 {done}/{fields.length} 好了{asking > 0 && <> · <span className="warn">要问你 {asking}</span></>}</p>
+      )}
+      {steps.length > 0 && (
+        <ol className="questions">
+          {steps.map((item, index) => (
+            <li key={index}><span><span className="muted small">[{PLAN[item.status] ?? item.status}]</span> {item.text}</span></li>
+          ))}
+        </ol>
+      )}
+      {[...sections.entries()].map(([name, list]) => {
+        const left = list.filter((f) => !FIELD_DONE.has(f.status ?? "")).length;
+        return (
+          <details key={name} open={left > 0}>
+            <summary className="small">{name} <span className="muted">{list.length - left}/{list.length}</span></summary>
+            <ul className="checklist">
+              {list.map((field) => {
+                const [text, cls] = FIELD[field.status ?? "todo"] ?? [field.status ?? "", "chip"];
+                return (
+                  <li key={field.id}>
+                    <span className={cls}>{text}</span> <span>{field.label}</span>
+                    {field.note && <span className="muted small"> · {field.note}</span>}
+                  </li>
+                );
+              })}
+            </ul>
+          </details>
+        );
+      })}
+      {notes.length > 0 && (
+        <details>
+          <summary className="small">决定和站点规律 <span className="muted">{notes.length}</span></summary>
+          <ul className="checklist">{notes.map((note, index) => <li key={index} className="small">{note}</li>)}</ul>
+        </details>
+      )}
     </section>
   );
 }

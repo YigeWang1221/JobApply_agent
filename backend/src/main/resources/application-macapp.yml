@@ -1,0 +1,25 @@
+# 只在 macOS App 里生效（--spring.profiles.active=macapp，plan/coding/C017-macos-app.md 第 2 节）。
+# JOBAPPLY_RESOURCES 由 Swift 外壳传入，是 JobApply.app/Contents/Resources
+server:
+  # 端口固定：开发版后端在跑时 App 报「端口被占」，避免两个后端同时写一份 storage
+  port: 8088
+
+spring:
+  web:
+    resources:
+      # 界面（frontend/dist）由 Spring Boot 直接给，/ 就是 index.html
+      static-locations: file:${JOBAPPLY_RESOURCES}/web/
+
+jobapply:
+  api:
+    allowed-origins: ["http://127.0.0.1:8088", "http://127.0.0.1:5173", "http://localhost:5173"]
+  app:
+    # 没有命令行 / 环境变量指定、也没有 app.yaml 时，界面先让用户选数据位置（C017 第 3 节）
+    require-storage-choice: true
+  browser:
+    mcp:
+      # App 自带的 node 和预装的 @playwright/mcp@0.0.83（npm install -g --prefix Resources/node）；其余参数同 application.yml
+      command: ${JOBAPPLY_RESOURCES}/node/bin/node
+      args: ["${JOBAPPLY_RESOURCES}/node/lib/node_modules/@playwright/mcp/cli.js", "--cdp-endpoint", "chrome",
+             "--snapshot-mode", "none", "--console-level", "error", "--image-responses", "omit", "--no-webmcp",
+             "--timeout-action", "15000", "--timeout-navigation", "25000"]

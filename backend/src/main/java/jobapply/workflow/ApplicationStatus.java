@@ -2,6 +2,7 @@ package jobapply.workflow;
 
 import java.util.List;
 import jobapply.domain.AgentRun;
+import jobapply.domain.ApplicationState;
 import jobapply.persistence.AssetRegistry;
 
 /**
@@ -17,7 +18,7 @@ import jobapply.persistence.AssetRegistry;
  * @param attachments  这个申请已经上传的附件（上传位置也可以选它们：{@code files} 里写 {@code attachment:<id>}）
  * @param disconnected 在等你（或中断了），而浏览器现在断着：从全局的连接状态推出来（C006-fix-browser 第 1 节），
  *                     回复或者点顶部的「重新连接」时再连
- * @param plan         模型的计划和进度
+ * @param state        申请状态（C019）：现在在哪一步、计划、字段清单和每个字段的状态；工作台侧栏的「进度」
  * @param report       填写报告：{@code draft | final}；还没有时为 null（正文用 {@code GET .../report}）
  * @param error        失败的原因
  * @param inserted     运行中插了、Agent 还没看到的话（C010）
@@ -33,7 +34,7 @@ public record ApplicationStatus(
         List<AssetRegistry.Asset> assets,
         List<Attachment> attachments,
         boolean disconnected,
-        List<AgentRun.PlanItem> plan,
+        ApplicationState state,
         AgentRun.Usage usage,
         String prepState,
         String report,

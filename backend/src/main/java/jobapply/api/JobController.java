@@ -141,6 +141,7 @@ public class JobController {
         // 申请 Agent 还在填时用户已经自己提交了：先请它停下
         applications.statusIfAny(id).ifPresent(status -> applications.stop(id));
         Job next = ledger.markSubmitted(job.project(), id, sessionOf(job), request == null ? null : request.note());
+        applications.closeTabs(id);
         return view(next);
     }
 
@@ -164,6 +165,9 @@ public class JobController {
                 ? new Transition.Close(Outcome.NOT_SUBMITTED, note == null ? "用户说不投了" : note)
                 : new Transition.ChangePrepState(PrepState.PAUSED, note == null ? "用户说还没提交" : note);
         Job next = ledger.transition(job.project(), id, sessionOf(job), Actor.USER, transition);
+        if (giveUp) {
+            applications.closeTabs(id);
+        }
         return view(next);
     }
 
@@ -188,6 +192,7 @@ public class JobController {
             transition = new Transition.MarkLead(LeadStatus.CLOSED, note);
         }
         Job next = ledger.transition(job.project(), id, sessionOf(job), Actor.USER, transition);
+        applications.closeTabs(id);
         return view(next);
     }
 

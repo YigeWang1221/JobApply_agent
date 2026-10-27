@@ -38,6 +38,8 @@
 
 ## storage 目录
 
+**位置由用户选（用户确认，2026-10-27，C017）**：storage 根目录可以是任意文件夹，记在 storage 外面的 `~/Library/Application Support/JobApply/app.yaml`（只有 `storageRoot` 一项，不放密钥）。取值顺序：命令行 / 环境变量 `JOBAPPLY_STORAGE_ROOT` → `app.yaml` → 默认（开发时 `../storage`）。首次打开 App 和设置页里选；换位置要重启后端，不复制、不移动旧数据。`settings/.env`、`settings/personal.env` 跟着所选的 storage 走。
+
 ```text
 storage/                              # 整个目录被主仓库 .gitignore 忽略
 │

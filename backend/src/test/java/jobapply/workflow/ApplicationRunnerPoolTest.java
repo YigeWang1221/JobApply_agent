@@ -172,7 +172,7 @@ class ApplicationRunnerPoolTest {
             storage.project(PROJECT, "live");
             session = storage.session(PROJECT);
             fake = FakeBrowser.create(dir.resolve("browser"));
-            limits = new HarnessProperties(null, null, null, null, workers, perSite);
+            limits = new HarnessProperties(null, null, null, null, workers, perSite, null);
         }
 
         ApplicationRunner runner(BrowserSession browser) {

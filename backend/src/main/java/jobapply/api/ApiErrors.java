@@ -19,6 +19,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
@@ -119,10 +120,29 @@ class ApiErrors {
         return error(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "写接口只接受 Content-Type: application/json");
     }
 
+    /**
+     * 别的都没接住的错误：500。客户端已经走了（页面刷新或关掉，写响应时连接断开，Spring 把它包成
+     * {@code HttpMessageNotWritableException … Broken pipe}）时不是接口出错：记一行 DEBUG，什么都不再写。
+     * 只认异常链上的 {@link AsyncRequestNotUsableException}，不按「broken pipe」的文字认，免得往外调 MCP / 模型时
+     * 真的断了也被当成客户端走了。
+     */
     @ExceptionHandler(RuntimeException.class)
     ResponseEntity<Map<String, String>> unexpected(RuntimeException e) {
+        if (clientGone(e)) {
+            log.debug("客户端已经断开，响应没有写出去：{}", e.getMessage());
+            return null;
+        }
         log.error("接口出错", e);
         return error(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+    }
+
+    private static boolean clientGone(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause() == t ? null : t.getCause()) {
+            if (t instanceof AsyncRequestNotUsableException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static ResponseEntity<Map<String, String>> error(HttpStatus status, String message) {
