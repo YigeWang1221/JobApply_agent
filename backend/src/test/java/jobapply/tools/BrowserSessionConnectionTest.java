@@ -10,7 +10,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * 浏览器连接属于应用（用户确认，2026-10-23）：一条共享连接给所有 Job 用（C011：每个 Job 自己一个 MCP 会话），不会自己关掉再重新申请。用过的连接断开后下一次
- * 使用自动重连一次；建立失败（包括那一次重连）以后不再自己重试，等用户点「重新连接」或发下一条消息（C006-fix-browser）。
+ * 使用自动重连一次；第一次建立失败以后下一次使用也自动再连一次（C011-fix 2026-10-25）；那一次也失败就不再自己重试，等用户点
+ * 「重新连接」或发下一条消息（C006-fix-browser）。
  * 对真实的子进程 {@link FakePlaywrightMcpServer}（本机回环地址上的 Streamable HTTP）；不访问网络，不启动 Chrome，不调用 npx。
  */
 class BrowserSessionConnectionTest {
@@ -40,20 +41,25 @@ class BrowserSessionConnectionTest {
     }
 
     @Test
-    void aFailedConnectionIsNotRetriedUntilTheUserReconnects() {
+    void aFailedConnectionIsRetriedOnceOnTheNextUseThenWaitsForTheUser() {
         FakeBrowser fake = FakeBrowser.create(dir).form("multi-page")
                 .toolError("Error: async initializeServer: Could not connect to chrome.");
 
         try (BrowserSession session = new BrowserSession(fake.launch(Duration.ofSeconds(3)))) {
             assertThatThrownBy(() -> session.open(fake.formUrl(), FIRST))
+                    .isInstanceOf(BrowserException.Disconnected.class)
+                    .hasMessageContaining("连不上 Chrome");
+            // 第一次失败不算放弃：下一次使用自己再连一次
+            assertThatThrownBy(() -> session.open(fake.formUrl(), FIRST))
                     .isInstanceOf(BrowserException.Disconnected.class);
+            assertThat(fake.starts()).isEqualTo(2);
             int callsAfterFailure = fake.toolCalls().size();
 
             assertThatThrownBy(() -> session.open(fake.formUrl(), SECOND))
                     .isInstanceOf(BrowserException.Disconnected.class)
                     .hasMessageContaining("还没有重新连上");
-            assertThat(fake.toolCalls()).as("等用户重连期间不再碰 MCP").hasSize(callsAfterFailure);
-            assertThat(fake.starts()).isEqualTo(1);
+            assertThat(fake.toolCalls()).as("自动重连也失败后，等用户期间不再碰 MCP").hasSize(callsAfterFailure);
+            assertThat(fake.starts()).isEqualTo(2);
             assertThat(session.state().disconnected()).isTrue();
             assertThat(session.isConnected()).isFalse();
 
@@ -61,7 +67,7 @@ class BrowserSessionConnectionTest {
             session.reconnect();
             session.open(fake.formUrl(), SECOND);
 
-            assertThat(fake.starts()).as("用户重连时才建立第二条连接").isEqualTo(2);
+            assertThat(fake.starts()).as("用户重连时才再建立连接").isEqualTo(3);
             assertThat(session.state().connected()).isTrue();
         }
     }

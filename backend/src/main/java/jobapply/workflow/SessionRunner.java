@@ -293,13 +293,17 @@ public final class SessionRunner implements AutoCloseable {
             throw new ApplicationException.Conflict("还有对话在运行：" + String.join("、", busy) + "。先停止，再删除");
         }
         List<String> sessionIds = layout.sessionIds(projectId);
-        applications.whileIdle(layout.jobIds(projectId), () -> trash.moveProject(projectId));
+        List<String> jobIds = layout.jobIds(projectId);
+        applications.whileIdle(jobIds, () -> trash.moveProject(projectId));
         sessionIds.forEach(this::forget);
+        // 删掉的 Job 停在提交前留着的页也关掉（C011-fix 2026-10-24）
+        jobIds.forEach(applications::closeTabs);
         events.changed(null, null);
     }
 
     /** 删掉的 Session 在内存里剩下的东西。调用方持有锁。 */
     private void forget(String sessionId) {
+        browser.release(sessionId);
         pendingReports.remove(sessionId);
         inbox.take(sessionId);
         stopRequested.remove(sessionId);
@@ -370,7 +374,7 @@ public final class SessionRunner implements AutoCloseable {
                 List<AgentRun.Turn> history = sessions.readTurns(projectId, sessionId).stream()
                         .map(SessionRepository.TimedTurn::turn).toList();
                 SessionLoop loop = new SessionLoop(mainModel.get(), browser, layout, clock, search, fetch,
-                        applicationTools(), events::changed);
+                        applicationTools(), events::changed, applications.toolCallLimits()::perMessage);
                 loop.run(projectId, sessionId, history, () -> stopRequested(sessionId),
                         turn -> sessions.appendTurn(projectId, sessionId, turn), events.observer(sessionId, null),
                         () -> inbox.take(sessionId));
@@ -378,6 +382,8 @@ public final class SessionRunner implements AutoCloseable {
                 error = rootMessage(e);
                 log.warn("Session {} 的对话 Agent 出错：{}", sessionId, error);
             }
+            // 这次做完：关掉调研开的页和 MCP 会话，下一次要用时再开（C011-fix 2026-10-24）
+            browser.leave(sessionId, BrowserSession.Leave.CLOSE_ALL);
             boolean again = false;
             synchronized (this) {
                 try {
@@ -457,6 +463,11 @@ public final class SessionRunner implements AutoCloseable {
             @Override
             public void stop(String job) {
                 applications.statusIfAny(job).ifPresent(status -> applications.stop(job));
+            }
+
+            @Override
+            public void closeTabs(String job) {
+                applications.closeTabs(job);
             }
 
             @Override

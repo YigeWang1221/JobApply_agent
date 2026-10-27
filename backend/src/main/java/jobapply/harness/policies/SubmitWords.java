@@ -15,9 +15,17 @@ public final class SubmitWords {
 
     /** 硬边界：按钮可能完成提交，由用户自己点。 */
     static final List<String> HARD_ZH = List.of(
-            "提交", "投递", "申请", "确认", "确定", "递交", "完成", "发送", "预览并提交", "立即申请", "确认意向");
+            "提交", "投递", "申请", "递交", "发送", "预览并提交", "立即申请", "确认意向");
     static final List<String> HARD_EN = List.of(
-            "submit", "apply", "send", "finish", "confirm", "complete", "finalize", "done");
+            "submit", "apply", "send", "finish", "complete", "finalize");
+
+    /**
+     * 确认类（C006-fix-real-run 第 18 条，用户决定放行，2026-10-25）：对话框、卡片、日期面板、级联里的「确定」「完成」
+     * 「确认」「OK」，和「保存」一样是软边界，由模型判断（{@code final_step_suspected}）。名字里同时有硬边界词的（「确认提交」
+     * 「完成投递」）仍是硬边界；所在对话框的文字在问要不要提交 / 投递时也仍是硬边界（{@link SubmitGuard#readOnly}）。
+     */
+    static final List<String> CONFIRM_ZH = List.of("确认", "确定", "完成");
+    static final List<String> CONFIRM_EN = List.of("confirm", "done", "ok");
 
     /** 软边界：「下一步 / 保存」一类，要看模型给的判断。往前走的（下一步）和保存的分开：页面上的硬信号只对往前走的算。 */
     static final List<String> NEXT_ZH = List.of("下一步", "下一页", "继续");
@@ -63,7 +71,12 @@ public final class SubmitWords {
     }
 
     public static boolean isSoft(String name) {
-        return isNext(name) || matches(normalize(name), SAVE_ZH, SAVE_EN);
+        return isNext(name) || isConfirm(name) || matches(normalize(name), SAVE_ZH, SAVE_EN);
+    }
+
+    /** 软边界里确认类的那种（确定、完成、确认、Confirm、Done、OK）。 */
+    public static boolean isConfirm(String name) {
+        return matches(normalize(name), CONFIRM_ZH, CONFIRM_EN);
     }
 
     /** 软边界里往前走的那种（下一步、继续、Next）：可能直接把申请交出去。 */

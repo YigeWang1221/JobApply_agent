@@ -124,6 +124,11 @@ public record StorageLayout(Path root) {
         return settingsDir().resolve("workers.yaml");
     }
 
+    /** 工具调用上限（C018，设置页写入）。 */
+    public Path toolCallsYaml() {
+        return settingsDir().resolve("tool-calls.yaml");
+    }
+
     /** API key（开发代理不读）。 */
     public Path envFile() {
         return settingsDir().resolve(".env");

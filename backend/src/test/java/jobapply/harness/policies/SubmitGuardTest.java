@@ -78,14 +78,55 @@ class SubmitGuardTest {
     // 提交类按钮
 
     @ParameterizedTest
-    @ValueSource(strings = {"提交", "提交申请", "投递简历", "立即申请", "预览并提交", "确认意向", "确认", "Submit",
-            "SUBMIT APPLICATION", "  submit  ", "Apply", "Apply now", "Send", "Finish", "Confirm", "Done",
+    @ValueSource(strings = {"提交", "提交申请", "投递简历", "立即申请", "预览并提交", "确认意向", "确认提交", "Submit",
+            "SUBMIT APPLICATION", "  submit  ", "Apply", "Apply now", "Send", "Finish", "确定投递", "完成申请",
             "ｓｕｂｍｉｔ", "提　交", "保存并提交", "Save and submit", "继续申请"})
     void submitButtonsAreRejected(String name) {
         GuardDecision decision = click(name);
 
         assertThat(decision).as(name).isInstanceOf(GuardDecision.Reject.class);
         assertThat(((GuardDecision.Reject) decision).reason()).contains("由用户自己点").contains("不要重试");
+    }
+
+    // 确认类按钮（C006-fix-real-run 第 18 条，用户决定放行，2026-10-25）：交给模型判断；问要不要提交的对话框里仍然拒绝
+
+    @ParameterizedTest
+    @ValueSource(strings = {"确定", "确 定", "完成", "确认", "Confirm", "Done", "OK"})
+    void confirmButtonsInPanelsAndCardsAreLeftToTheModel(String name) {
+        PageSnapshot latest = page("- generic [ref=e1]:\n  - grid \"2025年9月\" [ref=e5]\n  - button \"" + name
+                + "\" [ref=e2]\n- button \"提交申请\" [ref=e3]");
+
+        assertThat(SubmitGuard.click(latest, "e2")).as(name).isInstanceOf(GuardDecision.Explain.class);
+        assertThat(SubmitGuard.click(latest, "e2", new ClickIntent("confirm", false, "日期面板的确定"), null)).as(name)
+                .isInstanceOf(GuardDecision.Allow.class);
+        assertThat(SubmitGuard.click(latest, "e2", new ClickIntent("confirm", true, "像是最后一步"), null)).as(name)
+                .isInstanceOf(GuardDecision.AskUser.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"确定", "确 定", "确认", "OK", "Confirm"})
+    void aConfirmInADialogAskingToSubmitTheApplicationIsStillRejected(String name) {
+        PageSnapshot submit = page("""
+                - main [ref=e1]:
+                  - textbox "姓名" [ref=e4]
+                - dialog "提示" [ref=e5]:
+                  - text: 确认提交申请？提交后不可修改
+                  - button "取消" [ref=e6]
+                  - button "%s" [ref=e2]""".formatted(name));
+        PageSnapshot deliver = page("""
+                - dialog [ref=e5]:
+                  - generic [ref=e7]:
+                    - text: 确定投递该职位吗？
+                  - generic [ref=e8]:
+                    - button "取消" [ref=e6]
+                    - button "%s" [ref=e2]""".formatted(name));
+
+        for (PageSnapshot latest : new PageSnapshot[]{submit, deliver}) {
+            assertThat(SubmitGuard.click(latest, "e2", NOT_LAST, null)).as(name).isInstanceOf(GuardDecision.Reject.class);
+            assertThat(SubmitGuard.click(latest, "e2", NOT_LAST, new SubmitGuard.Approval(latest.url(), "e2", name)))
+                    .as(name).isInstanceOf(GuardDecision.Reject.class);
+            assertThat(SubmitGuard.readOnly(latest, "e2")).as(name).isInstanceOf(GuardDecision.Reject.class);
+        }
     }
 
     @Test

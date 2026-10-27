@@ -430,10 +430,12 @@ final class Views {
             case "read_skill" -> string(args.get("name"));
             case "ask_user" -> "交给用户";
             case "update_plan" -> "更新计划";
+            case "update_state" -> args.get("stage") instanceof String stage && !stage.isBlank() ? "更新申请状态：" + stage.strip()
+                    : "更新申请状态";
             case "finish" -> "停在提交前";
             case "browser_fill_form" -> args.get("fields") instanceof List<?> list ? "填写 " + list.size() + " 个字段" : null;
             case "browser_file_upload" -> "上传文件";
-            case "browser_click", "browser_type", "browser_select_option" -> {
+            case "browser_click", "browser_type", "browser_select_option", "browser_set_date" -> {
                 String label = string(args.get("name"));
                 yield label != null ? label : string(args.get("element"));
             }

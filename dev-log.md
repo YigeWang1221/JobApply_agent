@@ -887,3 +887,167 @@
 - 正文复读、本地链接、代码围栏、标题检查及 git diff --check 通过；应用测试未运行（纯文案）。
 
 - 2026-10-24 · C015：README 两处 SillyTavern 添加官方仓库链接，核对页面可访问及 git diff --check；应用测试未运行（仅链接）。
+
+
+## 2026-10-24 · C011-fix 方案 B：JobApply 自己的 Chrome 窗口；卡住和断开分开
+
+- 指令：用户选 C011-fix 方案 B（MCP 不再连用户正在用的 Chrome，改为自己启动带持久 profile 的 Chrome 窗口），加两条路共同的部分（MCP 请求超时不当断开、「重新连接」先问原连接、普通调用超时缩短、导航超时更短）；用户的指令同时确认 master 里相应说法的修改。
+- 结果：
+  - 启动参数改成 `--browser chrome`，程序追加 `--user-data-dir storage/cache/chrome-profile`（被 Git 忽略，不随输出目录清空），`--timeout-navigation 25000`；`call-timeout` 60s → 30s，新增 `connect-timeout: 60s`（保活会话和等端口用）。
+  - 新增 `BrowserException.Stalled` 和状态 `stalled`：超时不关进程、不重连、不清记录；有调用答话就回到已连接；「重新连接」先问保活会话，答不了才重建；服务进程已退出时的超时仍算断开。申请 Agent 卡住时停下等你，对话 Agent 这一步失败接着做；`/api/browser/tabs` 卡住时 503。
+  - 资料目录被占、没装 Chrome、启动失败算断开并说明怎么办。`Server.close()` 最多等 5 秒让 Chrome 正常退出。
+  - 面向用户和模型的「chrome://inspect 远程调试开关」说法去掉，登录提示改成「在 JobApply 的 Chrome 窗口里登录一次，之后会记住」；前端顶部状态条显示「浏览器卡住了」。
+  - 文档：C011-fix「实际结果」；master `base.md`、`workflow.md`、`agent-runtime.md`、`memory.md`、`ui.md`；README 里变成不对的几句。`architecture.md` 没有相关内容，未改。
+- 验证：
+  - `JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home mvn -B -q clean verify`（`backend/`）：第一次退出码 1，`DeleteSessionProjectTest` 的存储快照碰上 playbook 写入中的临时文件（与本次改动无关的竞态）；第二次退出码 0。
+  - `npm run build`（`frontend/`）：退出码 0。
+  - 本机冒烟（代理执行；临时资料目录；只开 127.0.0.1 本地页面；不访问外网、不登录、不提交）：Chrome 有窗口启动、开页、列标签页正常；重启后资料目录还在、照常启动。本地死循环页面让渲染进程卡死 → 调用报 `Stalled`、状态 `stalled`、没有重启；仍卡着时「重新连接」→ 重建成功（第 2 次连接）。结束 Chrome 主进程 → MCP 下一次调用自己重开 Chrome，旧标签页报 `TabLost`。结束后无残留 Chrome 进程。
+  - 用户本机真实招聘网站、闲置后再用：未运行。
+- 细节：[C011-fix 实际结果](plan/coding/C011-fix-stuck-tab.md)。
+
+
+## 2026-10-24 · C011-fix 撤回方案 B，保留卡住 / 断开分开
+
+- 指令：用户试用方案 B 后要求改回在用户正在用的 Chrome 上工作，并把这条写进 AGENTS.md。
+- 结果：停掉了运行中的方案 B 版本应用、它的 MCP 和它启动的 Chrome（用户自己的 Chrome 没动）。撤回 `--browser chrome` / `--user-data-dir` 及相关代码、提示词、skill、界面文字、master plan 和 README 的改动；保留 `Stalled` / `stalled`、超时 30 / 60 秒、导航 25 秒。AGENTS.md「Agent 开发原则」加两条：浏览器就是用户正在用的 Chrome；不为安全把系统改坏。
+- 验证：`backend/` 下 `JAVA_HOME=… mvn -B -q clean verify` 退出码 0；`frontend/` 下 `npm run build` 通过。用户真实 Chrome 上的试用：未运行。
+
+## 2026-10-24 · C011-fix 标签页全部可见；删除方案 B 的资料目录
+
+- 指令：删掉 `storage/cache/chrome-profile/`；让 Agent 看到 Chrome 里所有的标签页，用哪一页交给提示词。
+- 结果：删除了方案 B 留下的资料目录（53 MB，被 Git 忽略）。`browser_tabs list` 列出全部标签页并标出「你的」「别的任务在用」，`select` 能切到任何一页；提示词、skill、工具说明、`workflow.md` 相应改写。细节见 C011-fix「标签页全部可见」。
+- 验证：`backend/` 下 `JAVA_HOME=… mvn -B -q clean verify` 退出码 0。用户真实 Chrome：未运行。
+
+## 2026-10-24 · C016 下拉、级联、日期（A–G 一次施工）
+
+- 指令：用户确认 C016：沿用 `browser_select_option`；`PlaybookSeeder` 按 skill 的 version 覆盖旧副本；随后改为 A–G 同一次施工（日期工具、打开弹出层后只给弹出层、来回提醒都做），不提交。
+- 结果：
+  - A：超时检查报只读 / 禁用 / 原生 select，弹出层只算真有选项或对话框的浮层；`browser_type` / `browser_fill_form` 发出前一次只读检查，只读框、禁用框、非输入框、fill_form 里的自定义下拉不发，结果写明哪些没填和原因，其余照常填。
+  - B：`browser_select_option` 能选原生 select、自定义下拉、可搜索 / 远程搜索下拉、级联（values 每层一个，可选 `search`）；选不中、有歧义时不点，返回这一层的选项原文；不回显值。target 是 button / generic 时先过点击守卫。
+  - C：`browser_type` 的 schema 给出 `slowly`。
+  - D：`ApplyAgent` 下拉 / 日期 / 点不动三条重写；skill `date-picker`、`readonly-select`、`cascader-city`、`apply-form` 改写并 version 1 → 2；`PlaybookSeeder` 在预置 version 更高时覆盖本机副本，相同 / 更高 / 没有 version 时不动。
+  - E：新工具 `browser_set_date`（原生框设 ISO；能键入的按占位符格式键入 + Tab；只读的点开面板、经年份表 / 月份表跳过去再点日期；要「确定」时返回给模型，不点）。
+  - F：新文件 `harness/context/PopupView.java`：点击 / 键入后打开了弹出层时，给模型的快照只留弹出层和一行说明；判断不了时给整页。
+  - G：`LoopDetector` 加来回提醒（最近 8 步同一元素 ≥3 次且中间有 Escape 或失败），只提醒。
+  - 固定脚本都在新文件 `tools/PageScripts.java`；每项的文件清单见 C016「实际结果」。
+- 验证：
+  - `backend/` 下 `JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home mvn -B -q clean verify`：第一次退出码 1（3 个测试编码旧行为：工具清单、select 角色、选原生下拉的调用序列），改测试后第二次退出码 0。之后只改了 HarnessLoop 里 target 守卫的角色条件，再跑第三、四次：同一工作区里另一项任务（C011-fix：去掉切前台 / 焦点模拟、标签页 close）正在改 `OwnerBrowser` / `PlaywrightMcpClient` / 白名单，第三次编译失败（`focusEmulation` / `bringToFront` 找不到），第四次退出码 1，失败在 `BrowserSessionActTest`（调用序列少了最后一次 `browser_tabs`）、`PlaywrightMcpClientTest` 两项、`BrowserToolPolicyTest.tabsMayNotCloseTabs`，都属于那项进行中的改动，C016 的部分在失败输出里符合预期。C016 改动本身在第二次的全量验证里通过。
+  - 新增测试一个：`PlaywrightMcpClientTest.scriptArgumentsSurviveQuotesBackslashesAndNewlines`。
+  - 本地脚本检查（代理执行，headless Chromium，只开 scratchpad 里的本地 HTML，未连用户的 Chrome，进程已退出）：原生 select、ARIA listbox、li 长列表滚动、两列级联、远程搜索、antd3 式只读日期面板（近月箭头、跨年、跨十年）、原生 month / date、按占位符键入，结果都符合预期；Java 里的脚本文本和检查过的 JS 逐字相同。
+  - 真实招聘网站：未运行。
+
+## 2026-10-24 · C011-fix 浏览器越用越卡、抢焦点
+
+- 指令：用户批准一次做完：停下时关 Agent 自己开的标签页、释放 MCP 会话；焦点模拟只留在正在用的页；去掉抢焦点（含动作超时后的切前台）；少列一次标签页；接口里客户端断开的 Broken pipe 不再记 ERROR。不提交。
+- 结果：
+  - 关页：`browser_tabs close` 只由系统按序号发；`BrowserSession.leave / release`（`Leave`：KEEP_ALL / KEEP_CURRENT / CLOSE_ALL）。申请停在提交前只留填好的那页，等你 / 出错页都留着，已投递 / 不投了 / 岗位下线 / Project 删除时全部关掉；调研每次运行结束关掉；用户转交的页、用户自己的页不关；停下时都关掉焦点模拟和 MCP 会话。
+  - 焦点模拟：每页一个缓存的 CDP 会话，新增关掉的模板，切走、停下时关。
+  - 抢焦点：新资源 `browser/no-bring-to-front.cjs`，启动时写到 `storage/cache/playwright-init/`，追加 `--init-page`（0.0.83 源码核对过加载方式和作用范围）；去掉我们的 `BRING_TO_FRONT`。
+  - 少列：只读操作（快照、查找、等待、填写前检查）不先列，从返回核对；写操作前的列表保留（不列会写到别人的页上）。
+  - `ApiErrors`：异常链上有 `AsyncRequestNotUsableException` 时记 DEBUG、不写响应。
+  - 细节、文件清单、源码依据见 C011-fix「浏览器越用越卡、抢焦点」；`C011-concurrent-workers.md` 5.1 / K1、`workflow.md` 两处补了说明。
+- 验证：
+  - `backend/` 下 `JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home mvn -B -q clean verify`：第一次退出码 1（测试编译：AssertJ 没有 `doesNotStartWith`），第二次退出码 1（`BrowserToolPolicyTest.tabsMayNotCloseTabs` 编码旧行为），改测试后第三次退出码 0（合并了 C016 之后的整棵树）；改完 application.yml 注释后第四次退出码 0。
+  - 新增测试 `BrowserSessionTabsTest.stoppingClosesOnlyTabsTheOwnerOpenedAndKeepsTheFormForReview`。
+  - 用户真实 Chrome：未运行。前端：未改，`npm run build` 未运行。
+
+## 2026-10-25 · C011-fix 卡住不再停下申请
+
+- 指令：用户否决「浏览器卡住就停下申请」（多一个断点，违反 AGENTS.md）。
+- 结果（协调代理改的代码）：`HarnessLoop.stalled` 返回普通的失败工具结果，由模型决定重试、取快照、重新打开还是问用户；`startPage` 卡住时补一句叫模型再 `browser_navigate`；删掉 `stalledRun`。`SessionLoop.stalled` 去掉「先别再用浏览器工具」。记在 C011-fix「卡住不再停下申请」。
+- 验证：`backend/` 下 `mvn -B -q clean verify` 退出码 0（协调代理报告）。
+
+## 2026-10-25 · C011-fix 连不上：休眠标签页卡住连接
+
+- 指令：界面显示「60 秒内没有连上 Chrome（MCP 没有回话）…还是连不上」；Chrome 开着、9222 在听、大部分标签页在睡。要在用户自己的 Chrome 里、不让用户点 / 关标签页 / 改设置就能连上并用；连接失败后下一次使用自动再连；话写实情；`Stalled` 仍是普通工具失败。不提交。
+- 结果：
+  - 原因（读 0.0.83 源码 + 本地复现，见 C011-fix 同名一节）：连接时 `CRBrowser.connect` 等每一页初始化（受 `--cdp-timeout` 30 秒限制，超时报 `initializeServer`）；连上以后每次调用对每一页 `page.title()`，没有上限，一页不答所有调用都不回话（用户的 60 秒属于这一类，推断）。
+  - 新资源 `browser/skip-unresponsive-tabs.cjs`（Node preload，写到 `storage/cache/playwright-init/`，经 `NODE_OPTIONS=--require` 交给 MCP）：连接时每页最多等 5 秒、没答的先跳过；取标题最多 2 秒、没答用上次的。打不上或文件不在时记日志、照原样运行。
+  - `BrowserSession`：第一次建立连接失败后下一次使用自动再连一次。连接失败、卡住的话改成实情；顶部状态条文字跟着改。
+  - 文件：`BrowserMcpProperties`、`BrowserLaunch`（加 `preload`）、`PlaywrightMcpClient`、`BrowserSession`、`application.yml` 注释、`frontend/src/BrowserBanner.tsx`；测试 `BrowserSessionConnectionTest`（旧行为那条改写）、`PlaywrightMcpClientTest`（加 preload 断言）。
+- 验证：
+  - 本地复现（代理执行，scratchpad 里自己起的 headless Chrome for Testing 153，只开 127.0.0.1 本地页面；`npx -y @playwright/mcp@0.0.83 --cdp-endpoint http://127.0.0.1:9333 --shared-browser-context`；未连用户的 Chrome，进程都已结束）：不带补丁时，没加载 / alert / 死循环 / 崩溃的后台页让每次调用 30 秒报 `initializeServer: Timeout 30000ms exceeded`，连上后一页死循环让所有调用 45 秒无回应；带补丁时第一次调用约 5.1 秒（或 2.0 秒），之后几毫秒到几十毫秒，开新页、导航、快照正常，睡着的页醒后出现在列表里；按 Java 的 `env -i` + `NODE_OPTIONS` 方式启动也生效。
+  - `backend/` 下 `JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home mvn -B -q clean verify` 退出码 0（改完代码一次，改 preload 缺失时的处理和 yml 注释后再一次，都是 0）。
+  - `frontend/` 下 `npm run build` 退出码 0。
+  - 用户真实 Chrome：未运行。
+
+## 2026-10-25 · 申请线程 NullPointerException（PopupView）
+
+- 日期：2026-10-25
+- 指令：申请 2026-10-24-011 显示「出错：NullPointerException」；找根因并修，出错信息要能看出是什么、在哪里。不提交。
+- 结果：
+  - 现象：`storage/runs/2026-10-24-011.json` 的 `error` 只有 `NullPointerException`，没有存栈。三次出错（16:30:32、16:33:09、16:34:58）都紧跟在个人中心简历页上 `browser_click`「Add」之后：工具调用已记成 ok，下一次模型调用没有发生。
+  - 根因（单元测试复现确认）：`harness/context/PopupView.options` 对每行的角色调 `STRONG.contains(role)`；`STRONG` 是 `Set.of(...)`（6 个元素），不可变集合的 `contains(null)` 直接抛不带消息的 `NullPointerException`。点「Add」打开的新表单块里有不带角色的行（`- /url:`、`- /placeholder:`、多行文字），role 为 null，于是在点击之后、给模型看页面之前抛出。修法：角色为 null 的行跳过。
+  - 出错信息：`ApplicationRunner.work` 的意外异常改用 `crashMessage`：根因消息；根因是 JDK 异常（程序错误）时带上类名和本项目代码里最近一帧的位置，例如 `NullPointerException（位置：PopupView.options:119）`；日志 `log.warn` 带完整栈；Job 事件 `prep_state_changed → failed` 的 reason 改为「申请线程出错：<error>」。
+  - 同类检查：最近改动里其余对 `Set.of` / `Map.of` 的 `contains` 都先判空或参数不会为 null，未改。
+  - 文件：`harness/context/PopupView.java`、`workflow/ApplicationRunner.java`；新测试 `harness/context/PopupViewTest.java`（新块含无角色行不抛异常；下拉块含无角色行照常只给弹出层）。
+- 验证：
+  - 修之前 `mvn -B -q test -Dtest=PopupViewTest` 两条都报 `java.lang.NullPointerException at PopupView.options(PopupView.java:119)`（消息为空，和线上一致）。
+  - `backend/` 下 `JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home mvn -B -q clean verify`：第一次退出码 1（新测试自己的断言写错，与修复无关），改断言后退出码 0，635 个测试。
+  - 正在运行的应用里重跑这份申请：未运行（需要用户重启应用）。
+- 偏差：无。
+
+## 2026-10-25 · C018 工具调用上限在设置页由用户自己定
+
+- 指令：「是我这边每轮消息调工具的次数有上限（这次大约 40 次） 还有工具调用上限我需要能在前端自主设计」。照 C012 的写法做，一次做完，不提交。编号：交代写的是 C017，已被 `C017-macos-app.md` 占用，改用 C018。
+- 结果：
+  - 找到的上限：对话 Agent 每条消息 40 次（`SessionLoop.TOOL_CALLS_PER_MESSAGE`，写死，就是「大约 40 次」）；申请 Agent 每次运行 150 次（`jobapply.harness.tool-calls-per-run`）。都在 `AgentLoop` 里判断，到了让模型总结、回复末尾「回复「继续」我接着做」，用户回复后新的一轮从 0 算。重复提醒、模型重试、`max_tokens` 不是工具次数上限；Spring AI 2.0.1 的两个 ChatModel 只取工具定义、不自己执行工具，没有框架层的循环上限。
+  - 改法：默认值留在 `application.yml`（新增 `tool-calls-per-message: 40`，两项 0 = 不限）；设置页改过存 `storage/settings/tool-calls.yaml`；`workflow/ToolCallLimits` 两个 Runner 共用；`AgentLoop` 上限改成每步读一次的 `IntSupplier`，在跑的下一步就用新值；到上限的回复加一句可以去设置页调大或设为不限；接口 `GET/PUT /api/settings/tool-calls`；前端设置 →「模型」加卡片「工具调用上限」。
+  - 文件：`config/HarnessProperties.java`、`application.yml`、`persistence/StorageLayout.java`、`persistence/ToolCallsFile.java`（新）、`workflow/ToolCallLimits.java`（新）、`workflow/ApplicationRunner.java`、`workflow/SessionRunner.java`、`harness/runtime/AgentLoop.java`、`harness/runtime/HarnessLoop.java`、`harness/runtime/SessionLoop.java`、`api/ToolCallSettingsController.java`（新）；`frontend/src/pages/ToolCallSettings.tsx`（新）、`frontend/src/api.ts`、`frontend/src/pages/Settings.tsx`；测试只改 `ApplicationRunnerPoolTest` 的构造参数。文档：`plan/coding/C018-tool-call-limits.md`（新）、`dev-plan.md` 一行、`plan/master/agent-runtime.md` 迭代上限一句。
+- 验证：
+  - `backend/` 下 `JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home mvn -B -q clean verify`：第一次退出码 1（`PlaywrightMcpClientTest`、`BrowserSessionActTest` 报 `NoClassDefFound StorageLayout`、找不到夹具，当时另一个代理的 Maven 同时在 clean 同一个 `target/`）；等它跑完再跑一次，退出码 0。
+  - `frontend/` 下 `npm run build`：退出码 0（只有原来就有的包体积提示）。
+  - 真实应用、真实模型：未运行（应用在 8080 上跑着，没有重启）。
+- 偏差：编号 C018（见上）；`plan/master/ui.md` 没有逐项列设置页的卡片，未改。
+
+## 2026-10-25 · C016 实跑后修正（申请 2026-10-24-010 的证据）
+
+- 指令：按用户 2026-10-25 的六条决定一次做完，不提交：下拉脚本不看透明度、打开后轮询、按 aria-expanded 判断开关并照实报 closed；弹出层视图时保留上一份整页快照；同一次运行里把思考发回给支持的模型，提示词要模型把字段清单和决定记在 update_plan；整个去掉来回提醒（G）；要到日的日期框只给年月时翻到那个月返回 need_day；第 18 条放行确认类按钮，最终提交仍硬拦。
+- 结果：
+  - `tools/PageScripts.java`：可见性去掉 opacity；`expandedOf` / `op: 'open'` 先看 aria-expanded；`waitItems`、`viewNow` 每 100 毫秒轮询最多约 1.2 秒；`close()` 聚焦触发元素、按一次 Escape、照实返回；日期 `need_day`。
+  - `tools/PlaywrightMcpClient.java`：`need_day` 的话改清楚（作为失败结果）；`needs_confirm` 让模型自己点「确定」。
+  - `harness/context/Conversation.java`：`LatestPage.base` 留住弹出层之前的整页；最后一条用户消息之后的模型回复带 metadata `reasoningContent`（Spring AI 发成 `reasoning_content`）。`harness/runtime/AgentLoop.java` 一行改用 `LatestPage.next`。`harness/context/PopupView.java` 说明改准确、加 `isView`。
+  - `harness/runtime/LoopDetector.java`：恢复到 C016 之前（与 HEAD 一致）。
+  - `harness/policies/SubmitWords.java`、`SubmitGuard.java`：确认类改软边界；问提交 / 投递的对话框里的确认类按钮仍硬拦。`tools/BrowserTools.java` click 说明和 purpose。
+  - `agents/ApplyAgent.java`、skill `date-picker`（v3）、`apply-form`（v3）、`repeatable-entries`（v2）；`domain/AgentRun.java`、`persistence/ModelSettingsFile.java` 注释。
+  - 测试：`SubmitGuardTest`（改提交类那组，加两条：确认类交给模型、提交对话框里的确定仍拒绝）、`FakeFormScriptTest`（Confirm 在夹具页上仍拒绝）。
+  - 文档：`plan/coding/C016-dropdowns.md`「实跑后修正（2026-10-25）」、`plan/coding/C006-fix-real-run.md` 第 18 条、`plan/master/workflow.md` 守卫说法、`plan/master/agent-runtime.md` 7.3 第 6、7 条。
+- 验证：
+  - `backend/` 下 `JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home mvn -B -q clean verify`：退出码 0（一次）。
+  - DeepSeek 思考模式的发回规则：查官方文档 `https://api-docs.deepseek.com/guides/thinking_mode`（2026-10-25）；Spring AI 2.0.1 发 `reasoning_content` 的行为：读本机 Maven 仓库里的源码 jar 核实。
+  - 改过的页面脚本在本地 headless 页面上的检查：未运行。
+  - 真实 Chrome、真实模型：未运行。
+- 偏差：`need_day` 作为失败结果返回（报告不把它记成填好）；确认类多算了「OK」。
+
+## 2026-10-25 · C016 实跑后修正：补做本地页面脚本检查
+
+- 指令：核对上一条 C016 实跑后修正的六项，只修真问题；补做「改过的脚本在本地 headless 页面上的检查」（上一条记为未运行）。不提交。
+- 结果：
+  - 核对：下拉脚本（不看透明度、轮询、aria-expanded、关不掉照实说、输入后按弹出层自己的可见性重找）、`LoopDetector` 与 HEAD 一致、要到日给年月返回 `need_day`、确认类按钮软边界 / 提交对话框里仍硬拦（「确 定」+「确认提交申请？」、全角经 NFKC）：与说明一致。
+  - 修 1：`need_day` 后 antd3 面板还开着、盖住日期框，问完用户再设完整日期时脚本点不到日期框（Timeout 3000ms，`ant-calendar-input` intercepts pointer events）。`tools/PageScripts.java` `DATE` 加 `closePanel()`（返回 `need_day` 前按一次 Escape，结果带 `closed`）；`tools/PlaywrightMcpClient.java` 话改成「之后按 Escape 关上了」；skill `components/date-picker` 同步。
+  - 修 2：弹出层视图说明「页面除了这个弹出层没有变」不准（连续弹出层、新键入的字、不带选项的新部分都看不到）。`harness/context/PopupView.java` `NOTE`、`agents/ApplyAgent.java`、skill `apply-form` 改成：整页快照还在、ref 能用，之后别的变化没列出，要看用 `browser_snapshot`。
+  - 文档：`plan/coding/C016-dropdowns.md`「实跑后修正」验证一段换成实际结果和这两处修正。
+- 验证：
+  - 本地页面检查（scratchpad，代理执行）：`chrome-headless-shell`（Playwright 缓存 153）`--remote-debugging-port=9333 --user-data-dir=<scratchpad>/profile`；`python3 -m http.server 8765 --bind 127.0.0.1`；`node drive.mjs`（stdio 起 `@playwright/mcp@0.0.83 --cdp-endpoint http://127.0.0.1:9333 --snapshot-mode none --timeout-action 15000 …`，`browser_snapshot` 取 ref，`browser_run_code_unsafe` 跑 `PageScripts.code(...)` 原样生成的代码）。修之前 11 个用例 10 个符合预期，「need_day 之后同一页设完整日期」报错；修之后 11 个都符合预期：antd3 淡入下拉一次选中且关了；没找到 / 有歧义返回选项且关了；Element 两层级联选中；重画容器的搜索下拉（search true / false）选中；antd3 要到日给 `2026-12` 翻到 12 月不点日、`need_day`、面板关上；随后同一页和新页面给 `2026-12-15` 都 `set`；原生 date 给 `2026-12` → `need_day`、给 `2026-12-15` → `set`。没有连用户的 Chrome（9222）；自己起的 Chrome、HTTP 服务、MCP 进程都已结束。
+  - `backend/` 下 `JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home mvn -B -q clean verify`：退出码 0（一次，635 个测试）。
+  - 真实 Chrome、真实模型：未运行。
+- 偏差：`need_day` 时面板最后是关上的（决定里只说翻到那个月、不点日）；原因见上面修 1。
+
+## 2026-10-25 · C019 申请状态（字段清单 + 计划）
+
+- 指令：用户（2026-10-25）要每次投递一份「全局状态 + plan」，模型每步在上面读和更新；进度清单放工作台侧栏；先找已有但没用上的状态信息复用。先写计划 `plan/coding/C019-application-state.md`，之后用户改为写完直接一次施工，计划里列的 master 改句算确认。不连用户的 Chrome，不重启 8080 上的应用，不提交。
+- 结果：
+  - 新 `domain/ApplicationState.java`（阶段、计划、字段清单、决定）替换 `AgentRun.plan`；`AgentRunStore` 把旧记录的 `plan` 读成 `state.steps`。
+  - `update_state` 替换 `update_plan`（旧名照旧接受）；填写工具字段参数加可选 `field`（`FieldIntent`、`BrowserTools`）。
+  - `HarnessLoop`：填写成功 / 读回对得上 / 只读框没填 / 选不中的选项 / `need_day` / C 级交给用户 / 上传，自动记进字段；报告字段行从字段清单生成（`FillReportWriter.asRecorded`），`Draft` 只剩附件、未解决、守卫记录；`finish` 补「申请状态：」开头的未解决。
+  - 上下文：新 `harness/context/StateView.java`；`Conversation` 把申请状态接在最后一条消息末尾；`FillContext` 前面的上下文去掉计划；`ApplyAgent` 工作方法改写。
+  - `ApplicationRunner`：回答问题后等它的字段回到待填；每轮存盘后发 `changed`。`ApplicationStatus.plan` → `state`；`Views` 步骤说明。
+  - 前端：`JobPage.tsx` 右栏「计划」换成「进度」清单；`api.ts`、`chat/process.ts`、`styles.css`。
+  - 测试：新 `ApplicationStateTest`、`AgentRunStoreTest`、`StateValueTest`，`FillReportWriterTest` 加一条；`ApplicationLlmManualCheck` 一行。
+  - 文档：`plan/coding/C019-application-state.md`（新，含实际结果）、`dev-plan.md` 一行、`plan/master/agent-runtime.md`（7.1 恢复、7.2 工具、7.3 开头和第 2、5、6 条、7.7 报告一行）、`plan/master/workflow.md`（逐页填写、关卡 B 两行）。
+- 验证：
+  - `backend/` 下 `JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home mvn -B -q clean verify`：退出码 0（一次；surefire 654、failsafe 1，都通过）。
+  - `frontend/` 下 `npm run build`：退出码 0（只有原来的包体积提示）。
+  - 基线（申请 2026-10-24-010 的 `run-log.jsonl`，只统计数字）：整个申请 96 次模型调用、335 万 token；主要那次运行 61 次调用，每次输出平均 1969、中位 2496 token，40 次超过 1500，相邻调用中位间隔 16.5 秒。
+  - 真实 Chrome、真实模型：未运行。
+- 偏差：申请状态存在运行记录里，没有另开文件；新开始的申请会换掉上一次的填写报告（以前会留着旧的字段行）。

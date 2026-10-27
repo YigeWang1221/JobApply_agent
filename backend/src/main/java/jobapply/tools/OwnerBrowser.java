@@ -1,6 +1,8 @@
 package jobapply.tools;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -15,9 +17,11 @@ import jobapply.harness.policies.BrowserToolPolicy;
  * 不同使用者互不等待。共享的那条连接（服务进程、空闲会话、状态）在 {@link BrowserSession}。
  * <p>
  * 会话的当前页就是这个使用者在用的页，动作不再先 {@code select}：只有开页、切到自己的弹窗、用户转交、会话重建后找回
- * 自己的页时才 {@code select}（它会把页切到前台），切过去的页都开焦点模拟（{@link PlaywrightMcpClient#focusEmulation}）。
- * 每次动作前列一次自己会话里的标签页（不切换），核对当前页还是自己的：自己的页被关掉时 MCP 会把当前页换成旁边那一页，
- * 那一页可能是别人的。标签页按网址认（记下的序号只当提示），因为别人开页、关页会让全局序号移动。
+ * 自己的页时才 {@code select}（init page 让它不再把 Chrome 切到前台，C011-fix 2026-10-24）。焦点模拟只开在正在用的那页上：
+ * 切过去时开（{@link PlaywrightMcpClient#focusOn}），切走、停下时关（{@link PlaywrightMcpClient#focusOff}）。
+ * 会改页面的操作之前列一次自己会话里的标签页（不切换），核对当前页还是自己的：自己的页被关掉时 MCP 会把当前页换成旁边那一页，
+ * 那一页可能是别人的。只读的操作（快照、查找、等待）不先列，从这次返回里核对（{@link #verify}）。标签页按网址认（记下的
+ * 序号只当提示），因为别人开页、关页会让全局序号移动。停下时按 {@link BrowserSession.Leave} 关掉自己开的页（{@link #leave}）。
  */
 final class OwnerBrowser {
 
@@ -29,16 +33,24 @@ final class OwnerBrowser {
     record Listed(int index, boolean current, String title, String url) {
     }
 
-    /** 记在这个使用者名下的一页：最近一次看到的网址，和上次在列表里的序号（只当提示）。 */
+    /**
+     * 记在这个使用者名下的一页：最近一次看到的网址，和上次在列表里的序号（只当提示）。{@code opened}：这个使用者自己开的
+     * （新开的、点击弹出的），停下时可以关；用户转交的、切过去用的用户自己的页是 false，从不关。
+     */
     private static final class Tab {
         String url;
         int hint;
+        final boolean opened;
 
-        Tab(String url, int hint) {
+        Tab(String url, int hint, boolean opened) {
             this.url = url;
             this.hint = hint;
+            this.opened = opened;
         }
     }
+
+    /** 返回里的 {@code - Page URL: …}（只有一个标签页时 MCP 只附 Page 小节、不附 Open tabs）。 */
+    private static final Pattern PAGE_URL = Pattern.compile("(?m)^- Page URL: (.*)$");
 
     /** 对共享连接的调用（连接状态的记账在 {@link BrowserSession} 里）。 */
     interface Calls {
@@ -62,6 +74,8 @@ final class OwnerBrowser {
     private Tab current;
     /** MCP 会话的当前页是不是 {@link #current}（新会话、转交之后还不是，用之前先 select 过去）。 */
     private boolean selected;
+    /** 上一次给模型列出的标签页：浏览器序号 → 网址。select 按网址找，别人开关页让序号挪了也不会切错。 */
+    private final Map<Integer, String> shown = new HashMap<>();
     /** 这个会话上一次看到的标签页列表（点击后多出来的页 = 可能是弹窗）。 */
     private List<Listed> lastListed = List.of();
     private String notice;
@@ -112,12 +126,57 @@ final class OwnerBrowser {
         return urls;
     }
 
+    /**
+     * 停下时收拾（{@link BrowserSession#leave}）：浏览器能用时按 {@code keep} 关掉自己开的页（新开的、点击弹出的；用户转交的、
+     * 切过去用的用户的页从不关），关掉留下那页上的焦点模拟；最后总是关掉 MCP 会话。记录留着，接着做时在新会话里按网址找回。
+     * 一页的网址在浏览器里不止一个、或者别的使用者也记着这个网址时认不准，不关（宁可留着，不关错用户的页）。
+     */
+    synchronized void leave(BrowserSession.Leave keep, boolean usable) {
+        try {
+            if (usable) {
+                closeOwn(keep);
+                unfocus();
+            }
+        } finally {
+            dropClient();
+        }
+    }
+
+    private void closeOwn(BrowserSession.Leave keep) {
+        List<Tab> closing = tabs.stream().filter(tab -> tab.opened && switch (keep) {
+            case KEEP_ALL -> false;
+            case KEEP_CURRENT -> tab != current;
+            case CLOSE_ALL -> true;
+        }).toList();
+        if (closing.isEmpty()) {
+            return;
+        }
+        List<Listed> listed = list();
+        Set<String> others = calls.othersUrls(owner);
+        for (Tab tab : closing) {
+            List<Listed> same = listed.stream().filter(t -> t.url().equals(tab.url)).toList();
+            if (same.isEmpty()) {
+                forget(tab);
+                continue;
+            }
+            boolean sure = same.size() == 1 && !others.contains(tab.url)
+                    && tabs.stream().filter(t -> t.url.equals(tab.url)).count() == 1;
+            if (!sure) {
+                continue;
+            }
+            listed = parse(call(BrowserToolPolicy.TABS, Map.of("action", "close", "index", same.get(0).index())));
+            forget(tab);
+        }
+        lastListed = listed;
+    }
+
     synchronized boolean ownsTab() {
         return current != null;
     }
 
-    /** 新开一个标签页打开 {@code url}，它成为正在用的页，开焦点模拟，取快照。 */
+    /** 新开一个标签页打开 {@code url}，它成为正在用的页（原来那页关掉焦点模拟），开焦点模拟，取快照。 */
     synchronized PageSnapshot open(String url) {
+        unfocus();
         List<Listed> listed = parse(call(BrowserToolPolicy.TABS, Map.of("action", "new", "url", url)));
         if (listed.stream().noneMatch(Listed::current)) {
             listed = list();
@@ -130,32 +189,34 @@ final class OwnerBrowser {
             publish();
             throw new BrowserSession.TabLost("新开的标签页没有出现在列表里，再试一次");
         }
-        Tab tab = new Tab(opened.url(), opened.index());
+        Tab tab = new Tab(opened.url(), opened.index(), true);
         tabs.add(tab);
         current = tab;
         selected = true;
         publish();
         focus();
-        return read();
+        return read(true);
     }
 
     synchronized PageSnapshot snapshot() {
         if (current == null) {
             throw new BrowserSession.TabLost("还没有你在用的标签页，不能取快照");
         }
-        ensureCurrent();
-        return read();
+        ensureCurrent(false);
+        return read(false);
     }
 
     /**
-     * 模型的一次操作（白名单在 {@link PlaywrightMcpClient#call} 里），操作后取快照。点击打开了自己的弹窗时切过去；
-     * 动作超时时检查一次原因（{@link #afterTimeout}）。
+     * 模型的一次操作（白名单在 {@link PlaywrightMcpClient#call} 里，先查一次：被拒绝的不碰浏览器），操作后取快照。点击打开了
+     * 自己的弹窗时切过去；动作超时时检查一次原因（{@link #afterTimeout}）。快照、等待是只读的，不先列标签页。
      */
     synchronized PageSnapshot act(String tool, Map<String, Object> args, BrowserToolPolicy.Context context) {
         if (current == null) {
             throw new BrowserSession.TabLost("还没有你在用的标签页，不能操作");
         }
-        ensureCurrent();
+        BrowserToolPolicy.check(tool, args, context);
+        boolean readOnly = BrowserToolPolicy.SNAPSHOT.equals(tool) || BrowserToolPolicy.WAIT_FOR.equals(tool);
+        ensureCurrent(!readOnly);
         String result;
         try {
             result = call(tool, args, context);
@@ -163,7 +224,12 @@ final class OwnerBrowser {
             result = afterTimeout(tool, args, e);
         }
         if (BrowserToolPolicy.SNAPSHOT.equals(tool)) {
+            verify(result, false);
             return remember(PageSnapshot.parse(result));
+        }
+        if (BrowserToolPolicy.SELECT_OPTION.equals(tool) || BrowserToolPolicy.SET_DATE.equals(tool)) {
+            // 选下拉、设日期的脚本返回的是给模型的一句话（C016）：放进说明，快照照常取
+            notice = notice == null ? result : notice + result;
         }
         if (BrowserToolPolicy.CLICK.equals(tool)) {
             PageSnapshot popup = popup(parse(result));
@@ -171,15 +237,29 @@ final class OwnerBrowser {
                 return popup;
             }
         }
-        return read();
+        return read(!readOnly);
+    }
+
+    /**
+     * 填写之前的只读检查（C016 A，{@link PlaywrightMcpClient#inspect}）：在正在用的那页上查这些 ref；查不到的不在结果里。
+     */
+    synchronized Map<String, Map<String, Object>> inspect(List<String> refs) {
+        if (current == null) {
+            throw new BrowserSession.TabLost("还没有你在用的标签页，不能操作");
+        }
+        // 只读，不先列：紧接着的填写在动作前会核对一次
+        ensureCurrent(false);
+        return calls.use(this, c -> c.inspect(refs));
     }
 
     synchronized String find(Map<String, Object> args, BrowserToolPolicy.Context context) {
         if (current == null) {
             throw new BrowserSession.TabLost("还没有你在用的标签页，不能操作");
         }
-        ensureCurrent();
-        return call(BrowserToolPolicy.FIND, args, context);
+        ensureCurrent(false);
+        String found = call(BrowserToolPolicy.FIND, args, context);
+        verify(found, false);
+        return found;
     }
 
     synchronized String takeNotice() {
@@ -194,56 +274,68 @@ final class OwnerBrowser {
         return taken;
     }
 
-    /** 自己的标签页（序号是自己的编号，从 0 开始），标出正在用的。关掉了的去掉。没有记录时不碰浏览器。 */
+    /**
+     * Chrome 里所有的标签页（序号是浏览器里的序号），标出正在用的、自己的（新开的、点击弹出的、用户转交的）和别的使用者
+     * 记下的。能用哪一页由提示词约束，这里不挡。自己记下的页关掉了的去掉。
+     */
     synchronized List<BrowserSession.TabInfo> tabs() {
-        if (tabs.isEmpty()) {
-            return List.of();
-        }
         List<Listed> listed = list();
-        List<BrowserSession.TabInfo> out = new ArrayList<>();
         for (Tab tab : List.copyOf(tabs)) {
             Listed found = find(tab, listed);
             if (found == null) {
                 forget(tab);
-                continue;
+            } else {
+                tab.hint = found.index();
             }
-            tab.hint = found.index();
         }
-        for (int i = 0; i < tabs.size(); i++) {
-            Tab tab = tabs.get(i);
-            Listed found = find(tab, listed);
-            out.add(new BrowserSession.TabInfo(i, found == null ? "" : found.title(), tab.url, tab == current, true));
+        Set<String> others = calls.othersUrls(owner);
+        shown.clear();
+        List<BrowserSession.TabInfo> out = new ArrayList<>();
+        for (Listed tab : listed) {
+            Tab mine = tabs.stream().filter(t -> t.hint == tab.index() && t.url.equals(tab.url())).findFirst().orElse(null);
+            shown.put(tab.index(), tab.url());
+            out.add(new BrowserSession.TabInfo(tab.index(), tab.title(), tab.url(), mine != null && mine == current,
+                    mine != null, mine == null && others.contains(tab.url())));
         }
         return out;
     }
 
     /**
-     * 切到自己的第 {@code index} 页（在自己的会话里 select，开焦点模拟），取快照，它成为正在用的页。
+     * 切到浏览器里的第 {@code index} 页（{@link #tabs} 列出的序号，按当时的网址找），在自己的会话里 select、开焦点模拟，
+     * 取快照，它成为正在用的页；还不是自己的页就记在名下。
      *
      * @throws IllegalArgumentException 没有这一页，或者它已经不在了
      */
     synchronized PageSnapshot select(int index) {
-        if (index < 0 || index >= tabs.size()) {
-            throw new IllegalArgumentException("你没有序号 " + index + " 的标签页，先 browser_tabs list");
-        }
-        Tab tab = tabs.get(index);
-        Listed found = find(tab, list());
+        List<Listed> listed = list();
+        String url = shown.get(index);
+        Listed found = url == null ? listed.stream().filter(t -> t.index() == index).findFirst().orElse(null)
+                : listed.stream().filter(t -> t.url().equals(url))
+                        .min((a, b) -> Integer.compare(Math.abs(a.index() - index), Math.abs(b.index() - index)))
+                        .orElse(null);
         if (found == null) {
-            forget(tab);
-            throw new IllegalArgumentException("你的标签页 " + index + "（" + tab.url + "）已经不在了，先 browser_tabs list");
+            throw new IllegalArgumentException("没有序号 " + index + " 的标签页" + (url == null ? "" : "（" + url
+                    + " 已经不在了）") + "，先 browser_tabs list");
+        }
+        Tab tab = tabs.stream().filter(t -> t.url.equals(found.url())).findFirst().orElse(null);
+        if (tab == null) {
+            // 用户自己开着的页：用，但不算自己开的，停下时不关
+            tab = new Tab(found.url(), found.index(), false);
+            tabs.add(tab);
         }
         switchTo(tab, found);
-        return read();
+        return read(true);
     }
 
     /**
      * 用户转交的一页（网址已经由调用方核对过）：记在名下；还没有正在用的页时它就是（下次用时 select 过去、开焦点模拟），
-     * 已经有时不偷换脚下的页，由模型 select。返回给模型的序号是自己的编号。
+     * 已经有时不偷换脚下的页，由模型 select。返回给模型的序号是浏览器里的序号。
      */
     synchronized BrowserSession.TabInfo handOver(String title, String url, int hint) {
         Tab tab = tabs.stream().filter(t -> t.url.equals(url)).findFirst().orElse(null);
         if (tab == null) {
-            tab = new Tab(url, hint);
+            // 用户的页：停下时不关
+            tab = new Tab(url, hint, false);
             tabs.add(tab);
         }
         if (current == null) {
@@ -251,7 +343,9 @@ final class OwnerBrowser {
             selected = false;
         }
         publish();
-        BrowserSession.TabInfo info = new BrowserSession.TabInfo(tabs.indexOf(tab), title, url, false, true);
+        tab.hint = hint;
+        shown.put(hint, url);
+        BrowserSession.TabInfo info = new BrowserSession.TabInfo(hint, title, url, false, true, false);
         handed = info;
         return info;
     }
@@ -264,11 +358,11 @@ final class OwnerBrowser {
     private volatile String currentUrl;
 
     /**
-     * 保证 MCP 会话的当前页是自己正在用的那页。会话新建（或重建）时按网址在自己的会话里找回来 select 过去；平时只列一次
-     * 核对：当前页的网址对得上就行；变成了别人记下的网址，或者标签页变少了、自己的网址也不在了 = 自己的页被关掉、MCP
-     * 换到了旁边那页 → {@link BrowserSession.TabLost}；否则认作自己的页换了网址（登录、下一步），留一句说明。
+     * 保证 MCP 会话的当前页是自己正在用的那页。会话新建（或重建）时按网址在自己的会话里找回来 select 过去。平时只有
+     * {@code writes}（会改页面的操作）才先列一次核对（{@link #verify}）：自己的页在两次调用之间被关掉时，MCP 已经换到了
+     * 旁边那页，不核对就会写到别人的页上。只读的操作不先列，调用之后从返回里核对。
      */
-    private void ensureCurrent() {
+    private void ensureCurrent(boolean writes) {
         if (!selected) {
             Listed found = find(current, list());
             if (found == null) {
@@ -278,8 +372,33 @@ final class OwnerBrowser {
             switchTo(current, found);
             return;
         }
-        int before = lastListed.size();
-        List<Listed> listed = list();
+        if (writes) {
+            verify(call(BrowserToolPolicy.TABS, Map.of("action", "list")), false);
+        }
+    }
+
+    /**
+     * 用一次返回里的标签页核对 MCP 的当前页还是自己正在用的那页。MCP 只在标签页有变化时才附上（「Open tabs」；只有一页时
+     * 只有「Page」小节），都没有就是没变。当前页的网址对得上就行；变成了别人记下的网址，或者标签页变少了、自己的网址也
+     * 不在了 = 自己的页被关掉、MCP 换到了旁边那页 → {@link BrowserSession.TabLost}；否则认作自己的页换了网址。
+     *
+     * @param own 这是自己刚做完的操作的返回：网址变了是操作带来的，不留说明；标签页变少了还要换到的是原来就在的页才算被关掉
+     *            （别人同时关了一页、自己点进了新网址不算）
+     */
+    private void verify(String text, boolean own) {
+        List<Listed> listed = parse(text);
+        if (listed.isEmpty()) {
+            Matcher page = PAGE_URL.matcher(text == null ? "" : text);
+            if (!page.find()) {
+                return;
+            }
+            listed = List.of(new Listed(0, true, "", page.group(1).trim()));
+        }
+        List<Listed> before = lastListed;
+        lastListed = listed;
+        if (current == null) {
+            return;
+        }
         Listed now = listed.stream().filter(Listed::current).findFirst().orElse(null);
         if (now == null) {
             throw lose();
@@ -289,15 +408,19 @@ final class OwnerBrowser {
             return;
         }
         boolean mineStillThere = listed.stream().anyMatch(t -> t.url().equals(current.url));
-        if (calls.othersUrls(owner).contains(now.url()) || (!mineStillThere && listed.size() < before)) {
+        boolean closed = !mineStillThere && listed.size() < before.size()
+                && (!own || before.stream().anyMatch(t -> t.url().equals(now.url())));
+        if (calls.othersUrls(owner).contains(now.url()) || closed) {
             throw lose();
         }
         String was = current.url;
         current.url = now.url();
         current.hint = now.index();
         publish();
-        notice = "你在用的标签页网址变了（原来 " + was + "，现在 " + now.url() + "），系统认作同一页；"
-                + "不是你的页面时用 browser_tabs list 看一下。";
+        if (!own) {
+            notice = "你在用的标签页网址变了（原来 " + was + "，现在 " + now.url() + "），系统认作同一页；"
+                    + "不是你的页面时用 browser_tabs list 看一下。";
+        }
     }
 
     /** 自己的页被关掉了：去掉记录，这次没有操作。 */
@@ -334,19 +457,22 @@ final class OwnerBrowser {
         if (opened == null) {
             return null;
         }
-        Tab tab = new Tab(opened.url(), opened.index());
+        Tab tab = new Tab(opened.url(), opened.index(), true);
         tabs.add(tab);
         switchTo(tab, opened);
         notice = "这次点击打开了新的标签页（" + opened.url() + "），系统已经切过去，下面是新标签页的快照；"
                 + "原来那页还开着，要回去用 browser_tabs。";
-        return read();
+        return read(true);
     }
 
     /**
      * 在自己的会话里 select 到 {@code found}（序号来自这个会话刚列出的列表），核对切到的网址；别人恰好开关了页、序号挪了
-     * 时重新列一次再试一次。然后开焦点模拟。
+     * 时重新列一次再试一次。切之前关掉原来那页的焦点模拟，切过去后在新的这页上开。
      */
     private void switchTo(Tab tab, Listed found) {
+        if (current != tab) {
+            unfocus();
+        }
         Listed target = found;
         for (int attempt = 0; ; attempt++) {
             List<Listed> after = parse(call(BrowserToolPolicy.TABS, Map.of("action", "select", "index", target.index())));
@@ -371,7 +497,7 @@ final class OwnerBrowser {
     private void focus() {
         try {
             calls.use(this, c -> {
-                c.focusEmulation();
+                c.focusOn();
                 return null;
             });
         } catch (BrowserException.ToolFailed e) {
@@ -380,23 +506,34 @@ final class OwnerBrowser {
     }
 
     /**
-     * 点击、输入、选择动作超时（C006-fix-real-run 第 20 条）：先把这页切到前台一次（C011 第 5.1 节：同站点的后台页上
-     * 弹出的对话框可能出不来、把点击卡住），再用固定模板检查一次原因（只读），把实情写进错误。点击的目标只是被别的层
-     * 盖住时，在同一个 ref 上直接点一次，留说明。调用方已经过了点击守卫。
+     * 关掉 MCP 会话当前页上自己开的焦点模拟（切走、停下之前）。会话是新的（还没 select 过）时没开过，不发。失败不挡操作：
+     * 最坏是那页多保持一会儿「可见」，关掉标签页或会话断开时 Chrome 自己撤销。
      */
-    private String afterTimeout(String tool, Map<String, Object> args, BrowserException.ToolFailed failed) {
-        boolean click = BrowserToolPolicy.CLICK.equals(tool);
-        if (!(click || BrowserToolPolicy.TYPE.equals(tool) || BrowserToolPolicy.SELECT_OPTION.equals(tool))
-                || !(args.get("target") instanceof String ref) || !PlaywrightMcpClient.isActionTimeout(failed.getMessage())) {
-            throw failed;
+    private void unfocus() {
+        if (!selected) {
+            return;
         }
         try {
             calls.use(this, c -> {
-                c.bringToFront();
+                c.focusOff();
                 return null;
             });
         } catch (BrowserException.ToolFailed e) {
-            // 切不过去也照常检查
+            // 页面可能已经关了
+        }
+    }
+
+    /**
+     * 点击、输入、选择动作超时（C006-fix-real-run 第 20 条）：用固定模板检查一次原因（只读），把实情写进错误。点击的目标
+     * 只是被别的层盖住时，在同一个 ref 上直接点一次，留说明。调用方已经过了点击守卫。原来先把这页切到前台一次（C011
+     * 第 5.1 节的兜底），对复现出来的卡住没用、还会把 Chrome 拉到所有应用前面，用户 2026-10-24 定下去掉。
+     */
+    private String afterTimeout(String tool, Map<String, Object> args, BrowserException.ToolFailed failed) {
+        boolean click = BrowserToolPolicy.CLICK.equals(tool);
+        if (!(click || BrowserToolPolicy.TYPE.equals(tool) || BrowserToolPolicy.SELECT_OPTION.equals(tool)
+                || BrowserToolPolicy.SET_DATE.equals(tool))
+                || !(args.get("target") instanceof String ref) || !PlaywrightMcpClient.isActionTimeout(failed.getMessage())) {
+            throw failed;
         }
         PlaywrightMcpClient.Diagnosis diagnosis;
         try {
@@ -405,7 +542,7 @@ final class OwnerBrowser {
             throw failed;
         }
         String timedOut = tool + " 返回错误：动作超时，元素在等待时间内一直不能操作，这次操作没有发生（不是浏览器的安全限制）。"
-                + "系统把这一页切到了前台。" + diagnosis.describe();
+                + diagnosis.describe();
         if (!click || !diagnosis.coveredButVisible()) {
             throw new BrowserException.ToolFailed(timedOut);
         }
@@ -447,8 +584,11 @@ final class OwnerBrowser {
         publish();
     }
 
-    private PageSnapshot read() {
-        return remember(PageSnapshot.parse(call(BrowserToolPolicy.SNAPSHOT, Map.of())));
+    /** 取快照，从返回里核对当前页（{@link #verify}，{@code own}：紧接在自己的操作之后）。 */
+    private PageSnapshot read(boolean own) {
+        String text = call(BrowserToolPolicy.SNAPSHOT, Map.of());
+        verify(text, own);
+        return remember(PageSnapshot.parse(text));
     }
 
     private PageSnapshot remember(PageSnapshot page) {
@@ -472,12 +612,14 @@ final class OwnerBrowser {
         return calls.use(this, c -> c.call(tool, args, context));
     }
 
+    /** 返回里的标签页列表；同一个序号出现两次（工具结果和「Open tabs」小节都列了）时只算第一次。 */
     static List<Listed> parse(String text) {
-        List<Listed> listed = new ArrayList<>();
+        Map<Integer, Listed> listed = new LinkedHashMap<>();
         Matcher m = TAB_LINE.matcher(text == null ? "" : text);
         while (m.find()) {
-            listed.add(new Listed(Integer.parseInt(m.group(1)), m.group(2) != null, m.group(3), m.group(4)));
+            listed.putIfAbsent(Integer.parseInt(m.group(1)),
+                    new Listed(Integer.parseInt(m.group(1)), m.group(2) != null, m.group(3), m.group(4)));
         }
-        return listed;
+        return List.copyOf(listed.values());
     }
 }

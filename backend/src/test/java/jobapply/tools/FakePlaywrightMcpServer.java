@@ -226,7 +226,7 @@ public final class FakePlaywrightMcpServer {
 
     /**
      * 多标签页模式（场景文件有 {@code tabs}：浏览器里各标签页的网址，见 {@link FakeBrowser#tabs}）。标签页是共享的，
-     * 每个会话有自己的当前页（{@link #currents}）。{@code browser_tabs new} 和 {@code browser_navigate} 改动后写回
+     * 每个会话有自己的当前页（{@link #currents}）。{@code browser_tabs new / close} 和 {@code browser_navigate} 改动后写回
      * 场景文件；测试在两次调用之间改 {@code tabs}，就是用户在 Chrome 里关标签页、在标签页里换了网址。
      */
     private McpSchema.CallToolResult withTabs(String session, String tool, Map<String, Object> args,
@@ -248,6 +248,16 @@ public final class FakePlaywrightMcpServer {
                         .isError(true).build();
             }
             current = index.intValue();
+        } else if ("browser_tabs".equals(tool) && "close".equals(args.get("action"))
+                && args.get("index") instanceof Number index) {
+            if (index.intValue() < 0 || index.intValue() >= urls.size()) {
+                return McpSchema.CallToolResult.builder().addTextContent("### Error\nError: Tab " + index + " not found")
+                        .isError(true).build();
+            }
+            // 和 @playwright/mcp 一样：关掉的是当前页时当前页换成旁边那一页
+            urls.remove(index.intValue());
+            current = resolve(currents.get(session), urls);
+            changed = true;
         } else if ("browser_navigate".equals(tool) && current >= 0) {
             urls.set(current, String.valueOf(args.get("url")));
             changed = true;
@@ -265,18 +275,23 @@ public final class FakePlaywrightMcpServer {
             return text("### Result\n[]");
         }
         if ("browser_tabs".equals(tool)) {
-            StringBuilder out = new StringBuilder("### Open tabs\n");
-            for (int i = 0; i < urls.size(); i++) {
-                Object title = map(map(scenario.get("pages")).get(urls.get(i))).get("title");
-                out.append("- ").append(i).append(':').append(i == current ? " (current)" : "").append(" [")
-                        .append(title == null ? "" : title).append("](").append(urls.get(i)).append(")\n");
-            }
-            return text(out + page(scenario));
+            return text(openTabs(urls, current, scenario) + page(scenario));
         }
         if ("browser_snapshot".equals(tool) || "browser_navigate".equals(tool)) {
-            return text(page(scenario));
+            // 和 @playwright/mcp 一样：带快照的返回在不止一个标签页时附上「Open tabs」
+            return text((urls.size() > 1 ? openTabs(urls, current, scenario) : "") + page(scenario));
         }
         return text("### Result\nok");
+    }
+
+    private static String openTabs(List<String> urls, int current, Map<String, Object> scenario) {
+        StringBuilder out = new StringBuilder("### Open tabs\n");
+        for (int i = 0; i < urls.size(); i++) {
+            Object title = map(map(scenario.get("pages")).get(urls.get(i))).get("title");
+            out.append("- ").append(i).append(':').append(i == current ? " (current)" : "").append(" [")
+                    .append(title == null ? "" : title).append("](").append(urls.get(i)).append(")\n");
+        }
+        return out.toString();
     }
 
     private String page(Map<String, Object> scenario) {

@@ -13,6 +13,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import jobapply.harness.policies.BrowserToolPolicy;
+import jobapply.harness.policies.GuardDecision;
+import jobapply.harness.policies.SubmitGuard;
 import jobapply.harness.policies.SubmitWords;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -81,11 +83,15 @@ class FakeFormScriptTest {
     void submitLabelsFixtureHasEveryHardButtonFromThePlan() throws Exception {
         String snapshot = snapshot("submit-labels", "buttons");
         for (String label : List.of("立即申请", "确认意向并投递", "预览并提交", "保存并提交", "Submit", "Apply", "Send",
-                "Finish", "Confirm")) {
+                "Finish")) {
             assertThat(snapshot).contains("- button \"" + label + "\"");
             assertThat(SubmitWords.isHard(label)).as(label).isTrue();
         }
         assertThat(SubmitWords.isSoft("下一步")).isTrue();
+        // 「Confirm」本身是确认类（第 18 条放行），但它在最外层、同一页上就是提交类按钮：仍然拒绝
+        assertThat(SubmitWords.isConfirm("Confirm")).isTrue();
+        assertThat(SubmitGuard.click(new PageSnapshot("https://careers.example.com/apply/200", "按钮", snapshot, ""),
+                "e11")).isInstanceOf(GuardDecision.Reject.class);
     }
 
     @Test

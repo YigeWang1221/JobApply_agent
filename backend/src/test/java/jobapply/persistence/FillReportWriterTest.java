@@ -67,6 +67,18 @@ class FillReportWriterTest {
                         new GuardNote("下一步", GuardOutcome.CONFIRMED_SAFE)));
     }
 
+    /** 申请状态（C019）只存报告的单元格：变回报告行后写出来要一字不差。 */
+    @Test
+    void filledRowsKeptAsCellsRenderTheSame() {
+        Report original = report(1);
+        Report cells = new Report(original.company(), original.title(), original.round(), original.fields().stream()
+                .map(field -> field instanceof Filled filled ? FillReportWriter.asRecorded(filled) : field).toList(),
+                original.attachments(), original.unresolved(), original.guardNotes());
+
+        assertThat(FillReportWriter.render(cells, true, "2026-10-25T10:00:00-04:00"))
+                .isEqualTo(FillReportWriter.render(original, true, "2026-10-25T10:00:00-04:00"));
+    }
+
     @Test
     void draftHasHeaderMarkedDraftAndAllSections() {
         Path file = writer.writeDraft(PROJECT, jobId, report(1));

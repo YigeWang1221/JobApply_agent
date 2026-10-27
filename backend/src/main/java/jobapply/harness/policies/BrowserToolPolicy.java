@@ -12,14 +12,17 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Pattern;
 import jobapply.tools.SnapshotIndex;
 
 /**
  * 浏览器工具白名单（C004-A「关键规则 · 白名单」）。规则写在代码里，不从配置、skill 或站点记录读取。发出之前检查，
  * 不允许时抛出 {@link ToolNotAllowedException}，调用方不得把这次调用发给 MCP 服务端。
  * 这里只管「能不能调、参数对不对」；点击和填写还要再过 {@link SubmitGuard}、{@link FieldClassGuard}（由 C004-B 的循环组合）。
- * 不开放：evaluate、run_code_unsafe（只由系统用固定模板代发：{@code browser_file_upload} 带 target、动作超时后的检查和被盖住时的直接点击）、handle_dialog、hover、drag、drop、navigate_back、close、console_messages、
- * network_*、take_screenshot、tabs select / close，以及只有加 {@code --caps} 才出现的工具。
+ * 不开放：evaluate、run_code_unsafe（只由系统用固定模板代发：{@code browser_file_upload} 带 target、动作超时后的检查和被盖住时的直接点击、
+ * 填写前的只读检查、{@code browser_select_option} 和 {@code browser_set_date}，C016）、handle_dialog、hover、drag、drop、navigate_back、close、console_messages、
+ * network_*、take_screenshot，以及只有加 {@code --caps} 才出现的工具。{@code browser_tabs} 只由系统发（list / new / select，
+ * 停下时 close 自己开的页），模型的标签页操作经过 {@code BrowserSession}。
  */
 public final class BrowserToolPolicy {
 
@@ -34,10 +37,16 @@ public final class BrowserToolPolicy {
     public static final String FILE_UPLOAD = "browser_file_upload";
     public static final String PRESS_KEY = "browser_press_key";
     public static final String WAIT_FOR = "browser_wait_for";
+    /** 设日期（C016 E）：不是 MCP 的工具，过了白名单后由系统用固定脚本（{@code PageScripts.DATE}）代发。 */
+    public static final String SET_DATE = "browser_set_date";
 
     static final Set<String> FILL_ROLES = Set.of(
             "textbox", "combobox", "checkbox", "radio", "slider", "spinbutton", "searchbox");
-    static final Set<String> SELECT_ROLES = Set.of("combobox", "listbox");
+    /** 下拉的触发元素（C016 B）：原生 select，以及自定义下拉常见的角色（只读输入框、按钮、没有角色的 div）。 */
+    static final Set<String> SELECT_ROLES = Set.of("combobox", "listbox", "textbox", "searchbox", "button", "generic");
+    /** 日期框（C016 E）。 */
+    static final Set<String> DATE_ROLES = Set.of("textbox", "combobox", "searchbox", "button", "generic");
+    private static final Pattern DATE = Pattern.compile("\\d{4}(-\\d{2}(-\\d{2})?)?");
     static final Set<String> KEYS = Set.of(
             "Tab", "Shift+Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Escape", "Backspace", "Delete",
             "Home", "End", "PageUp", "PageDown");
@@ -117,8 +126,20 @@ public final class BrowserToolPolicy {
             }
             case SELECT_OPTION -> {
                 modelOnly(tool, model);
-                onlyKeys(tool, arguments, Set.of("target", "element", "values"));
+                onlyKeys(tool, arguments, Set.of("target", "element", "values", "search"));
+                if (!(arguments.get("values") instanceof List<?> values) || values.isEmpty()
+                        || !values.stream().allMatch(value -> value instanceof String text && !text.isBlank())) {
+                    throw new ToolNotAllowedException(tool + " 的 values 要写选项原文的列表（级联每层一个）");
+                }
                 requireRole(tool, ref(tool, arguments, context), context, SELECT_ROLES);
+            }
+            case SET_DATE -> {
+                modelOnly(tool, model);
+                onlyKeys(tool, arguments, Set.of("target", "element", "date"));
+                if (!(arguments.get("date") instanceof String date) || !DATE.matcher(date.strip()).matches()) {
+                    throw new ToolNotAllowedException(tool + " 的 date 要写成 YYYY-MM-DD、YYYY-MM 或 YYYY");
+                }
+                requireRole(tool, ref(tool, arguments, context), context, DATE_ROLES);
             }
             case FILE_UPLOAD -> {
                 modelOnly(tool, model);
@@ -143,14 +164,15 @@ public final class BrowserToolPolicy {
         } else if ("new".equals(action)) {
             onlyKeys(TABS, args, Set.of("action", "url"));
             requireHttpUrl(TABS + " new", args.get("url"));
-        } else if ("select".equals(action)) {
-            // 切回某个 Session / Job 自己新开的标签页（系统按记下的序号切换）
+        } else if ("select".equals(action) || "close".equals(action)) {
+            // select：切回某个 Session / Job 自己新开的标签页（系统按记下的序号切换）；
+            // close：一次申请 / 调研停下时关掉它自己开的页（C011-fix 2026-10-24，只由系统按序号发，模型调不到）
             onlyKeys(TABS, args, Set.of("action", "index"));
             if (!(args.get("index") instanceof Integer index) || index < 0) {
-                throw new ToolNotAllowedException(TABS + " select 要给非负整数 index");
+                throw new ToolNotAllowedException(TABS + " " + action + " 要给非负整数 index");
             }
         } else {
-            throw new ToolNotAllowedException(TABS + " 只允许 action=list、new 或 select");
+            throw new ToolNotAllowedException(TABS + " 只允许 action=list、new、select 或 close");
         }
     }
 

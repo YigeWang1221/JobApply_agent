@@ -335,6 +335,18 @@ public final class FillReportWriter {
         return out.toString();
     }
 
+    /**
+     * 系统填的一行写成报告里的单元格（和 {@link #render} 写出的一字不差）：申请状态（C019）只存单元格，生成报告时
+     * 再变回 {@link Recorded}。
+     */
+    public static Recorded asRecorded(Filled filled) {
+        String grade = filled.factClass().name();
+        return new Recorded(filled.page(), filled.label(), value(filled), source(filled),
+                filled.language() == null ? null : filled.language().code(),
+                filled.confidence() == null ? null : filled.confidence().code(),
+                filled.factClass() == FactClass.B ? "**" + grade + "**" : grade);
+    }
+
     /** {@link #render} 的逆过程。 */
     static Report parse(String markdown) {
         List<String> lines = markdown.lines().toList();

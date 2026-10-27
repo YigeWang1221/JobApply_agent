@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import jobapply.domain.AgentRun;
 import jobapply.harness.policies.SnapshotRedactor;
@@ -21,13 +22,21 @@ import org.springframework.util.MimeTypeUtils;
 
 /**
  * 把一段对话（{@link AgentRun.Turn}）拼成交给模型的消息（申请 Agent 和对话 Agent 共用）：系统提示词 → 上下文 → 对话。
- * 只有最新一份快照原样给出，标明是网页内容；更早的都省略。快照在这里再过一遍 {@link SnapshotRedactor}，
- * C 级输入框的值不会发给模型。
+ * 只有最新一份快照原样给出，标明是网页内容；更早的都省略。最新一份只是弹出层（{@link PopupView}）时，它之前那份整页
+ * 快照（{@link LatestPage#base}）也照原样留着。快照在这里再过一遍 {@link SnapshotRedactor}，C 级输入框的值不会发给模型。
+ * <p>
+ * 模型上一步的思考（C016 实跑后修正）：最后一条用户消息之后（这一次运行、或这次插话之后）的模型回复，把存下的思考原文
+ * 放回 AssistantMessage 的 metadata {@code reasoningContent}；Spring AI 的 OpenAI 兼容格式只在它不为空时发成
+ * {@code reasoning_content}（DeepSeek 思考模式带工具时要求发回），Anthropic 格式不读这个键（不发回）。更早的不发。
  * <p>
  * 用户附的文件（C006 附件）：文字后面每个附件一行；图片同时作为图片输入（{@link Media}）放进这条用户消息，
  * 只有最近 {@link #IMAGE_TURNS} 条带图片的用户消息发图片，更早的只留文字那一行。模型不支持看图时请求失败，照常报错。
  * <p>
  * 没有结果的工具调用（应用重启、线程中途停下时留下的）在这里补一条 {@link #INTERRUPTED} 结果再发；存着的对话不改。
+ * <p>
+ * 申请状态（C019，{@link StateView}）接在最后一条消息的末尾：大多数时候最后一条就是带着最新页面的工具结果，
+ * 所以模型看到的顺序是「上一步结果 → 当前页面 → 申请状态」。不另加一条用户消息（不改变上面发回思考的范围）；
+ * 它每一步重写，只在发出去的消息里，不存进对话。
  */
 public final class Conversation {
 
@@ -36,12 +45,27 @@ public final class Conversation {
     public static final String INTERRUPTED = "这次调用被中断了，没有执行完；需要的话重新做。";
     static final int IMAGE_TURNS = 3;
 
+    /** 发回思考原文用的 metadata 键（Spring AI {@code OpenAiChatModel} 的 {@code REASONING_CONTENT}）。 */
+    static final String REASONING_CONTENT = "reasoningContent";
+
     /**
      * 最新的页面放在对话的哪里：第 {@code turn} 条（{@code page} 或 {@code tool}）；{@code tool} 时是哪一个结果。
      *
      * @param resultId {@code page} 条时为 null
+     * @param base     {@code page} 是弹出层视图时，模型之前看到的那份整页（同样不省略）；否则为 null
      */
-    public record LatestPage(PageSnapshot page, int turn, String resultId) {
+    public record LatestPage(PageSnapshot page, int turn, String resultId, LatestPage base) {
+
+        public LatestPage(PageSnapshot page, int turn, String resultId) {
+            this(page, turn, resultId, null);
+        }
+
+        /** 新的一份页面成为最新：是弹出层视图时留住之前那份整页（之前也是弹出层视图时沿用它的整页）。 */
+        public static LatestPage next(LatestPage previous, PageSnapshot page, int turn, String resultId) {
+            LatestPage full = previous == null ? null : previous.base() != null ? previous.base() : previous;
+            return new LatestPage(page, turn, resultId, PopupView.isView(page) && full != null
+                    && !PopupView.isView(full.page()) ? full : null);
+        }
     }
 
     private Conversation() {
@@ -59,6 +83,12 @@ public final class Conversation {
     /** @param attachments 附件存在哪里（取图片的字节）；为 null 时附件只有文字那一行 */
     public static List<Message> messages(String systemPrompt, String context, List<AgentRun.Turn> turns,
                                          LatestPage latest, AttachmentStore attachments) {
+        return messages(systemPrompt, context, turns, latest, attachments, null);
+    }
+
+    /** @param state 申请状态那一段（C019），接在最后一条消息的末尾；为 null 时不放（对话 Agent） */
+    public static List<Message> messages(String systemPrompt, String context, List<AgentRun.Turn> turns,
+                                         LatestPage latest, AttachmentStore attachments, String state) {
         Set<Integer> withImages = new HashSet<>();
         for (int i = turns.size() - 1; i >= 0 && withImages.size() < IMAGE_TURNS && attachments != null; i--) {
             if (turns.get(i).attachments().stream().anyMatch(a -> AttachmentStore.isImage(a.contentType()))) {
@@ -74,13 +104,23 @@ public final class Conversation {
         Set<String> answered = new HashSet<>();
         turns.forEach(turn -> turn.results().forEach(result -> answered.add(result.id())));
         List<ToolResponseMessage.ToolResponse> interrupted = List.of();
+        int lastUser = -1;
+        for (int i = 0; i < turns.size(); i++) {
+            if (AgentRun.Turn.USER.equals(turns.get(i).role())) {
+                lastUser = i;
+            }
+        }
+        LatestPage base = latest == null ? null : latest.base();
         for (int i = 0; i < turns.size(); i++) {
             AgentRun.Turn turn = turns.get(i);
             boolean current = latest != null && latest.turn() == i;
+            boolean kept = base != null && base.turn() == i;
             switch (turn.role()) {
                 case AgentRun.Turn.ASSISTANT -> {
+                    boolean reasoning = i > lastUser && turn.thinking() != null && !turn.thinking().isBlank();
                     messages.add(AssistantMessage.builder()
                             .content(turn.text() == null || turn.text().isBlank() ? null : turn.text())
+                            .properties(reasoning ? Map.of(REASONING_CONTENT, turn.thinking()) : Map.of())
                             .toolCalls(turn.calls().stream()
                                     .map(call -> new AssistantMessage.ToolCall(call.id(), "function", call.name(),
                                             call.arguments() == null || call.arguments().isBlank() ? "{}" : call.arguments()))
@@ -102,6 +142,8 @@ public final class Conversation {
                         String data = result.text();
                         if (current && result.id().equals(latest.resultId())) {
                             data = data + "\n" + render(latest.page());
+                        } else if (kept && result.id().equals(base.resultId())) {
+                            data = data + "\n" + render(base.page());
                         }
                         responses.add(new ToolResponseMessage.ToolResponse(result.id(), result.name(), data));
                     }
@@ -110,12 +152,33 @@ public final class Conversation {
                     messages.add(ToolResponseMessage.builder().responses(responses).build());
                 }
                 case AgentRun.Turn.PAGE -> messages.add(new UserMessage(turn.text() + "\n"
-                        + (current ? render(latest.page()) : OMITTED_SNAPSHOT)));
+                        + (current ? render(latest.page()) : kept && base.resultId() == null ? render(base.page())
+                        : OMITTED_SNAPSHOT)));
                 default -> messages.add(turn.attachments().isEmpty() ? new UserMessage(turn.text())
                         : withAttachments(turn, withImages.contains(i) ? attachments : null));
             }
         }
+        if (state != null && !state.isBlank()) {
+            appendToLast(messages, state);
+        }
         return messages;
+    }
+
+    /** 把 {@code text} 接在最后一条消息的末尾（工具结果接在最后一个结果后面，用户消息保留图片）；最后一条不是这两种时另加一条。 */
+    private static void appendToLast(List<Message> messages, String text) {
+        Message last = messages.getLast();
+        if (last instanceof ToolResponseMessage tools && !tools.getResponses().isEmpty()) {
+            List<ToolResponseMessage.ToolResponse> responses = new ArrayList<>(tools.getResponses());
+            ToolResponseMessage.ToolResponse end = responses.getLast();
+            responses.set(responses.size() - 1,
+                    new ToolResponseMessage.ToolResponse(end.id(), end.name(), end.responseData() + "\n\n" + text));
+            messages.set(messages.size() - 1, ToolResponseMessage.builder().responses(responses).build());
+        } else if (last instanceof UserMessage user) {
+            messages.set(messages.size() - 1, UserMessage.builder().text((user.getText() == null ? "" : user.getText() + "\n\n") + text)
+                    .media(user.getMedia()).build());
+        } else {
+            messages.add(new UserMessage(text));
+        }
     }
 
     /** 文字后面每个附件一行；{@code images} 不为 null 时图片也放进去。附件文件不见了时抛出，不悄悄去掉。 */

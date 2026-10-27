@@ -36,8 +36,8 @@ class BrowserToolsTest {
         assertThat(tools).extracting(tool -> tool.getToolDefinition().name()).containsExactlyInAnyOrder(
                 BrowserToolPolicy.SNAPSHOT, BrowserToolPolicy.FIND, BrowserToolPolicy.NAVIGATE,
                 BrowserToolPolicy.CLICK, BrowserToolPolicy.TYPE, BrowserToolPolicy.FILL_FORM,
-                BrowserToolPolicy.SELECT_OPTION, BrowserToolPolicy.FILE_UPLOAD, BrowserToolPolicy.PRESS_KEY,
-                BrowserToolPolicy.WAIT_FOR);
+                BrowserToolPolicy.SELECT_OPTION, BrowserToolPolicy.SET_DATE, BrowserToolPolicy.FILE_UPLOAD,
+                BrowserToolPolicy.PRESS_KEY, BrowserToolPolicy.WAIT_FOR);
         for (ToolCallback tool : tools) {
             JsonNode schema = JSON.readTree(tool.getToolDefinition().inputSchema());
             assertThat(schema.get("type").asString()).isEqualTo("object");

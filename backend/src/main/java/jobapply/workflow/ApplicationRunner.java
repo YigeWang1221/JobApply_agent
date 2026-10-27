@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -26,6 +27,7 @@ import java.util.function.Supplier;
 import jobapply.config.HarnessProperties;
 import jobapply.domain.Actor;
 import jobapply.domain.AgentRun;
+import jobapply.domain.ApplicationState;
 import jobapply.domain.Inbox;
 import jobapply.domain.Job;
 import jobapply.domain.LeadStatus;
@@ -123,6 +125,8 @@ public final class ApplicationRunner implements AutoCloseable {
     /** Worker 线程：按需建、空闲回收；同时跑几个只由 {@link #dispatch()} 按 {@code workerLimit} 管（C012 可以运行中改）。 */
     private final ExecutorService workers;
     private final WorkerSettingsFile workerSettings;
+    /** 工具调用上限（C018，设置页可改，和 {@link SessionRunner} 共用一份）。 */
+    private final ToolCallLimits toolCalls;
     /** 同时最多几个申请在跑、同一个网站最多几个。只在锁里读写。 */
     private int workerLimit;
     private int perSiteLimit;
@@ -134,6 +138,8 @@ public final class ApplicationRunner implements AutoCloseable {
 
     /** 还没跑完的 Job（排队的和正在跑的）。 */
     private final LiveRuns live = new LiveRuns();
+    /** 在跑或排队时用户定下结束了的 Job（{@link #closeTabs}）：停下时关掉它的页。拿实例锁读写。 */
+    private final Set<String> releaseWhenDone = new java.util.HashSet<>();
     /**
      * 排着队的 Job → 轮到时要跑的那一次，按排队的顺序。还没交给 Worker：排队时停止直接移出，不会有已经被取走、在等锁的
      * 任务（所以 C006-fix-2 最终审查第 3 条的排队凭证不再需要）。只在锁里改。
@@ -187,6 +193,7 @@ public final class ApplicationRunner implements AutoCloseable {
         this.runLog = new RunLog(layout, clock);
         AtomicInteger number = new AtomicInteger();
         this.workerSettings = new WorkerSettingsFile(layout);
+        this.toolCalls = new ToolCallLimits(layout, this.limits);
         WorkerSettingsFile.Limits initial = initialLimits(workerSettings, this.limits);
         this.workerLimit = initial.workers();
         this.perSiteLimit = initial.perSite();
@@ -297,6 +304,12 @@ public final class ApplicationRunner implements AutoCloseable {
             message.append("\n用户回答了问题（已经放进「本次答案」，fact 写答案编号）：");
             saved.forEach(answer -> message.append("\n- ").append(answer.id()).append("「").append(answer.question())
                     .append("」：").append(answer.value()));
+            // 申请状态里等这个回答的字段回到待填，来源写答案编号（C019）
+            ApplicationState state = run.state();
+            for (JobAnswers.Answer answer : saved) {
+                state = state.answered(answer.question(), answer.id(), answer.value());
+            }
+            run = run.withState(state);
         }
         // 停在提交前时上传区清空了（settle）；接着做时把已经排上编号的原件放回去，文件编号不变
         run.files().stream().filter(file -> file.assetKey() != null)
@@ -456,6 +469,20 @@ public final class ApplicationRunner implements AutoCloseable {
         return status(jobId);
     }
 
+    /**
+     * 用户定下这个申请结束了（已投递、不投了、岗位下线、Job 被删）：关掉它在浏览器里开的所有页、关会话（C011-fix
+     * 2026-10-24）。用户转交的页不关。还在跑或排队时先记下，它停下时（{@link #work}）再关。
+     */
+    public void closeTabs(String jobId) {
+        synchronized (this) {
+            if (live.contains(jobId)) {
+                releaseWhenDone.add(jobId);
+                return;
+            }
+        }
+        browser.release(jobId);
+    }
+
     /** 这个 Job 有申请线程时返回它的状态；没有时为空（界面上的 Job 列表用）。 */
     public Optional<ApplicationStatus> statusIfAny(String jobId) {
         return runs.find(jobId).isPresent() ? Optional.of(status(jobId)) : Optional.empty();
@@ -503,7 +530,7 @@ public final class ApplicationRunner implements AutoCloseable {
         return new ApplicationStatus(jobId, run.project(), run.session(), status,
                 AgentRun.RUNNING.equals(status) ? null : run.message(), run.questions(), run.fileSlots(),
                 run.fileSlots().isEmpty() ? List.of() : assets.list(), storedAttachments(jobId), disconnected,
-                run.plan(), run.usage(), prepState, report, run.round(), interrupted ? INTERRUPTED_ERROR : run.error(),
+                run.state(), run.usage(), prepState, report, run.round(), interrupted ? INTERRUPTED_ERROR : run.error(),
                 inbox.peek(jobId).stream().map(turn -> turn.text().substring(INSERTED.length())).toList());
     }
 
@@ -585,6 +612,11 @@ public final class ApplicationRunner implements AutoCloseable {
         return concurrency();
     }
 
+    /** 工具调用上限（C018）：申请 Agent 每次运行、对话 Agent 每条消息，设置页改了马上生效。 */
+    public ToolCallLimits toolCallLimits() {
+        return toolCalls;
+    }
+
     /** 有 {@code settings/workers.yaml} 用它，没有或读不了时用配置（读不了时日志警告，界面上看到的是生效的值）。 */
     private static WorkerSettingsFile.Limits initialLimits(WorkerSettingsFile file, HarnessProperties limits) {
         WorkerSettingsFile.Limits fallback =
@@ -646,8 +678,8 @@ public final class ApplicationRunner implements AutoCloseable {
         try {
             result = execute(run);
         } catch (RuntimeException e) {
-            String message = rootMessage(e);
-            log.warn("Job {} 的申请线程出错：{}", jobId, message);
+            String message = crashMessage(e);
+            log.warn("Job {} 的申请线程出错：{}", jobId, message, e);
             result = runs.find(jobId).orElse(run).failed(message);
         }
         try {
@@ -656,9 +688,13 @@ public final class ApplicationRunner implements AutoCloseable {
             log.warn("Job {} 结束时更新台账出错：{}", jobId, rootMessage(e));
             result = result.failed(rootMessage(e));
         }
+        // 收拾浏览器（C011-fix 2026-10-24）：停在提交前只留填好的那页，等你、出错时页都留着；都关掉焦点模拟和 MCP 会话
+        browser.leave(jobId, AgentRun.READY.equals(result.status()) ? BrowserSession.Leave.KEEP_CURRENT
+                : BrowserSession.Leave.KEEP_ALL);
         // 用户按停止停下的：用户自己知道，不回报（C006-fix-2 回归第 6 条）
         boolean stoppedByUser;
         boolean again;
+        boolean release;
         synchronized (this) {
             stoppedByUser = stopRequested.contains(jobId) && AgentRun.WAITING_USER.equals(result.status());
             try {
@@ -668,10 +704,14 @@ public final class ApplicationRunner implements AutoCloseable {
                 live.remove(jobId);
                 stopRequested.remove(jobId);
             }
+            release = releaseWhenDone.remove(jobId);
             // 跑完时还没被看到的插话（最后一步正好到的、或者「打断并发送」）：接着跑，不回报（C010）
-            again = resumeWithInserted(result);
+            again = !release && resumeWithInserted(result);
             dispatch();
             notifyAll();
+        }
+        if (release) {
+            browser.release(jobId);
         }
         if (again) {
             return;
@@ -726,9 +766,12 @@ public final class ApplicationRunner implements AutoCloseable {
         browser.retryOnNextUse();
         String jobId = run.job();
         // 每次运行再取模型（C006-fix-2 第 6 条）：改了模型设置，下一次运行就用新的
-        HarnessLoop loop = new HarnessLoop(mainModel.get(), browser, layout, clock, limits);
-        return loop.run(run, () -> stopRequested(jobId), runs::save, events.observer(run.session(), jobId),
-                () -> inbox.take(jobId));
+        HarnessLoop loop = new HarnessLoop(mainModel.get(), browser, layout, clock, limits, toolCalls::perRun);
+        // 每轮存盘后发一次 changed：工作台侧栏的「进度」跟着申请状态刷新（C019）
+        return loop.run(run, () -> stopRequested(jobId), progressed -> {
+            runs.save(progressed);
+            events.changed(progressed.session(), progressed.job());
+        }, events.observer(run.session(), jobId), () -> inbox.take(jobId));
     }
 
     /** 一次运行结束：按结果更新 {@code prep_state}；停在提交前时把报告定稿、清空上传区。 */
@@ -743,7 +786,7 @@ public final class ApplicationRunner implements AutoCloseable {
                 uploads.clear(run.job());
             }
             case AgentRun.WAITING_USER -> moveTo(run, PrepState.NEEDS_INPUT, Actor.AGENT, "等用户回复");
-            case AgentRun.FAILED -> moveTo(run, PrepState.FAILED, Actor.SYSTEM, "申请线程出错");
+            case AgentRun.FAILED -> moveTo(run, PrepState.FAILED, Actor.SYSTEM, "申请线程出错：" + shorten(run.error(), 300));
             default -> {
             }
         }
@@ -908,6 +951,29 @@ public final class ApplicationRunner implements AutoCloseable {
 
     private static int step(AgentRun run) {
         return (int) run.usage().modelCalls();
+    }
+
+    /**
+     * 申请线程意外出错时记进状态的说明：根因的消息；根因是 JDK 的异常（NullPointerException、IndexOutOfBounds 这类程序错误）
+     * 时再带上出错位置（本项目代码里最近的一帧），只有类名时也能查到是哪一行。
+     */
+    private static String crashMessage(Throwable error) {
+        Throwable root = error;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String message = rootMessage(root);
+        if (!root.getClass().getName().startsWith("java.")) {
+            return message;
+        }
+        StackTraceElement[] trace = root.getStackTrace();
+        StackTraceElement at = Arrays.stream(trace)
+                .filter(frame -> frame.getClassName().startsWith("jobapply.")).findFirst()
+                .orElse(trace.length == 0 ? null : trace[0]);
+        String where = at == null ? "" : "（位置：" + at.getClassName().substring(at.getClassName().lastIndexOf('.') + 1)
+                + "." + at.getMethodName() + ":" + at.getLineNumber() + "）";
+        String type = root.getClass().getSimpleName();
+        return (message.equals(type) ? type : type + "：" + message) + where;
     }
 
     private static String rootMessage(Throwable error) {

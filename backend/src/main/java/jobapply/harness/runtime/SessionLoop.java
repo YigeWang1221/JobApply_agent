@@ -16,8 +16,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import jobapply.agents.ResearchAgent;
+import jobapply.config.HarnessProperties;
 import jobapply.domain.Actor;
 import jobapply.domain.AgentRun;
 import jobapply.domain.IllegalTransitionException;
@@ -64,7 +66,7 @@ import org.springframework.ai.chat.model.ChatModel;
 /**
  * 对话 Agent 的循环（C005）：用户每发一条消息跑一次——拼消息（{@link Conversation}）→ 调主模型（{@link ModelCaller}）
  * → 执行工具 → 结果放回对话 → 直到模型只回文字（就是给用户的回复）或调 {@code ask_user}。做什么由模型决定。
- * 每条消息最多 {@link #TOOL_CALLS_PER_MESSAGE} 次工具调用，到了让模型总结做到哪了。
+ * 每条消息最多几次工具调用由设置页定（默认 40，0 = 不限，C018），到了让模型总结做到哪了，用户回复「继续」接着做。
  * 循环本身在 {@link AgentLoop}，和申请 Agent（{@link HarnessLoop}）共用；这里只有对话 Agent 的工具、上下文和结束条件。
  * 和申请 Agent 有意不同的两处：调模型回来时已经要求停止，照常记下这条回复（工具写「没有执行」）再停；浏览器断开时
  * 不结束这次运行，这次调用失败、告诉模型可以接着做不用浏览器的事。重连不归这里管：连接状态只有 {@link BrowserSession}
@@ -78,7 +80,6 @@ import org.springframework.ai.chat.model.ChatModel;
  */
 public final class SessionLoop {
 
-    public static final int TOOL_CALLS_PER_MESSAGE = 40;
     static final String STOPPED = "已按你的要求停下。回复后接着做。";
     /** 之前的消息里读过的网页，发给模型时最多留这么多字。 */
     private static final int OLD_PAGE = 1_500;
@@ -96,6 +97,9 @@ public final class SessionLoop {
 
         /** 用户说的事实（已提交、岗位下线、不投了）记下之前，请这个 Job 正在跑的申请线程停下；没在跑时什么都不做。 */
         void stop(String jobId);
+
+        /** 这个申请结束了（已投递、准备中就结束）：关掉它在浏览器里开的页（C011-fix 2026-10-24）。 */
+        void closeTabs(String jobId);
 
         /**
          * 申请线程现在的状态，和界面同一个（排队、在跑只看内存，重启前在跑的是中断，用户定下了的是 done）；
@@ -119,6 +123,8 @@ public final class SessionLoop {
     /** 直接写本地 memory（C014 B）。 */
     private final MemoryWriter memory;
     private final ProfileResolver profile;
+    /** 每条消息最多几次工具调用，每步读一次（设置页改了马上生效，C018）；0 = 不限。 */
+    private final IntSupplier toolCallsPerMessage;
 
     public SessionLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock, WebSearch search,
                        WebFetch fetch, Applications applications) {
@@ -128,6 +134,13 @@ public final class SessionLoop {
     /** @param ledgerEvents 台账每次写完时通知（事件日志的 {@code changed}） */
     public SessionLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock, WebSearch search,
                        WebFetch fetch, Applications applications, JobLedger.Listener ledgerEvents) {
+        this(model, browser, layout, clock, search, fetch, applications, ledgerEvents, null);
+    }
+
+    /** @param toolCallsPerMessage 每条消息最多几次工具调用（0 = 不限）；为 null 时用 {@code application.yml} 的默认值 */
+    public SessionLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock, WebSearch search,
+                       WebFetch fetch, Applications applications, JobLedger.Listener ledgerEvents,
+                       IntSupplier toolCallsPerMessage) {
         this.model = model;
         this.browser = browser;
         this.layout = layout;
@@ -141,6 +154,8 @@ public final class SessionLoop {
         this.resumes = new ResumeMatch(new AssetRegistry(layout, clock), ledger, clock);
         this.memory = new MemoryWriter(layout, clock);
         this.profile = new ProfileResolver(layout, clock);
+        this.toolCallsPerMessage = toolCallsPerMessage == null
+                ? HarnessProperties.defaults()::toolCallsPerMessage : toolCallsPerMessage;
     }
 
     /**
@@ -190,7 +205,7 @@ public final class SessionLoop {
             this.project = project;
             this.session = session;
             // 调模型回来时已经要求停止：照常记下回复，它的工具写「没有执行」，下一轮再停（和申请 Agent 不同，见 AgentLoop）
-            this.loop = new AgentLoop<>(model, ResearchAgent.tools(), clock, TOOL_CALLS_PER_MESSAGE, false, stop,
+            this.loop = new AgentLoop<>(model, ResearchAgent.tools(), clock, toolCallsPerMessage, false, stop,
                     observer, history, append, inbox);
             this.firstNew = Math.max(0, history.size() - 1);
             this.pages = new SessionPages(layout.sessionPagesDir(project, session));
@@ -235,7 +250,7 @@ public final class SessionLoop {
         @Override
         public Void summarized(String text, String thinking) {
             loop.reply(AgentRun.Turn.assistant((text.isEmpty() ? "这一次做了很多步，到了上限。" : text)
-                    + "\n\n回复「继续」我接着做。", List.of(), thinking));
+                    + "\n\n回复「继续」我接着做。" + AgentLoop.RAISE_LIMIT, List.of(), thinking));
             return null;
         }
 
@@ -380,6 +395,8 @@ public final class SessionLoop {
             } catch (BrowserException.Disconnected e) {
                 return failed(call, "失败：" + why + "，但浏览器连接断开了（" + e.getMessage() + "）。请用户确认 Chrome 开着、"
                         + "chrome://inspect/#remote-debugging 的远程调试开关已打开，或者把岗位内容贴过来。");
+            } catch (BrowserException.Stalled e) {
+                return stalled(call, e.getMessage());
             } catch (BrowserException.ToolFailed | IllegalStateException e) {
                 return failed(call, "失败：" + why + "，在浏览器里也没打开：" + e.getMessage());
             }
@@ -431,6 +448,8 @@ public final class SessionLoop {
                     return rejected(call, "被拒绝：" + e.getMessage());
                 } catch (BrowserException.Disconnected e) {
                     return disconnected(call, e.getMessage());
+                } catch (BrowserException.Stalled e) {
+                    return stalled(call, e.getMessage());
                 } catch (BrowserException.ToolFailed | IllegalStateException e) {
                     return failed(call, "失败：" + e.getMessage());
                 }
@@ -441,6 +460,8 @@ public final class SessionLoop {
                         latest = browser.snapshot(session);
                     } catch (BrowserException.Disconnected e) {
                         return disconnected(call, e.getMessage());
+                    } catch (BrowserException.Stalled e) {
+                        return stalled(call, e.getMessage());
                     } catch (BrowserException.ToolFailed | IllegalStateException e) {
                         return failed(call, "失败：" + e.getMessage());
                     }
@@ -474,6 +495,8 @@ public final class SessionLoop {
                 return rejected(call, "被拒绝：" + e.getMessage());
             } catch (BrowserException.Disconnected e) {
                 return disconnected(call, e.getMessage());
+            } catch (BrowserException.Stalled e) {
+                return stalled(call, e.getMessage());
             } catch (BrowserException.ToolFailed | IllegalStateException e) {
                 return failed(call, "失败：" + e.getMessage());
             }
@@ -485,6 +508,12 @@ public final class SessionLoop {
             return failed(call, "失败：浏览器连接断开了（" + reason + "）。告诉用户确认 Chrome 开着、远程调试开关"
                     + "（chrome://inspect/#remote-debugging）已打开，"
                     + "然后点页面顶部的「重新连接」或者回复，就会重新连接；不用浏览器的事可以接着做。");
+        }
+
+        /** 浏览器这次没回应（C011-fix）：连接还在，标签页记录不动；只是这一步失败，由模型决定再试、换做法还是问用户。 */
+        private Step<Void> stalled(AgentRun.ToolCall call, String reason) {
+            return failed(call, "失败：" + reason + "。这次没有完成；可以再试一次、换个做法或换个来源；一直没有回应时告诉用户"
+                    + "看一下 Chrome。");
         }
 
         private String listJobs(String filter) {
@@ -673,6 +702,7 @@ public final class SessionLoop {
             // 用户说的事实优先（第 3 节）：申请 Agent 还在填就先请它停下，它结束时不会改掉这里记下的状态
             applications.stop(jobId);
             Job job = ledger.markSubmitted(project, jobId, session, text(args.get("note")));
+            applications.closeTabs(jobId);
             return jobId + "：记为已投递（" + job.status().label() + "），" + job.extraString("next_check_at")
                     + " 提醒用户去看状态。";
         }
@@ -692,6 +722,9 @@ public final class SessionLoop {
             int events = ledger.events(project, jobId).size();
             Job job = ledger.recordStatus(project, jobId, session, phase == null ? null : Phase.of(phase),
                     outcome == null ? null : Outcome.of(outcome), text(args.get("note")), days);
+            if (job.status().phase() != Phase.PREP) {
+                applications.closeTabs(jobId);
+            }
             String next = job.extraString("next_check_at");
             // 可重放（C006-fix 第 4 节）：和上一次记的一样时台账不写，这里也照实说
             if (ledger.events(project, jobId).size() == events) {

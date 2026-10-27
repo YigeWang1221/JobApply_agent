@@ -103,8 +103,8 @@ class ApplicationLlmManualCheck {
                 while (true) {
                     assertThat(runner.awaitIdle(RUN_LIMIT)).as(fixture + " 在 " + RUN_LIMIT + " 内停下").isTrue();
                     status = runner.status(job);
-                    System.out.printf("[%s] %s questions=%d files=%d plan=%d calls=%d tokens=%d%n    %s%n", fixture,
-                            status.status(), status.questions().size(), status.fileSlots().size(), status.plan().size(),
+                    System.out.printf("[%s] %s questions=%d files=%d fields=%d calls=%d tokens=%d%n    %s%n", fixture,
+                            status.status(), status.questions().size(), status.fileSlots().size(), status.state().fields().size(),
                             status.usage().toolCalls(), status.usage().tokens(), oneLine(status.message(), status.error()));
                     if (!AgentRun.WAITING_USER.equals(status.status()) || replies >= MAX_REPLIES) {
                         break;
