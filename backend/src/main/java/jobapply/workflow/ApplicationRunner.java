@@ -590,6 +590,13 @@ public final class ApplicationRunner implements AutoCloseable {
     public record Concurrency(int workers, int perSite, int maxWorkers, int running, int queued) {
     }
 
+    /** 正在跑和排队的 Job（换数据位置时要先等它们结束，C017）。 */
+    public synchronized List<String> activeJobs() {
+        List<String> ids = new java.util.ArrayList<>(running.keySet());
+        ids.addAll(queued.keySet());
+        return ids;
+    }
+
     public synchronized Concurrency concurrency() {
         return new Concurrency(workerLimit, perSiteLimit, MAX_WORKERS, running.size(), queued.size());
     }

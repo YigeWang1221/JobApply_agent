@@ -2,6 +2,7 @@ import { go } from "../route";
 import Assets from "./Assets";
 import ModelSettings from "./ModelSettings";
 import PersonalSettings from "./PersonalSettings";
+import StorageLocationSettings from "./StorageLocation";
 import ToolCallSettings from "./ToolCallSettings";
 import WorkerSettings from "./WorkerSettings";
 
@@ -25,7 +26,7 @@ export default function Settings({ tab }: { tab: "models" | "profile" }) {
         </button>
       </nav>
       <div className="content">
-        {tab === "models" ? <><ModelSettings /><WorkerSettings /><ToolCallSettings /><PersonalSettings /></> : <Assets />}
+        {tab === "models" ? <><ModelSettings /><WorkerSettings /><ToolCallSettings /><PersonalSettings /><StorageLocationSettings /></> : <Assets />}
       </div>
     </>
   );

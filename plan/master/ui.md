@@ -14,7 +14,7 @@
 | 一个 Project | **Project 主页**：顶部是「新建 Session」按钮；下面依次是本 Project 的 Dashboard、**候选池**（调研出来、按公司分组的公司和岗位）、最近的 Session 和它们的交接摘要 |
 | 一个 Session | **对话视图**（类似 Claude）：和 AI 聊下一家投什么、看调研结果、推进申请、回来更新面试情况。右侧面板显示这个 Session 涉及的 Job 和它们的状态 |
 | 一个 Job（从看板、候选池或表格点进去） | **Job 详情**：岗位信息、轮次、复盘、事件时间线，以及「涉及过它的 Session」列表 |
-| 设置 | **设置页**：模型供应商、用途分配、浏览器、搜索等 |
+| 设置 | **设置页**：模型供应商、用途分配、浏览器、搜索、数据位置等 |
 
 ### 新建 Session
 
@@ -109,6 +109,7 @@ assignments:
 
 ## 首次使用引导（遗漏检查第 7 项，已确认）
 
+0. **选数据位置**（用户确认，2026-10-27，C017）：还没选过时先选 storage 文件夹（默认 `~/Library/Application Support/JobApply/storage`，也可以选已有的）；显示是空文件夹还是已有数据。设置页「数据位置」可以查看、在 Finder 中显示、更改（重启后端生效，旧文件夹原样保留）。
 1. **建 base**：上传主简历和资料 → 提取 → 逐组核实（流程同 memory「新建 Project」）。
 2. **配模型**：选预设或自定义，填 key，测试连接，分配用途。
 3. **连接浏览器**：在 Chrome 打开 `chrome://inspect/#remote-debugging` 的「Allow remote debugging for this browser instance」，第一次连接时同意一次（不用装扩展，见 workflow.md「Chrome MCP」）。

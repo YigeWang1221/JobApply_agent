@@ -1,5 +1,6 @@
 package jobapply.config;
 
+import java.nio.file.Path;
 import java.time.Clock;
 import jobapply.persistence.EnvFile;
 import jobapply.persistence.PersonalEnv;
@@ -13,6 +14,7 @@ import jobapply.workflow.SessionRunner;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.ConfigurableEnvironment;
 
 /**
  * 申请线程用到的 Bean。浏览器连接在第一次调用接口时才建立，应用启动时不连接 Chrome、不写 storage。
@@ -29,15 +31,24 @@ public class ApplicationConfiguration {
         return Clock.systemDefaultZone();
     }
 
+    /** storage 根目录从哪来（命令行 / 环境变量 → app.yaml → 默认，C017 第 3 节）；启动时定下，换位置要重启。 */
     @Bean
-    StorageLayout storageLayout(StorageProperties properties) {
-        return new StorageLayout(properties.rootPath());
+    StorageLocation storageLocation(ConfigurableEnvironment env, StorageProperties properties) {
+        return StorageLocation.resolve(env, properties);
+    }
+
+    @Bean
+    StorageLayout storageLayout(StorageLocation location) {
+        return new StorageLayout(location.root());
     }
 
     @Bean(destroyMethod = "close")
-    BrowserSession browserSession(BrowserMcpProperties properties, StorageLayout layout) {
+    BrowserSession browserSession(BrowserMcpProperties properties, StorageLayout layout, StorageLocation location) {
+        // 启动参数里的脚本会写进 storage/cache；还没选数据位置时（C017）先写到临时目录，不在默认位置建文件夹。选完会重启
+        StorageLayout scripts = location.needsChoice()
+                ? new StorageLayout(Path.of(System.getProperty("java.io.tmpdir"), "jobapply-unchosen")) : layout;
         // personal.env 的真实值在快照交出去之前换回占位符（C014-D）
-        return new BrowserSession(properties.toLaunch(layout), new PersonalEnv(layout)::values);
+        return new BrowserSession(properties.toLaunch(scripts), new PersonalEnv(layout)::values);
     }
 
     /** 应用级事件日志（C006-fix）：两个 Runner、台账和 {@code GET /api/events} 共用一个。 */

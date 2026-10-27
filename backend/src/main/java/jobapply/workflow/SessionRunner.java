@@ -333,6 +333,11 @@ public final class SessionRunner implements AutoCloseable {
     }
 
     /** 事件日志：每个 Session 现在在做什么、推送（C006-fix）。 */
+    /** 正在跑的 Session（换数据位置时要先等它们结束，C017）。 */
+    public List<String> activeSessions() {
+        return running.ids();
+    }
+
     public RuntimeEvents events() {
         return events;
     }

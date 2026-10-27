@@ -24,6 +24,10 @@ public final class LiveRuns {
         return ids.contains(id);
     }
 
+    public java.util.List<String> ids() {
+        return java.util.List.copyOf(ids);
+    }
+
     /** 记录写着在跑（{@code recordedRunning}），这个进程里却没有：中断了。 */
     public boolean interrupted(String id, boolean recordedRunning) {
         return recordedRunning && !ids.contains(id);

@@ -1051,3 +1051,25 @@
   - 基线（申请 2026-10-24-010 的 `run-log.jsonl`，只统计数字）：整个申请 96 次模型调用、335 万 token；主要那次运行 61 次调用，每次输出平均 1969、中位 2496 token，40 次超过 1500，相邻调用中位间隔 16.5 秒。
   - 真实 Chrome、真实模型：未运行。
 - 偏差：申请状态存在运行记录里，没有另开文件；新开始的申请会换掉上一次的填写报告（以前会留着旧的字段行）。
+
+## 2026-10-27 · C017 macOS App + 数据位置由用户选
+
+- 指令：用户同意 C017 计划，写回开发文档后施工；Dock 图标用仓库根目录 `icon.png` 裁出的图案。不提交。
+- 结果：master 回写 `base.md`（部署只做本机 App）、`memory.md`（storage 位置由用户选、取值顺序）、`ui.md`（首次引导第 0 步、设置页「数据位置」）。代码见 `plan/coding/C017-macos-app.md`「实际结果」。
+- 验证：
+  - `backend/` 下 `mvn -B -q clean verify`：退出码 0。`frontend/` 下 `npm run build`：退出码 0。
+  - `macos/build-app.sh`：退出码 0，产出 `macos/build/JobApply.app`（335MB），jar 内含 `application-macapp.yml`，`AppIcon.icns` 已生成；`codesign -v --deep` 通过；自带 `java -version` 25.0.5、`cli.js --version` 0.0.83。
+  - 用 App 自带运行时和 jar 在 18080 起后端（临时 `JOBAPPLY_APP_CONFIG`）：`/` 200 text/html；`GET /api/app/storage` 返回 `needsChoice: true`、`source: default`；启动后没有建出 `~/Library/Application Support/JobApply`。另有子代理在 18080 上验证了 check（空 / 已有数据 / 相对路径）、PUT 写 `app.yaml` 后重启 `source: app-config`、环境变量覆盖。
+  - 从 Finder 双击 App（窗口、桥、选文件夹、重启、退出无残留进程）：未运行（8080 可能被开发版占用）。409（运行中切换）：未运行。真实 Chrome、真实模型：未运行。
+
+## 2026-10-27 · C017 App 端口改 8088
+
+- 指令：本机 8080 被 Docker 占着，App 端口改 8088 或 8089。
+- 结果：`application-macapp.yml`（port、allowed-origins）、`macos/JobApply/main.swift`、C017 计划改成 8088；开发版仍 8080。
+- 验证：`macos/build-app.sh` 退出码 0。双击 App：未运行。
+
+## 2026-10-27 · C017 App 产物挪到 appBuild/
+
+- 指令：App 产物放仓库根目录 `appBuild/`、默认不上传，删掉原来的 `macos/build/`。
+- 结果：`build-app.sh` 输出改为 `appBuild/JobApply.app`；`.gitignore` 的 `macos/build/` 换成 `appBuild/`；删除 `macos/build/`；C017 计划同步。
+- 验证：`macos/build-app.sh` 退出码 0；`git check-ignore appBuild/JobApply.app` 命中。

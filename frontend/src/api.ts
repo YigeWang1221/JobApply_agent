@@ -643,6 +643,25 @@ const PERSONAL = "/api/settings/personal";
 const enc = encodeURIComponent;
 const jobPath = (jobId: string) => `/api/jobs/${encodeURIComponent(jobId)}/application`;
 
+// 数据位置（C017 第 3 节）：source 是根目录从哪来（命令行 / 环境变量、app.yaml、默认）
+export interface AppStorage {
+  root: string;
+  source: "override" | "app-config" | "default";
+  needsChoice: boolean;
+  existingData: boolean;
+  projects: number;
+  defaultRoot: string;
+}
+
+// 只读检查一个候选位置：kind 是空文件夹 / 已有 JobApply 数据 / 有别的文件
+export interface StorageCheck {
+  path: string;
+  ok: boolean;
+  problem: string | null;
+  kind: "empty" | "jobapply" | "other" | null;
+  projects: number;
+}
+
 export const api = {
   modelSettings: () => request<ModelSettings>("GET", MODELS),
   saveProvider: (id: string, body: { preset: string; format: string | null; baseUrl: string; models: string[] }) =>
@@ -762,6 +781,11 @@ export const api = {
     }
     return response.text();
   },
+  // 数据位置（C017 第 3 节）：保存后要重启后端才生效
+  appStorage: () => request<AppStorage>("GET", "/api/app/storage"),
+  checkAppStorage: (path: string) => request<StorageCheck>("POST", "/api/app/storage/check", { path }),
+  saveAppStorage: (path: string) =>
+    request<{ saved: boolean; restartRequired: boolean; path: string }>("PUT", "/api/app/storage", { path }),
 };
 
 export function errorText(error: unknown): string {
