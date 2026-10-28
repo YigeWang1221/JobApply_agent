@@ -41,7 +41,7 @@ interface ReplyForm {
 // 申请工作台（C005-ui.md「页面」，C006-fix 改成整屏）：和 Session 页同一套布局。中间是 Agent 每一步做了什么，
 // 底部输入框就是回复（文字 + 附件）；右栏是现在要你做的事：问题、上传位置、进度（申请状态，C019）、报告、用量、事件。
 // Agent 停在最终提交前，不会替你点提交。新内容走 /api/events?job= 推送，断了浏览器自己重连
-export default function JobPage({ id }: { id: string }) {
+export default function JobPage({ id, onChanged }: { id: string; onChanged?: () => Promise<void> }) {
   const [detail, setDetail] = useState<JobDetail | null>(null);
   const [pollError, setPollError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -93,6 +93,21 @@ export default function JobPage({ id }: { id: string }) {
       return false;
     } finally {
       setBusy(false);
+    }
+  }
+
+  // 直接在这个工作台里启动申请线程（C021）：第一轮先做简历匹配和修改建议，用户在下面回复确认后才会打开页面填表。
+  // 不再往 Session 发消息、也不再跳回 Session（和 ApplicationRunner.start 同一条路径）
+  async function startWorkspace(job: JobDetail["job"], sessionId: string | null) {
+    if (await call(async () => {
+      let use = sessionId;
+      if (!use) {
+        // 记录里的 Session 都删掉了（C013）：新建一个挂在这个 Project 下
+        use = (await api.createSession(job.project)).session.id;
+      }
+      await api.startApplication(job.id, { project: job.project, session: use });
+    })) {
+      await onChanged?.();
     }
   }
 
@@ -201,13 +216,9 @@ export default function JobPage({ id }: { id: string }) {
             <VerifiedChip verified={job.verified} />
             <JobState job={job} />
             {!status && (
-              <button className="primary" disabled={busy || !canStart || !session}
-                title={!session ? "没有可用的 Session" : !canStart ? "这个岗位现在不能开始申请" : undefined}
-                onClick={() => void call(async () => {
-                  // C008：开始申请前先排简历：交给发现它的 Session 里的对话 Agent，排完它自己开始申请
-                  await api.sendMessage(session!, `给 ${job.company} · ${job.title}（${job.id}）排一下简历，然后开始申请`);
-                  go({ kind: "session", id: session! });
-                })}>
+              <button className="primary" disabled={busy || !canStart}
+                title={!canStart ? "这个岗位现在不能开始申请" : undefined}
+                onClick={() => void startWorkspace(job, session)}>
                 开始申请
               </button>
             )}
@@ -224,8 +235,7 @@ export default function JobPage({ id }: { id: string }) {
           empty={
             <div className="emptychat">
               <h2>还没有开始申请</h2>
-              <p className="muted">Agent 在你的 Chrome 里打开岗位页，替你填写，停在最终提交前。最终提交由你自己点。</p>
-              {!session && <p className="muted small">没有可用的 Session</p>}
+              <p className="muted">点上面的「开始申请」，Agent 先在这个工作台里匹配简历、给出修改建议，你确认后再打开岗位页填表，停在最终提交前。最终提交由你自己点。</p>
               {!status && !canStart && <p className="muted small">这个岗位现在不能开始申请</p>}
             </div>
           } />
@@ -293,7 +303,7 @@ export default function JobPage({ id }: { id: string }) {
 
 function StatusNote({ status }: { status: ApplicationStatus | null }) {
   if (!status) {
-    return <p className="muted small">还没有申请。点上面的「开始申请」，Agent 会在你的 Chrome 里打开岗位页。</p>;
+    return <p className="muted small">还没有申请。点上面的「开始申请」，Agent 先在工作台里匹配简历并给出修改建议，你确认后再打开岗位页填表。</p>;
   }
   return (
     <>

@@ -43,13 +43,15 @@ public final class FillContext {
      * @param siteNotes    这个站点的记录；没有时为 null
      * @param goal         一句话目标（公司 · 岗位）
      * @param state        申请状态（C019）
-     * @param companyNotes 这家公司的记录（{@code companies/<company>.md}）；没有时为 null
-     * @param lessons      已积累的通用经验（{@code review/lessons.md}）；没有时为 null
+     * @param companyNotes   这家公司的记录（{@code companies/<company>.md}）；没有时为 null
+     * @param lessons        已积累的通用经验（{@code review/lessons.md}）；没有时为 null
+     * @param profileSummary 用户画像（{@code base/profile.md} 正文）；没有时为 null
+     * @param jobNote        岗位调研备注（{@code job.md} 的 {@code lead_note}，Session 搜岗时留存）；没有时为 null
      */
     public record Inputs(Map<String, ResolvedFact> profileZh, Map<String, ResolvedFact> profileEn,
                          List<JobAnswers.Answer> answers, List<String> files, List<SkillCatalog.Skill> catalog,
                          List<String> suggested, String siteNotes, String goal, ApplicationState state,
-                         String companyNotes, String lessons) {
+                         String companyNotes, String lessons, String profileSummary, String jobNote) {
 
         public Inputs {
             profileZh = profileZh == null ? Map.of() : profileZh;
@@ -61,11 +63,21 @@ public final class FillContext {
             state = state == null ? ApplicationState.empty() : state;
         }
 
+        /** 保留 11 参数兼容构造。 */
+        public Inputs(Map<String, ResolvedFact> profileZh, Map<String, ResolvedFact> profileEn,
+                      List<JobAnswers.Answer> answers, List<String> files, List<SkillCatalog.Skill> catalog,
+                      List<String> suggested, String siteNotes, String goal, ApplicationState state,
+                      String companyNotes, String lessons) {
+            this(profileZh, profileEn, answers, files, catalog, suggested, siteNotes, goal, state, companyNotes,
+                    lessons, null, null);
+        }
+
         /** 没有公司记忆和通用经验时的兼容构造。 */
         public Inputs(Map<String, ResolvedFact> profileZh, Map<String, ResolvedFact> profileEn,
                       List<JobAnswers.Answer> answers, List<String> files, List<SkillCatalog.Skill> catalog,
                       List<String> suggested, String siteNotes, String goal, ApplicationState state) {
-            this(profileZh, profileEn, answers, files, catalog, suggested, siteNotes, goal, state, null, null);
+            this(profileZh, profileEn, answers, files, catalog, suggested, siteNotes, goal, state, null, null, null,
+                    null);
         }
     }
 
@@ -144,6 +156,14 @@ public final class FillContext {
         }
         if (listed == 0) {
             out.append("- （没有可用的资料）\n");
+        }
+
+        if (inputs.profileSummary() != null && !inputs.profileSummary().isBlank()) {
+            out.append("\n# 用户画像（profile.md）\n\n").append(inputs.profileSummary().strip()).append('\n');
+        }
+
+        if (inputs.jobNote() != null && !inputs.jobNote().isBlank()) {
+            out.append("\n# 岗位调研备注（Session 留存）\n\n").append(inputs.jobNote().strip()).append('\n');
         }
 
         out.append("\n# 本次答案（用户在这次申请里的回答，fact 写答案编号）\n\n");

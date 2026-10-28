@@ -853,15 +853,12 @@ public final class SessionLoop {
             if (jobId == null || !jobs.exists(project, jobId)) {
                 return failed(call, "失败：这个 Project 里没有 Job " + jobId);
             }
-            // C008：开始申请前先按这个岗位排简历。是提示不是关卡：用户说不用排时带 skip_ranking 照做并记下
-            Job job = jobs.load(project, jobId);
-            if (applications.status(jobId) == null && !resumes.current(job)) {
-                if (skipRanking == null) {
-                    return result(call, "还没有开始：" + jobId + " 这次还没有排过简历（或者排过之后上传了新原件）。"
-                            + "先 list_resumes、read_resume，在对话里把排名和修改建议告诉用户、问用哪一份；用户定了以后 "
-                            + "choose_resume，然后再调用 start_application。用户明确说不用排时，带 skip_ranking（用户的原话）再调用。");
+            // C021：可以直接开启工作台，简历匹配与修改建议在工作台第一步进行；若用户在 Session 说不用排直接投，先记下 skip
+            if (skipRanking != null && applications.status(jobId) == null) {
+                Job job = jobs.load(project, jobId);
+                if (!resumes.current(job)) {
+                    resumes.skip(job, session, skipRanking);
                 }
-                resumes.skip(job, session, skipRanking);
             }
             try {
                 return result(call, applications.start(jobId, project, session));

@@ -49,7 +49,8 @@
 | [coding/C004-A-1-profile-import.md](coding/C004-A-1-profile-import.md) | memory「资料导入与画像」、workflow 里程碑 3 的前置 | 施工完成，等手动检查 |
 | [coding/C004-A-2-profile-review.md](coding/C004-A-2-profile-review.md) | memory「资料导入与画像」、workflow 里程碑 3 的前置 | 施工完成，等手动检查 |
 | [coding/C004-B-harness-review.md](coding/C004-B-harness-review.md) | workflow 里程碑 3、memory | 已确认，待施工（在 C004-A-2 之后） |
-| [coding/C020-holistic-refinement.md](coding/C020-holistic-refinement.md) | agent-runtime、workflow、memory | 进行中（A–E 已施工；`mvn verify` 因无 Java 25 未跑通，`npm run build` 通过，2026-10-28） |
+| [coding/C020-holistic-refinement.md](coding/C020-holistic-refinement.md) | agent-runtime、workflow、memory | 已施工，等用户试（JDK 25 `mvn -B clean verify`、无头 Chromium 5 项 DOM 验证、`npm run build` 全部通过，2026-10-28） |
+| [coding/C021-workspace-flow-and-sidebar.md](coding/C021-workspace-flow-and-sidebar.md) | agent-runtime、workflow、memory、ui | 已施工，等用户在本机试（A/B/C 三包合龙：JDK 25 `mvn -B clean verify` 660+1 全通过、`npm run build` 通过、`WorkspaceSummary` 契约核对一致，2026-10-28） |
 
 ## 参考（`reference/`）
 

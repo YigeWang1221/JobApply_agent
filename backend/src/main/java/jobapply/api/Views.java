@@ -94,9 +94,22 @@ final class Views {
     private static final Set<JobEvent.Type> PHASE_EVENTS = EnumSet.of(JobEvent.Type.CONVERTED,
             JobEvent.Type.PHASE_CHANGED, JobEvent.Type.CLOSED);
 
-    /** @param status {@code running} / {@code idle} / {@code interrupted} */
+    /**
+     * 左侧栏三级列表里的一项（C021）：这个 Session 下已经打开的工作台。
+     *
+     * @param application 申请线程的状态（{@code running} / {@code ready} / …）；没有申请线程时为 null
+     * @param bucket      {@link JobBucket} 的分组（{@code preparing} / {@code waiting} / {@code ready} / …）
+     * @param label       用户看到的阶段名称
+     */
+    record WorkspaceSummary(String id, String company, String title, String application, String bucket, String label) {
+    }
+
+    /**
+     * @param status     {@code running} / {@code idle} / {@code interrupted}
+     * @param workspaces 这个 Session 下已经打开的工作台（C021 左侧栏三级列表）
+     */
     record SessionSummary(String id, String project, String title, String createdAt, List<String> tags,
-                          List<String> jobs, String handoff, String status) {
+                          List<String> jobs, String handoff, String status, List<WorkspaceSummary> workspaces) {
     }
 
     /** @param dueChecks 「该查看了」的申请个数（C007） */
@@ -212,9 +225,15 @@ final class Views {
         return job.due();
     }
 
+    /** 单个 Session（新建 Session、改标题返回的都是它）：没有工作台列表，左侧栏从 {@code GET /api/projects} 读。 */
     static SessionSummary session(SessionRecord s, SessionRunner runner) {
+        return session(s, runner, List.of());
+    }
+
+    /** 带已打开工作台的 Session（左侧栏三级列表用，C021）。 */
+    static SessionSummary session(SessionRecord s, SessionRunner runner, List<WorkspaceSummary> workspaces) {
         return new SessionSummary(s.id(), s.project(), s.title(), s.createdAt(), s.tags(), s.jobs(), s.handoff(),
-                runner.status(s).status());
+                runner.status(s).status(), workspaces == null ? List.of() : List.copyOf(workspaces));
     }
 
     static Activity activity(RuntimeEvents.Activity activity) {
@@ -253,6 +272,34 @@ final class Views {
         return !JobLedger.userDecided(status, Actor.AGENT);
     }
 
+    /**
+     * 已打开的工作台按 Session 分组（C021 左侧栏三级列表）：只收已经开始投递的 Job（有申请线程，或已经是
+     * {@code converted}）；先按 Session 的 {@code jobs} / {@code 发现于} 认领，关联的旧 Session 已经删掉时归到最新
+     * Session，已打开的工作台不会从左侧栏消失。一个 Job 只进一个 Session。
+     */
+    static Map<String, List<WorkspaceSummary>> workspaces(List<SessionRecord> sessions, List<JobView> jobs) {
+        Map<String, List<WorkspaceSummary>> grouped = new LinkedHashMap<>();
+        for (SessionRecord session : sessions) {
+            grouped.put(session.id(), new ArrayList<>());
+        }
+        if (sessions.isEmpty()) {
+            return grouped;
+        }
+        for (JobView job : jobs) {
+            // 还没开始投递的候选池岗位不进左侧三级栏
+            if (job.application() == null && !"converted".equals(job.leadStatus())) {
+                continue;
+            }
+            SessionRecord owner = sessions.stream()
+                    .filter(s -> s.jobs().contains(job.id()) || s.id().equals(job.discoveredIn()))
+                    .findFirst()
+                    .orElse(sessions.getFirst());
+            grouped.get(owner.id()).add(new WorkspaceSummary(job.id(), job.company(), job.title(),
+                    job.application(), job.bucket(), job.label()));
+        }
+        return grouped;
+    }
+
     static ProjectSummary project(ProjectSpec spec, List<SessionRecord> sessions, List<JobView> jobs,
                                   SessionRunner runner, LocalDate today) {
         int dueChecks = (int) jobs.stream().filter(job -> checkDue(job, today)).count();
@@ -286,8 +333,9 @@ final class Views {
                 applied++;
             }
         }
+        Map<String, List<WorkspaceSummary>> workspaces = workspaces(sessions, jobs);
         return new ProjectSummary(spec.id(), spec.title(), spec.status(),
-                sessions.stream().map(s -> session(s, runner)).toList(),
+                sessions.stream().map(s -> session(s, runner, workspaces.get(s.id()))).toList(),
                 new Counts(leads, shortlisted, preparing, waiting, ready, applied, dueChecks));
     }
 

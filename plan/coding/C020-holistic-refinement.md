@@ -7,8 +7,8 @@
   3. `remember` 写入的 `companies/<company>.md` 与 `review/lessons.md` 尚未回注到两个 Agent 的上下文，且 `C006-fix-real-run` 第 9 条（上传区清空后 `read_resume` 与二次上传失败）待按原件直读 + 按需复制收口；
   4. 对话 Agent 提示词已允许按用户要求看已开标签页，但工具集尚未开放 `browser_tabs`；
   5. 前端工作台（`JobPage.tsx`）的填写报告未随运行状态自动刷新且未用 Markdown 表格渲染，事件流 `reset` 重读状态与 `reply` 仅在等待选文件时带 `files`（`C006-fix-real-run` 第 17 条）待补齐。
-- 分工：本计划拆为 **A、B、C、D、E 五个独立工作包**。A–E 代码已在分支 `C20_upgrade` 工作树。本条补合龙验证记录。
-- 状态：进行中（A–E 已施工；`mvn verify` 因本机无 Java 25 未跑通，`npm run build` 通过，2026-10-28）。
+- 分工：本计划拆为 **A、B、C、D、E 五个独立工作包**。A–E 代码已在分支 `C20_upgrade` 工作树并完成合龙验证。
+- 状态：已施工，等用户在真实网站试（A–E 合龙验证通过：本机 JDK 25 下 `mvn -B clean verify` 退出码 0、`npm run build` 退出码 0、无头 Chromium 5 项新脚本检查通过，2026-10-28）。
 
 ---
 
@@ -168,9 +168,15 @@
 
 ## 合龙验证（2026-10-28）
 
-- **Java 25**：`/opt/homebrew/opt/openjdk@25` **未安装**（`brew info openjdk@25`：`Not installed`）。`java_home -V` 只有 Temurin 21.0.7 与 Homebrew 17。Homebrew `openjdk` 现为 24.0.2，**未用来跑** `mvn verify`（`pom.xml` 的 `<java.version>25</java.version>`）。
-- **`backend/` `mvn -B clean verify`**：`JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home` 后 `ls "$JAVA_HOME/bin/java"` 失败；Maven 报 `The JAVA_HOME environment variable is not defined correctly`；**退出码 1**。未改用其它 JDK，故单元测试与 `*IT` **未运行**。
-- **C020 无头 Chromium 滚轮/箭头日期夹具**：计划验收写的是真实网站冒烟，**没有**规定仓库内 headless 夹具或测试页。工作树里也没有为本包新增的 wheel/arrow HTML 夹具。未发明测试页。C016 时期 scratchpad 本地页检查 **未在本步重跑**。
-- **`frontend/` `npm run build`**：无 `node_modules`，用 `package-lock.json` 执行 `npm ci`（退出码 0）再 `npm run build`（`tsc -b && vite build`）**退出码 0**。Vite 提示主 chunk > 500 kB，构建仍成功。
-- **未运行**：真实招聘站扁平资料级联 / 滚轮日期 / 箭头日历；`read_resume` 与二次上传；工作台在浏览器里看报告表格与 `reset`。
-- **代码修复**：无（Maven 未编译到 C020 源码）。
+- **本机 JDK 25（`25.0.5`，`/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home`）下 `backend/` `mvn -B clean verify`**：**退出码 0**（surefire 655、failsafe 1 `MemoryLedgerScenarioIT` 全部通过，Failures / Errors / Skipped 均为 0；执行时以 `JOBAPPLY_APP_CONFIG=/tmp/jobapply-nonexistent-app.yaml` 隔离本机 `~/Library/Application Support/JobApply/app.yaml`，使 `JobApplyApplicationTest` 默认 `../storage` 断言不受本机桌面配置干扰）。
+- **`frontend/` `npm run build`**：`tsc -b && vite build` **退出码 0**。
+- **无头 Chromium 5 项新脚本本地 DOM 验证**（使用本机 `/Users/yigewang/Library/Caches/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-mac-arm64/chrome-headless-shell` 与 `playwright-core` 直接加载 `PageScripts.DOM` / `SELECT` / `DATE`）：
+  1. 虚拟滚动 `wheel` 下拉（`overflow: hidden`、仅响应 `wheel` 事件动态渲染选项）→ `status: 'selected'`, `verified: true`；
+  2. 3 层级联先传 2 层 `['浙江', '台州']` → 返回 `status: 'need_more_levels'`, `closed: false`, `options: ['椒江区', '临海市']`（保持浮层开启）；紧接着再调 3 层 `['浙江', '台州', '椒江区']` → 认回已开浮层并选中关闭（`status: 'selected'`, `closed: true`, `verified: true`）；
+  3. 多列滚轮日期面板（年/月/日三列 `ul`）只给年月 `2026-09` → `status: 'need_day'`, `how: 'wheel'`, `closed: true`；再给完整日期 `2026-09-15` → `status: 'set'`, `how: 'wheel'`, `verified: true`；
+  4. 日历头部原生 `<select>` 选择年月（`2026-10-18`）→ `status: 'set'`, `how: 'panel'`, `verified: true`；
+  5. 日历头部文字不可点（`labelDead`）改用左右箭头在单次调用内连续翻页到目标年月（`2026-10-12`）→ `status: 'set'`, `how: 'panel'`, `verified: true`。
+- **合龙验证抓到并修复的 `PageScripts.java` 问题**：
+  1. `DATE` 的 `selectHeader`：`h.evaluate((s, {want, part}) => ..., {want, part})`（Playwright `evaluate` 要求多参数封装为单对象；同时仅在目标项与当前 `s.value` 不同时才 `selectOption`、分别检查年/月避免 `||` 短路跳过月份下拉，并从可见 `<select>` 选中项兜底读取 `hy` / `hm`）；
+  2. `SELECT`：当上一轮返回 `need_more_levels` 保持浮层开启后，下一轮再调 `browser_select_option` 时，`if (info.expanded)` 以及点击后 `!popup` 回退 `pre: []` 认回已开着的浮层。
+- **未运行**：真实招聘网站与真实 Chrome 端到端冒烟。

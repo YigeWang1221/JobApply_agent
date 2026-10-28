@@ -507,6 +507,17 @@ export function awaitingSubmit(job: JobView): boolean {
   return job.bucket === "ready";
 }
 
+// 已打开的工作台（C021）：这个 Session 下面已经开了申请线程的岗位，左侧栏第三级用它
+export interface WorkspaceSummary {
+  id: string;
+  company: string;
+  title: string;
+  // 申请线程状态：running / queued / waiting_user / ready / failed / interrupted / done；还没有线程时为 null
+  application: string | null;
+  bucket: JobBucket;
+  label: string;
+}
+
 export interface SessionSummary {
   id: string;
   project: string;
@@ -517,6 +528,8 @@ export interface SessionSummary {
   handoff: string;
   // 运行中标记（C006-agent）；没有时不显示
   status?: "running" | "idle" | "interrupted" | null;
+  // 三级侧栏（C021）：后端还没有给这个字段时按空列表处理
+  workspaces?: WorkspaceSummary[];
 }
 
 export interface ProjectCounts {

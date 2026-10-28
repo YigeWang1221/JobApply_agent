@@ -13,7 +13,7 @@ import { JobState, SubmitConfirm } from "../status";
 import { toast } from "../toast";
 
 // 对话视图（C006-front）：整屏高度，中间是消息流，底部固定输入框，右侧是这个 Session 涉及的岗位（可收起）
-export default function SessionPage({ id }: { id: string }) {
+export default function SessionPage({ id, onChanged }: { id: string; onChanged?: () => Promise<void> }) {
   const [view, setView] = useState<SessionView | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 这个 Session 删掉了（或者从来没有）：404（C013）
@@ -158,12 +158,35 @@ export default function SessionPage({ id }: { id: string }) {
             placeholder="例如：按我的简历找上海的后端校招 / 核验一下第一个 / 投这两个" />
         </div>
       </div>
-      {jobsOpen && <JobsPanel jobs={view.jobs} onClose={() => setJobsOpen(false)} />}
+      {jobsOpen && <JobsPanel jobs={view.jobs} session={id} onClose={() => setJobsOpen(false)} onChanged={onChanged} />}
     </div>
   );
 }
 
-function JobsPanel({ jobs, onClose }: { jobs: JobView[]; onClose: () => void }) {
+function JobsPanel({ jobs, session, onClose, onChanged }: {
+  jobs: JobView[];
+  session: string;
+  onClose: () => void;
+  onChanged?: () => Promise<void>;
+}) {
+  // 正在启动工作台的岗位（C021）：按钮显示「启动中…」，避免点两下
+  const [starting, setStarting] = useState<string | null>(null);
+
+  // 直接在这个岗位自己的工作台里启动 Agent（C021）：第一轮先做简历匹配与修改建议，不会再往 Session 发消息
+  async function startWorkspace(job: JobView) {
+    setStarting(job.id);
+    try {
+      await api.startApplication(job.id, { project: job.project, session });
+      await onChanged?.();
+      go({ kind: "job", id: job.id });
+    } catch (e) {
+      // 400 / 409（已经有申请线程、没有岗位链接等）照后端原话显示
+      toast(describe(e), "error");
+    } finally {
+      setStarting(null);
+    }
+  }
+
   return (
     <aside className="jobsside" aria-label="这个 Session 涉及的岗位">
       <div className="ph">
@@ -182,9 +205,22 @@ function JobsPanel({ jobs, onClose }: { jobs: JobView[]; onClose: () => void }) 
                 </div>
                 <div className="acts">
                   <JobState job={job} />
-                  <button className="linkbtn" onClick={() => go({ kind: "job", id: job.id })}>
-                    {job.leadStatus === "converted" ? "工作台" : "详情"}
-                  </button>
+                  {job.application != null || job.leadStatus === "converted"
+                    ? (
+                      <button className="btn-xs" onClick={() => go({ kind: "job", id: job.id })}>打开工作台</button>
+                    )
+                    : (
+                      <>
+                        {/* 计划要求保留「详情」入口：还没开始投递、或者这个岗位现在不能开始（没有链接等）时也能打开它的页面 */}
+                        <button className="linkbtn" onClick={() => go({ kind: "job", id: job.id })}>详情</button>
+                        {job.canStart && (
+                          <button className="btn-xs primary" disabled={starting === job.id}
+                            onClick={() => void startWorkspace(job)}>
+                            {starting === job.id ? "启动中…" : "开始投递"}
+                          </button>
+                        )}
+                      </>
+                    )}
                 </div>
               </div>
             ))}
