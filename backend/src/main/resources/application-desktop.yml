@@ -1,0 +1,23 @@
+# Windows / Linux 桌面版（--spring.profiles.active=desktop）。
+# JOBAPPLY_RESOURCES 由 jpackage app-image 或启动脚本传入，指向包含 web/ 与 node/ 的资源目录。
+# 启动就绪后由 OpenBrowser 组件自动调用默认浏览器打开应用，不做原生窗口外壳。
+server:
+  port: 8088
+
+spring:
+  web:
+    resources:
+      static-locations: file:${JOBAPPLY_RESOURCES:${jobapply.desktop.resources:./resources}}/web/
+
+jobapply:
+  api:
+    allowed-origins: ["http://127.0.0.1:8088", "http://127.0.0.1:5173", "http://localhost:5173"]
+  app:
+    open-browser: true
+  browser:
+    mcp:
+      # 自带的 node 和预装的 @playwright/mcp@0.0.83；Windows 与 Linux 下均放置并命名为 node（不带 .exe）
+      command: ${JOBAPPLY_RESOURCES:${jobapply.desktop.resources:./resources}}/node/node
+      args: ["${JOBAPPLY_RESOURCES:${jobapply.desktop.resources:./resources}}/node/lib/node_modules/@playwright/mcp/cli.js", "--cdp-endpoint", "ws://127.0.0.1:9222/devtools/browser",
+             "--snapshot-mode", "none", "--console-level", "error", "--image-responses", "omit", "--no-webmcp",
+             "--timeout-action", "15000", "--timeout-navigation", "25000"]

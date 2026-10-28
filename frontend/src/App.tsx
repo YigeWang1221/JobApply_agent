@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, errorText, type ProjectSummary, type SessionSummary, type WorkspaceSummary } from "./api";
 import BrowserBanner from "./BrowserBanner";
 import { DeleteConfirm, type DeleteTarget } from "./DeleteConfirm";
+import { DiscardWorkspace } from "./DiscardWorkspace";
 import { Icon } from "./chat/icons";
 import { useGlobalChanges } from "./chat/useLiveUpdates";
 import Global from "./pages/Global";
@@ -183,6 +184,32 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
   const [renaming, setRenaming] = useState<string | null>(null);
   // 正在确认删除的那一项（C013）
   const [deleting, setDeleting] = useState<DeleteTarget | null>(null);
+  // 正在确认关闭/删除工作台的那一项（任务 2）
+  const [discardingWorkspace, setDiscardingWorkspace] = useState<WorkspaceSummary | null>(null);
+  // 工作台展开状态（任务 1）：默认折叠，持久化到 localStorage
+  const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(() => readExpandedWorkspaces());
+
+  const toggleWorkspaceExpanded = (sessionId: string, currentlyExpanded: boolean) => {
+    setExpandedWorkspaces((prev) => {
+      const next = new Set(prev);
+      if (currentlyExpanded) {
+        next.delete(sessionId);
+      } else {
+        next.add(sessionId);
+      }
+      writeExpandedWorkspaces(next);
+      return next;
+    });
+  };
+
+  // 删掉的正是当前看的工作台时回到全局
+  async function afterDiscardWorkspace(w: WorkspaceSummary) {
+    if (route.kind === "job" && route.id === w.id) {
+      go({ kind: "global" });
+    }
+    await onCreated();
+  }
+
   // 删掉的正是当前看的（或当前 Session 所在的 Project）时回到全局
   async function afterDelete(target: DeleteTarget) {
     const gone = target.kind === "session"
@@ -233,43 +260,75 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
               <div key={day} className="sessgroup">
                 <span className="sessday">{day}</span>
                 <ul className="sess">
-                  {list.map((s) => (
-                    <li key={s.id}>
-                      {renaming === `session:${s.id}` ? (
-                        <RenameInput className="side-rename" value={s.title} onDone={() => setRenaming(null)}
-                          onSave={async (title) => { await api.renameSession(s.id, title); await onCreated(); }} />
-                      ) : (
-                        <div className="siderow">
-                          <button title={`${s.title}（双击改名）`} aria-current={current({ kind: "session", id: s.id })}
-                            onClick={() => go({ kind: "session", id: s.id })} onDoubleClick={() => setRenaming(`session:${s.id}`)}>
-                            <span className="sesst">{s.title}</span>
-                            {s.status === "running" && <span className="rundot" title="运行中" aria-label="运行中" />}
-                            {s.status === "interrupted" && <span className="rundot bad" title="中断了" aria-label="中断了" />}
-                          </button>
-                          <button className="iconbtn renamebtn" title="改名" aria-label={`给 ${s.title} 改名`}
-                            onClick={() => setRenaming(`session:${s.id}`)}><Icon name="pencil" size={12} /></button>
-                          <button className="iconbtn renamebtn delbtn" title="删除对话" aria-label={`删除 ${s.title}`}
-                            onClick={() => setDeleting({ kind: "session", session: s })}><Icon name="trash" size={12} /></button>
-                        </div>
-                      )}
-                      {/* 第三级（C021）：这个 Session 下已经打开的工作台，点一下直接切过去 */}
-                      {(s.workspaces ?? []).length > 0 && (
-                        <ul className="side-workspaces">
-                          {(s.workspaces ?? []).map((w) => (
-                            <li key={w.id}>
+                  {list.map((s) => {
+                    const wsList = s.workspaces ?? [];
+                    const hasWorkspaces = wsList.length > 0;
+                    const containsCurrent = route.kind === "job" && wsList.some((w) => w.id === route.id);
+                    const isExpanded = expandedWorkspaces.has(s.id) || containsCurrent;
+                    return (
+                      <li key={s.id}>
+                        {renaming === `session:${s.id}` ? (
+                          <RenameInput className="side-rename" value={s.title} onDone={() => setRenaming(null)}
+                            onSave={async (title) => { await api.renameSession(s.id, title); await onCreated(); }} />
+                        ) : (
+                          <div className="siderow">
+                            <button title={`${s.title}（双击改名）`} aria-current={current({ kind: "session", id: s.id })}
+                              onClick={() => go({ kind: "session", id: s.id })} onDoubleClick={() => setRenaming(`session:${s.id}`)}>
+                              <span className="sesst">{s.title}</span>
+                              {s.status === "running" && <span className="rundot" title="运行中" aria-label="运行中" />}
+                              {s.status === "interrupted" && <span className="rundot bad" title="中断了" aria-label="中断了" />}
+                            </button>
+                            {hasWorkspaces && (
                               <button
-                                className={"side-workspace" + (route.kind === "job" && route.id === w.id ? " active" : "")}
-                                onClick={() => go({ kind: "job", id: w.id })}
-                                title={`${w.company} · ${w.title}（${w.label}）`}>
-                                <span className={"side-ws-dot " + wsDotClass(w)} aria-hidden="true" />
-                                <span className="side-ws-text">{w.company} · {w.title}</span>
+                                type="button"
+                                className="iconbtn side-ws-toggle"
+                                title={isExpanded ? "收起工作台" : "展开工作台"}
+                                aria-label={isExpanded ? `收起工作台（${wsList.length}）` : `展开工作台（${wsList.length}）`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleWorkspaceExpanded(s.id, isExpanded);
+                                }}
+                              >
+                                <span className={`chev${isExpanded ? " open" : ""}`}><Icon name="chevron" size={12} /></span>
+                                {!isExpanded && <span className="side-ws-count">{wsList.length}</span>}
                               </button>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </li>
-                  ))}
+                            )}
+                            <button className="iconbtn renamebtn" title="改名" aria-label={`给 ${s.title} 改名`}
+                              onClick={() => setRenaming(`session:${s.id}`)}><Icon name="pencil" size={12} /></button>
+                            <button className="iconbtn renamebtn delbtn" title="删除对话" aria-label={`删除 ${s.title}`}
+                              onClick={() => setDeleting({ kind: "session", session: s })}><Icon name="trash" size={12} /></button>
+                          </div>
+                        )}
+                        {/* 第三级（C021）：这个 Session 下已经打开的工作台，点一下直接切过去 */}
+                        {isExpanded && hasWorkspaces && (
+                          <ul className="side-workspaces">
+                            {wsList.map((w) => (
+                              <li key={w.id}>
+                                <button
+                                  className={"side-workspace" + (route.kind === "job" && route.id === w.id ? " active" : "")}
+                                  onClick={() => go({ kind: "job", id: w.id })}
+                                  title={`${w.company} · ${w.title}（${w.label}）`}>
+                                  <span className={"side-ws-dot " + wsDotClass(w)} aria-hidden="true" />
+                                  <span className="side-ws-text">{w.company} · {w.title}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="iconbtn side-ws-del"
+                                  title={`关闭工作台 ${w.company} · ${w.title}`}
+                                  aria-label={`关闭工作台 ${w.company} · ${w.title}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDiscardingWorkspace(w);
+                                  }}>
+                                  <Icon name="trash" size={12} />
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             ))}
@@ -279,6 +338,13 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
       </div>
       {deleting && (
         <DeleteConfirm target={deleting} onClose={() => setDeleting(null)} onDeleted={() => afterDelete(deleting)} />
+      )}
+      {discardingWorkspace && (
+        <DiscardWorkspace
+          workspace={discardingWorkspace}
+          onClose={() => setDiscardingWorkspace(null)}
+          onDiscarded={() => afterDiscardWorkspace(discardingWorkspace)}
+        />
       )}
       <div className="bottom">
         <p className="note">
@@ -356,3 +422,30 @@ function writeFlag(key: string, value: boolean) {
     // 本地存储不可用：只在这次打开里有效
   }
 }
+
+const EXPANDED_WORKSPACES_KEY = "jobapply.sidebar.expandedWorkspaces";
+
+function readExpandedWorkspaces(): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(EXPANDED_WORKSPACES_KEY);
+    if (!raw) {
+      return new Set();
+    }
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return new Set(parsed.filter((x): x is string => typeof x === "string"));
+    }
+  } catch {
+    // 本地存储不可用：静默降级
+  }
+  return new Set();
+}
+
+function writeExpandedWorkspaces(set: Set<string>) {
+  try {
+    window.localStorage.setItem(EXPANDED_WORKSPACES_KEY, JSON.stringify([...set]));
+  } catch {
+    // 本地存储不可用：静默降级
+  }
+}
+

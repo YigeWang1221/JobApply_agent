@@ -770,6 +770,8 @@ export const api = {
   application: (jobId: string) => request<ApplicationStatus>("GET", jobPath(jobId)),
   reply: (jobId: string, body: ReplyBody) => request<ApplicationStatus>("POST", `${jobPath(jobId)}/reply`, body),
   stop: (jobId: string) => request<ApplicationStatus>("POST", `${jobPath(jobId)}/stop`),
+  discardWorkspace: (jobId: string, deleteJob: boolean) =>
+    request<{ id: string; mode: "thread" | "job" }>("DELETE", `/api/jobs/${enc(jobId)}/workspace`, { deleteJob }),
   jobAttachment: (jobId: string, file: File) => uploadFile<Attachment>(`${jobPath(jobId)}/attachments`, file),
   // 没有主人的标签页（只给界面看）；把其中一个交给这个申请：标签页变了或者有主人了时 409
   freeTabs: () => request<{ tabs: BrowserTab[] }>("GET", "/api/browser/tabs"),

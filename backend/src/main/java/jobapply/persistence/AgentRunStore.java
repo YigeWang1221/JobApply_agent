@@ -1,5 +1,7 @@
 package jobapply.persistence;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
@@ -31,6 +33,14 @@ public final class AgentRunStore {
     public synchronized void save(AgentRun run) {
         AtomicFiles.write(layout.agentRun(run.job()), JSON.writerWithDefaultPrettyPrinter().writeValueAsString(run)
                 + "\n");
+    }
+
+    public synchronized void delete(String jobId) {
+        try {
+            Files.deleteIfExists(layout.agentRun(jobId));
+        } catch (IOException e) {
+            throw new UncheckedIOException("删除运行状态失败：" + jobId, e);
+        }
     }
 
     public synchronized Optional<AgentRun> find(String jobId) {

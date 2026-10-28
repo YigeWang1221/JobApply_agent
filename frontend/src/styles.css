@@ -299,11 +299,19 @@ a {
   gap: 1px;
 }
 
-.sess button.side-workspace {
+.sess .side-workspaces li {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  position: relative;
+}
+
+.sess .side-workspaces li > button.side-workspace {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 100%;
   padding: 3px 6px;
   border: 0;
   background: none;
@@ -322,6 +330,34 @@ a {
   background: var(--accent-wash);
   color: var(--ink);
   font-weight: 500;
+}
+
+/* 工作台条目 hover 显示垃圾桶 */
+.sess .side-ws-del {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--crit);
+  border-radius: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.sess .side-workspaces li:hover .side-ws-del,
+.sess .side-workspaces li .side-ws-del:focus-visible {
+  opacity: 0.7;
+  pointer-events: auto;
+}
+
+.sess .side-ws-del:hover {
+  opacity: 1;
+  color: #fff;
+  background: var(--crit);
 }
 
 .side-ws-text {
@@ -2152,6 +2188,41 @@ ul.checklist li {
   min-width: 0;
 }
 
+/* 工作台折叠展开按钮与数量角标 */
+.side .side-ws-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 4px;
+  min-height: 20px;
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.side .side-ws-toggle:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+
+.side-ws-count {
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 14px;
+  min-width: 14px;
+  text-align: center;
+  color: var(--muted);
+  padding: 0 4px;
+  border-radius: 7px;
+  background: var(--surface-2);
+}
+
+.side .side-ws-toggle:hover .side-ws-count {
+  color: var(--ink);
+  background: var(--surface-3, var(--line));
+}
+
 .side .renamebtn {
   flex: none;
   width: 22px !important;
@@ -2633,6 +2704,17 @@ table.apps tr.grp td {
   color: var(--ink-2);
 }
 
+.dialog-warn {
+  margin: 0 0 1em;
+  padding: 0.6em 0.8em;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+  font-size: 0.95em;
+  color: var(--warn-ink);
+  font-weight: 500;
+}
+
 .dialog .error {
   margin: 10px 0 0;
 }
@@ -2660,6 +2742,19 @@ button.danger-solid {
 button.danger-solid:hover:not(:disabled) {
   background: var(--crit-ink);
   border-color: var(--crit-ink);
+}
+
+button.danger-outline {
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--crit) 55%, transparent);
+  color: var(--crit-ink);
+  font-weight: 500;
+}
+
+button.danger-outline:hover:not(:disabled) {
+  border-color: var(--crit);
+  color: var(--crit);
+  background: color-mix(in srgb, var(--crit) 10%, transparent);
 }
 
 /* 侧栏的删除按钮：出现时就是红色，悬停时加红底，和背景分得开 */

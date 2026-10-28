@@ -8,7 +8,7 @@
 
 你只需准备资料、说明要求，在需要时补充信息，并在浏览器中完成登录和最终提交。
 
-[系统框架](#系统框架) · [Agent 设计](#agent-设计) · [技术实现](#技术实现) · [选型与借鉴](#选型与借鉴) · [本地运行](#本地运行)
+[选型与借鉴](#选型与借鉴) · [系统框架](#系统框架) · [Agent 设计](#agent-设计) · [技术实现](#技术实现) · [本地运行](#本地运行)
 
 ## 功能概览
 
@@ -22,6 +22,44 @@
 ![JobApply 工作区：投递漏斗、阶段看板和待处理事项](docs/images/dashboard-demo.png)
 
 *界面示意来自[历史原型](plan/reference/ui-mockup.html)，使用虚构数据。[查看申请总表示意](docs/images/applications-demo.png)。*
+
+## 选型与借鉴
+
+### Spring AI 模型接入与自研 AgentLoop
+
+JobApply 的早期实现采用 LangGraph4j，将申请步骤组织成固定节点，并在九处设置等待点。由于这套实现将登录判断和用户交接绑定到流程分支，新出现的页面行为往往需要通过修改节点逻辑处理。
+
+JobApply 随后改用 Java Harness，将申请步骤交给模型根据工具反馈决定。它保留 Spring AI 的模型、消息和工具协议，通过 `AgentLoop` 控制每轮调用，通过 `HarnessLoop` 与 `SessionLoop` 处理申请和调研，从而直接管理消息组装、Skills 加载、用户插话与对话持久化。
+
+| 方案 | JobApply 的选择与原因 |
+| --- | --- |
+| LangChain / Deep Agents | JobApply 借鉴其循环、Skills 和子任务机制，并在 Java 后端实现这些设计，使 Agent 与现有资料和浏览器工具运行在同一进程。 |
+| LangGraph / LangGraph4j | JobApply 用 AgentLoop 替换了早期的 LangGraph4j 流程，通过保存对话、计划和运行状态实现暂停与续接。 |
+| Spring AI Alibaba Graph | JobApply 在选型研究后采用模型与工具循环，自行管理运行状态，没有引入 Alibaba Graph。 |
+| LangChain4j | JobApply 已通过 Spring AI 接入模型，因此没有再引入同属 Java 生态的 LangChain4j。 |
+| Spring AI | JobApply 使用 Spring AI 接入模型与工具协议，自行管理工具执行和下一轮调用。 |
+
+JobApply 移除 LangGraph4j 是为了调整自身的流程建模方式，并非认为图框架只能执行固定步骤；Deep Agents 就是在 LangGraph 上构建动态 Agent 的例子。
+
+### 开源设计参考与实现
+
+JobApply 参考 [OpenMAIC](https://github.com/THU-MAIC/OpenMAIC)、[Deep Agents](https://github.com/langchain-ai/deepagents) 和 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 的源码与设计，用 Java 实现了以下机制。
+
+**OpenMAIC：用户交接与事件续接。** JobApply 参考 OpenMAIC 课堂导演的 `cue_user` 机制，通过 `ask_user` 结束本次运行、请求补充信息，并在收到回复后续接对话。JobApply 还借鉴了 OpenMAIC 将运行与 SSE 读者分离、按序号补发事件的设计，采用本地文件保存状态、内存缓冲保存实时事件。
+
+出处：[导演循环](https://github.com/THU-MAIC/OpenMAIC/blob/dff201b49857918885cc5ebadb4a8af254b6ae9d/lib/chat/pi/director-loop.ts)；落地：[HarnessLoop](backend/src/main/java/jobapply/harness/runtime/HarnessLoop.java)、[RuntimeEvents](backend/src/main/java/jobapply/workflow/RuntimeEvents.java)。
+
+**Deep Agents：共用循环与按需加载。** JobApply 参考 Deep Agents 通过 `create_agent` 组装不同 Agent 的方式，用同一个 `AgentLoop` 驱动调研和申请，通过 `SessionLoop` 与 `HarnessLoop` 提供各自的上下文和工具处理。JobApply 也借鉴了它的 Skills 按需加载、工具中断结果补齐和子任务回报机制。
+
+出处：[Agent 组装](https://github.com/langchain-ai/deepagents/blob/3e7d5faa9d275beb3d54f11266aac3c60e3d50b9/libs/deepagents/deepagents/graph.py)、[工具结果补齐](https://github.com/langchain-ai/deepagents/blob/3e7d5faa9d275beb3d54f11266aac3c60e3d50b9/libs/deepagents/deepagents/middleware/patch_tool_calls.py)；落地：[AgentLoop](backend/src/main/java/jobapply/harness/runtime/AgentLoop.java)、[Conversation](backend/src/main/java/jobapply/harness/context/Conversation.java)、[ApplicationRunner](backend/src/main/java/jobapply/workflow/ApplicationRunner.java)。
+
+**Hermes：记忆更新与运行时插话。** JobApply 参考 Hermes 的分节提示词组织 `ApplyAgent`，采用轻量循环驱动工具执行，并通过 `MemoryWriter` 实现 add / replace / remove 记忆更新和 Skill 段落替换。JobApply 还参考 Hermes 的 `_pending_steer` 与 OpenMAIC 的 `agent.steer`，通过收件箱在下一次模型调用前注入用户消息。
+
+出处：[主循环与 steer](https://github.com/NousResearch/hermes-agent/blob/e5dad4ac57ad11d39fe18b1ac895c0e0ae5b6494/run_agent.py)、[Memory 工具](https://github.com/NousResearch/hermes-agent/blob/e5dad4ac57ad11d39fe18b1ac895c0e0ae5b6494/tools/memory_tool.py)；落地：[ApplyAgent](backend/src/main/java/jobapply/agents/ApplyAgent.java)、[Inbox](backend/src/main/java/jobapply/domain/Inbox.java)、[MemoryWriter](backend/src/main/java/jobapply/memory/MemoryWriter.java)。
+
+**[SillyTavern（酒馆）](https://github.com/SillyTavern/SillyTavern)：分层资料与按需展开。** JobApply 从酒馆项目获得启发，在上层资料中保留概要与引用，为模型提供按需追溯下层内容的路径。它据此组织原始材料、整理后的资料和运行记录，保留资料之间的上下文关系。
+
+更完整的源码路径、研究版本和未采用的机制见[研究笔记](plan/reference/research-agent-design.md)。
 
 ## 系统框架
 
@@ -216,44 +254,6 @@ JobApply 将对话与任务状态保存到本地文件，在事件缓冲过期�
 实现：[RuntimeEvents](backend/src/main/java/jobapply/workflow/RuntimeEvents.java)、[Conversation](backend/src/main/java/jobapply/harness/context/Conversation.java)。
 
 JobApply 在模型上下文中使用 `{KEY}` 表示敏感字段，只在发送浏览器填表调用时替换为用户在设置页填写的真实值。它将资料保存在本机 `storage/` 中，并在调用云端模型或搜索服务时发送相应上下文。
-
-## 选型与借鉴
-
-### Spring AI 模型接入与自研 AgentLoop
-
-JobApply 的早期实现采用 LangGraph4j，将申请步骤组织成固定节点，并在九处设置等待点。由于这套实现将登录判断和用户交接绑定到流程分支，新出现的页面行为往往需要通过修改节点逻辑处理。
-
-JobApply 随后改用 Java Harness，将申请步骤交给模型根据工具反馈决定。它保留 Spring AI 的模型、消息和工具协议，通过 `AgentLoop` 控制每轮调用，通过 `HarnessLoop` 与 `SessionLoop` 处理申请和调研，从而直接管理消息组装、Skills 加载、用户插话与对话持久化。
-
-| 方案 | JobApply 的选择与原因 |
-| --- | --- |
-| LangChain / Deep Agents | JobApply 借鉴其循环、Skills 和子任务机制，并在 Java 后端实现这些设计，使 Agent 与现有资料和浏览器工具运行在同一进程。 |
-| LangGraph / LangGraph4j | JobApply 用 AgentLoop 替换了早期的 LangGraph4j 流程，通过保存对话、计划和运行状态实现暂停与续接。 |
-| Spring AI Alibaba Graph | JobApply 在选型研究后采用模型与工具循环，自行管理运行状态，没有引入 Alibaba Graph。 |
-| LangChain4j | JobApply 已通过 Spring AI 接入模型，因此没有再引入同属 Java 生态的 LangChain4j。 |
-| Spring AI | JobApply 使用 Spring AI 接入模型与工具协议，自行管理工具执行和下一轮调用。 |
-
-JobApply 移除 LangGraph4j 是为了调整自身的流程建模方式，并非认为图框架只能执行固定步骤；Deep Agents 就是在 LangGraph 上构建动态 Agent 的例子。
-
-### 开源设计参考与实现
-
-JobApply 参考 [OpenMAIC](https://github.com/THU-MAIC/OpenMAIC)、[Deep Agents](https://github.com/langchain-ai/deepagents) 和 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 的源码与设计，用 Java 实现了以下机制。
-
-**OpenMAIC：用户交接与事件续接。** JobApply 参考 OpenMAIC 课堂导演的 `cue_user` 机制，通过 `ask_user` 结束本次运行、请求补充信息，并在收到回复后续接对话。JobApply 还借鉴了 OpenMAIC 将运行与 SSE 读者分离、按序号补发事件的设计，采用本地文件保存状态、内存缓冲保存实时事件。
-
-出处：[导演循环](https://github.com/THU-MAIC/OpenMAIC/blob/dff201b49857918885cc5ebadb4a8af254b6ae9d/lib/chat/pi/director-loop.ts)；落地：[HarnessLoop](backend/src/main/java/jobapply/harness/runtime/HarnessLoop.java)、[RuntimeEvents](backend/src/main/java/jobapply/workflow/RuntimeEvents.java)。
-
-**Deep Agents：共用循环与按需加载。** JobApply 参考 Deep Agents 通过 `create_agent` 组装不同 Agent 的方式，用同一个 `AgentLoop` 驱动调研和申请，通过 `SessionLoop` 与 `HarnessLoop` 提供各自的上下文和工具处理。JobApply 也借鉴了它的 Skills 按需加载、工具中断结果补齐和子任务回报机制。
-
-出处：[Agent 组装](https://github.com/langchain-ai/deepagents/blob/3e7d5faa9d275beb3d54f11266aac3c60e3d50b9/libs/deepagents/deepagents/graph.py)、[工具结果补齐](https://github.com/langchain-ai/deepagents/blob/3e7d5faa9d275beb3d54f11266aac3c60e3d50b9/libs/deepagents/deepagents/middleware/patch_tool_calls.py)；落地：[AgentLoop](backend/src/main/java/jobapply/harness/runtime/AgentLoop.java)、[Conversation](backend/src/main/java/jobapply/harness/context/Conversation.java)、[ApplicationRunner](backend/src/main/java/jobapply/workflow/ApplicationRunner.java)。
-
-**Hermes：记忆更新与运行时插话。** JobApply 参考 Hermes 的分节提示词组织 `ApplyAgent`，采用轻量循环驱动工具执行，并通过 `MemoryWriter` 实现 add / replace / remove 记忆更新和 Skill 段落替换。JobApply 还参考 Hermes 的 `_pending_steer` 与 OpenMAIC 的 `agent.steer`，通过收件箱在下一次模型调用前注入用户消息。
-
-出处：[主循环与 steer](https://github.com/NousResearch/hermes-agent/blob/e5dad4ac57ad11d39fe18b1ac895c0e0ae5b6494/run_agent.py)、[Memory 工具](https://github.com/NousResearch/hermes-agent/blob/e5dad4ac57ad11d39fe18b1ac895c0e0ae5b6494/tools/memory_tool.py)；落地：[ApplyAgent](backend/src/main/java/jobapply/agents/ApplyAgent.java)、[Inbox](backend/src/main/java/jobapply/domain/Inbox.java)、[MemoryWriter](backend/src/main/java/jobapply/memory/MemoryWriter.java)。
-
-**[SillyTavern（酒馆）](https://github.com/SillyTavern/SillyTavern)：分层资料与按需展开。** JobApply 从酒馆项目获得启发，在上层资料中保留概要与引用，为模型提供按需追溯下层内容的路径。它据此组织原始材料、整理后的资料和运行记录，保留资料之间的上下文关系。
-
-更完整的源码路径、研究版本和未采用的机制见[研究笔记](plan/reference/research-agent-design.md)。
 
 ## 本地运行
 

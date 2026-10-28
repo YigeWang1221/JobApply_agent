@@ -126,6 +126,49 @@ public final class JobAnswers {
         return parse(FrontmatterFile.read(file).body());
     }
 
+    /** 清理 job.md 中的「本次答案」一节（如果存在）。 */
+    public synchronized void clear(String projectId, String jobId) {
+        Path file = layout.jobFile(projectId, jobId);
+        if (!Files.exists(file)) {
+            return;
+        }
+        synchronized (StorageLock.WRITES) {
+            String content = AtomicFiles.read(file);
+            String body = FrontmatterFile.parse(content, file.toString()).body();
+            String head = content.substring(0, content.length() - body.length());
+            String newBody = removeAnswersSection(body);
+            if (!newBody.equals(body)) {
+                AtomicFiles.write(file, head + newBody);
+            }
+        }
+    }
+
+    static String removeAnswersSection(String body) {
+        List<String> lines = body.lines().toList();
+        int start = sectionStart(lines);
+        if (start < 0) {
+            return body;
+        }
+        int end = sectionEnd(lines, start);
+        int leading = start;
+        while (leading > 0 && lines.get(leading - 1).isBlank()) {
+            leading--;
+        }
+        List<String> out = new ArrayList<>();
+        out.addAll(lines.subList(0, leading));
+        if (end < lines.size()) {
+            if (!out.isEmpty()) {
+                out.add("");
+            }
+            out.addAll(lines.subList(end, lines.size()));
+        }
+        String joined = String.join("\n", out);
+        if (body.endsWith("\n") && !joined.endsWith("\n") && !joined.isEmpty()) {
+            joined += "\n";
+        }
+        return joined;
+    }
+
     /** 作为 {@code ProfileResolver} Session 层的事实条目。 */
     public List<Fact> facts(String projectId, String jobId) {
         return list(projectId, jobId).stream().map(Answer::toFact).toList();

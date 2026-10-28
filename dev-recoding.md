@@ -662,3 +662,31 @@
 未决：
 - 真实 Chrome、真实招聘站上的两阶段闭环与三级侧栏观感待用户本机试。
 - 侧栏第一级目前是 Project + Session 平铺（Session 按今天 / 昨天 / 更早分组），严格意义上的「Project 折叠」没有做，等用户看过实际效果再定。
+
+## 2026-10-28 · 任务 3：打包目录重组与 Windows/Linux 构建脚本的取舍
+
+原意：此前仅有 macOS 原生外壳构建方案且目录为顶层 `macos/` 与 `appBuild/`；需要将构建脚本和产物目录重整为跨平台的 `appbuild/` 与 `releases/`，并为 Linux 与 Windows 提供基于 JDK `jpackage` 的绿色版构建脚本。
+
+取舍：
+- **目录迁移顺序**：macOS APFS 大小写不敏感，若直接将 `macos/` 改名为 `appbuild/` 会因既有 `appBuild/` 发生命名冲突。严格按「先将 `appBuild/` 移为 `releases/`，再将 `macos/` 移为 `appbuild/`」两步执行，随后规整为 `appbuild/macos/`、`appbuild/linux/`、`appbuild/windows/`。
+- **Linux/Windows 免原生外壳**：macOS 采用 Swift 原生窗口内嵌 WKWebView，能方便地管理菜单和生命周期；Linux 和 Windows 平台如果引入不同的原生窗口库（如 GTK、Win32、Electron、Tauri）会大幅增加依赖与维护成本。因此 Linux 与 Windows 统一使用 JDK 25 自带的 `jpackage` 打包免安装绿色版（`--type app-image`），内嵌裁剪后的 JRE，通过 Spring Boot 标准的 `JarLauncher` 启动。后端就绪后由 `OpenBrowser` Bean 调用操作系统的默认浏览器打开 `http://127.0.0.1:8088/`。
+- **OpenBrowser 防御式设计**：Linux/Windows 服务器或无头 CI 可能会激活 desktop profile，`OpenBrowser` 内部加入 `GraphicsEnvironment.isHeadless()` 与 `Desktop.isDesktopSupported()` 保护，不支持或调起浏览器失败仅打印 `log.info`，不阻断后端启动。
+- **跨平台资源路径与 node 命名**：`application-desktop.yml` 通过 `${JOBAPPLY_RESOURCES:${jobapply.desktop.resources:./resources}}` 占位符同时支持环境变量和系统属性传递资源根目录。Playwright MCP 调用的 node 可执行文件在两个平台上统一命名为 `node`（Windows 打包脚本同时保留一份 `node.exe` 保证平台兼容性）。
+- **执行边界遵守**：按用户「只改目录和脚本，打包我自己来跑」要求，绝不执行真正的打包命令；对所有 bash 脚本进行 `bash -n` 语法检查；后端单测用 `mvn test` 验证通过，不执行 `mvn package`。
+
+未决：
+- Windows 与 Linux 构建脚本需由用户在对应的原生操作系统环境实际运行验证。
+
+## 2026-10-28 · 任务 2 后端：工作台丢弃与 Job 删除的设计与取舍
+
+原意：工作台支持用户丢弃或删除。若用户仅想撤销当前填表尝试（例如填错想重新来过或不再为该岗位开工作台），只删工作台线程与临时记忆（`runs/<job>.json`、草稿报告、答案、上传暂存），保留岗位本身及台账；若用户彻底不投该岗位并想从项目里抹去，则连带整个 Job 目录软删除移入 `.trash/` 并重建项目与全局台账。
+
+取舍：
+- **非阻塞快速丢弃与 `discarded` 异步防护**：丢弃动作必须立即响应前端，不能用 `awaitIdle` 阻塞等待正在跑的 LLM/浏览器动作结束。因此在 `ApplicationRunner` 中引入 `discarded` 并发标记集：一旦标记丢弃，即使后台 Worker 正在执行，其中间步骤的 progress 回调也不会写盘，执行完毕后在 `work(...)` 中直接拦截跳过 `settle`（不推进 `prep_state` 到已审阅/需输入/失败）、跳过定稿写入与 Session 汇报，只完成实例锁内计数与运行表清理即退出，从而保证丢弃操作的原子性与零副作用。重新 `start(...)` 该 Job 时清除该标记，允许后续重新发起。
+- **Job 本身与台账的严格不动（`deleteJob: false`）**：模式一明确只清理申请层记忆，不改 `lead_status`、不生成审计事件、不调用 `JobLedger`。`job.md` 中仅清理与本次填表交互相关的 `## 本次答案`，其余 frontmatter 和 JD 快照原封不动。
+- **`moveJob` 对齐既有 `moveSession` 架构**：移动到 `.trash/` 保持相同的相对路径与 `RESTORE.md` 恢复指引；移动后同步调用 `TrackerWriter.writeProject(projectId)` 与 `writeGlobal()`，使项目候选池/申请表与全局 `jobs-index.md` 立即同步剔除该 Job。
+- **Controller 路径规整**：`ApplicationController` 类上注解调整为 `@RequestMapping("/api/jobs/{jobId}")`，子路径相应加上 `/application`，与新增的 `@DeleteMapping("/workspace")` 保持同一个控制器管辖，且与 `JobController` 不发生路径冲突；请求体支持空 body、省略字段与显式布尔值，平滑兼容不同调用方。
+
+未决：
+- 前端工作台删除交互由前端代理并行实现后统一联调。
+

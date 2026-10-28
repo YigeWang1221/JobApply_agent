@@ -1175,3 +1175,51 @@
   - 前端：`frontend/` 下 `npm run build` → **退出码 0**（`tsc -b && vite build`，只有 Vite 的 chunk > 500 kB 提示）；`node_modules` 已在，未重跑 `npm ci`。
   - 真实 Chrome、真实招聘站端到端冒烟与侧栏观感：**未运行**。
 - 偏差：无（两处修复都是这次核对中定位到的、会影响流程的小问题）。未提交 git。
+
+## 2026-10-28 · 任务 3：打包目录重组与 Windows/Linux 构建脚本
+
+- 日期：2026-10-28
+- 指令：完成打包目录重组与各平台构建脚本：① 目录顺序迁移（`appBuild/` → `releases/`，`macos/` → `appbuild/` 规整为 `appbuild/macos/`）；② `.gitignore` 忽略 `appbuild/` 与 `releases/`；③ 新增 Spring 就绪自动打开浏览器组件 `OpenBrowser.java` 及桌面配置文件 `application-desktop.yml`；④ 编写跨平台打包调度脚本 `appbuild/build.sh`、`appbuild/README.md`、`appbuild/linux/build.sh`、`appbuild/windows/build.ps1`；⑤ 脚本语法用 `bash -n` 检查；不跑真实打包、不改 `frontend/`、不改 `api/` 或 `workflow/`、不改 `.env`/`personal.env`、不 `git commit`。
+- 结果：
+  - 目录重整：`appBuild/` 安全重命名为 `releases/`（内含已有的 `JobApply.app` 和 dmg）；`macos/` 下的内容整体规整到 `appbuild/macos/`，原 `build-app.sh` 重命名为 `build.sh` 并修正上层目录与产物输出路径为 `../../releases/`。
+  - `.gitignore`：明确添加并忽略 `appbuild/` 与 `releases/`。
+  - 后端 Bean 与配置：
+    - 新建 `backend/src/main/java/jobapply/config/OpenBrowser.java`，受 `@ConditionalOnProperty(name = "jobapply.app.open-browser", havingValue = "true")` 条件控制，监听 `ApplicationReadyEvent`，具备 Headless 和 Desktop API 双重防护，异常仅记录日志不阻断启动；
+    - 新建 `backend/src/main/resources/application-desktop.yml`，固定端口 8088，映射 `static-locations: file:${JOBAPPLY_RESOURCES:...}/web/`，允许 8088 跨域，MCP command 指定为 `${JOBAPPLY_RESOURCES:...}/node/node`。
+  - 打包脚本：
+    - `appbuild/build.sh`：自动识别操作系统（Darwin/Linux/Windows）并转调对应构建脚本；
+    - `appbuild/linux/build.sh`：使用 jpackage 打包 `--type app-image`，主类配置 `org.springframework.boot.loader.launch.JarLauncher`，传递 `-Dspring.profiles.active=desktop` 与 `-Djobapply.desktop.resources`，安装 MCP，Node 命名为 `node`；
+    - `appbuild/windows/build.ps1`：PowerShell 构建脚本，执行 jpackage `--type app-image` 并完成资源部署与 MCP 安装；
+    - `appbuild/README.md`：详细记录各平台架构方案、依赖要求与构建命令。
+- 验证：
+  - 脚本语法：`bash -n appbuild/build.sh`、`bash -n appbuild/macos/build.sh`、`bash -n appbuild/linux/build.sh` **全部退出码 0**；
+  - 后端编译与单元测试：`JOBAPPLY_APP_CONFIG=/tmp/jobapply-nonexistent-app.yaml JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home mvn -B -q test` **退出码 0**，全部通过；
+  - 真实打包与真实平台构建：**未运行**（按指令只改目录和脚本，不执行打包命令）。
+- 偏差：无。未提交 git。
+
+## 2026-10-28 · 任务 2 后端：工作台可删除接口与调度
+
+- 日期：2026-10-28
+- 指令：实现任务 2 的后端部分（工作台可删除接口与调度）：
+  ① `ApplicationRunner` 加 `discard(jobId, deleteJob)` 方法与 `discarded` 防护集合（非阻塞强制停止、清理申请 memory、`deleteJob: true` 时挪入回收站并重建台账、发送事件）；
+  ② `AgentRunStore` 加 `delete(jobId)`、`FillReportWriter` 加 `delete(projectId, jobId)`、`JobAnswers` 加 `clear(projectId, jobId)`、`Trash` 加 `moveJob(projectId, jobId)`；
+  ③ `ApplicationController` 加 `DELETE /api/jobs/{jobId}/workspace` 接口与 `DiscardRequest`（处理 body 为空与缺省 `deleteJob: false`）；
+  ④ 新建 `DiscardWorkspaceTest.java` 覆盖两种模式并运行指定验证命令；
+  ⑤ 不碰 `frontend/`，不改 `Views.java`，不读写 `.env` / `personal.env`，不提交 git。
+- 结果：
+  - `AgentRunStore.java`：新增 `delete(String jobId)`，原子删除 `layout.agentRun(jobId)`；
+  - `FillReportWriter.java`：新增 `delete(String projectId, String jobId)`，删除 `layout.fillReport(projectId, jobId)`；
+  - `JobAnswers.java`：新增 `clear(String projectId, String jobId)` 与 `removeAnswersSection(String body)`，移除 `job.md` 正文中的 `## 本次答案` 一节并完整保留其余各节与 frontmatter；
+  - `Trash.java`：新增 `moveJob(String projectId, String jobId)`，将 `projects/<p>/jobs/<id>` 移动到 `.trash/<时间>-job-<id>/`，并调用 `new TrackerWriter(layout, clock).writeProject(projectId)` 与 `writeGlobal()` 重新生成项目台账与全局台账；
+  - `ApplicationRunner.java`：
+    - 新增 `Discarded(String id, String mode)` record；
+    - 新增 `discarded` 并发集合；在 `discard(...)` 时标记，在 `execute` 的 progress 消费者中阻断存盘与 changed 通知，在 `work(...)` 中检查并在退出时跳过 `settle`、`writeFinal`、`runs.save` 与 `reportToSession`，在 `start(...)` 时清理；
+    - `discard(jobId, deleteJob)` 实现非阻塞出队、标记停止、移出 live、触发调度、通知等待线程、释放浏览器标签与会话（`browser.release(jobId)`），清理 runs、fillReport、JobAnswers、递归删除 `layout.uploadsDir(jobId)`，可选移入回收站，并发送 `events.changed(null, jobId)`；
+  - `ApplicationController.java`：类路径调整为 `@RequestMapping("/api/jobs/{jobId}")`，子接口平滑适配；新增 `DiscardRequest(Boolean deleteJob)` 与 `DELETE /api/jobs/{jobId}/workspace` 接口；
+  - `DiscardWorkspaceTest.java`：验证 `deleteJob: false`（只删工作台，`job.md` 与台账保留，运行记录/报告/答案/上传删除）与 `deleteJob: true`（移入回收站，台账移除，全局台账更新）两种模式，并验证空 body 与默认值处理。
+- 验证：
+  - 在 `backend/` 下运行：
+    `JOBAPPLY_APP_CONFIG=/tmp/jobapply-nonexistent-app.yaml JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home mvn -B test -Dtest=DiscardWorkspaceTest`
+    **退出码 0，Tests run: 2, Failures: 0, Errors: 0, Skipped: 0**。
+  - 全量单元测试 `mvn -B clean test` 全部通过（退出码 0）。
+- 偏差：无。未提交 git。

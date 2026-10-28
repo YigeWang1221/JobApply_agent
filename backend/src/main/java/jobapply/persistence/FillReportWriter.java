@@ -1,5 +1,7 @@
 package jobapply.persistence;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -249,6 +251,15 @@ public final class FillReportWriter {
             written.add(runLog);
         }
         return file;
+    }
+
+    /** 删掉填写报告（如果存在）。 */
+    public void delete(String projectId, String jobId) {
+        try {
+            Files.deleteIfExists(layout.fillReport(projectId, jobId));
+        } catch (IOException e) {
+            throw new UncheckedIOException("删除填写报告失败：" + projectId + "/" + jobId, e);
+        }
     }
 
     /** 报告的 Markdown 文本（草稿或定稿）；还没有报告时为空。中断后恢复时交给模型，也用于 HTTP 返回。 */

@@ -10,6 +10,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,7 +26,7 @@ import org.springframework.web.multipart.MultipartFile;
  * 文件数和上传位置对不上）时 400。
  */
 @RestController
-@RequestMapping("/api/jobs/{jobId}/application")
+@RequestMapping("/api/jobs/{jobId}")
 public class ApplicationController {
 
     public record StartRequest(String project, String session) {
@@ -41,6 +42,9 @@ public class ApplicationController {
                                List<String> attachments) {
     }
 
+    public record DiscardRequest(Boolean deleteJob) {
+    }
+
     static final MediaType MARKDOWN = new MediaType("text", "markdown", StandardCharsets.UTF_8);
 
     private final ApplicationRunner runner;
@@ -49,7 +53,7 @@ public class ApplicationController {
         this.runner = runner;
     }
 
-    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(path = "/application", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<ApplicationStatus> start(@PathVariable String jobId, @RequestBody StartRequest request) {
         require(request.project(), "project");
         require(request.session(), "session");
@@ -57,12 +61,12 @@ public class ApplicationController {
                 .body(runner.start(jobId, request.project(), request.session()));
     }
 
-    @GetMapping
+    @GetMapping("/application")
     public ApplicationStatus status(@PathVariable String jobId) {
         return runner.status(jobId);
     }
 
-    @PostMapping(path = "/reply", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(path = "/application/reply", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<ApplicationStatus> reply(@PathVariable String jobId, @RequestBody ReplyRequest request) {
         require(request.session(), "session");
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(runner.reply(jobId, new ApplicationRunner.Reply(
@@ -70,7 +74,7 @@ public class ApplicationController {
     }
 
     /** 上传一个附件（C006 附件），存进 {@code uploads/<job-id>/attachments/}；回复时带上返回的 {@code id}。没有申请线程时 404。 */
-    @PostMapping(path = "/attachments", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PostMapping(path = "/application/attachments", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<Views.UploadedAttachment> attach(@PathVariable String jobId,
                                                            @RequestParam("file") MultipartFile file) {
         Views.UploadedAttachment uploaded = Views.uploaded(
@@ -79,22 +83,30 @@ public class ApplicationController {
         return ResponseEntity.status(HttpStatus.CREATED).body(uploaded);
     }
 
-    @GetMapping("/attachments/{attachmentId}")
+    @GetMapping("/application/attachments/{attachmentId}")
     public ResponseEntity<Resource> attachment(@PathVariable String jobId, @PathVariable String attachmentId) {
         return Views.attachmentFile(runner.attachments(jobId), attachmentId);
     }
 
-    @PostMapping("/stop")
+    @PostMapping("/application/stop")
     public ApplicationStatus stop(@PathVariable String jobId) {
         return runner.stop(jobId);
     }
 
     /** 填写报告的 Markdown（草稿或定稿）；没有申请线程、还没有报告时 404。 */
-    @GetMapping("/report")
+    @GetMapping("/application/report")
     public ResponseEntity<String> report(@PathVariable String jobId) {
         String report = runner.report(jobId)
                 .orElseThrow(() -> new ApplicationException.NotFound("Job " + jobId + " 还没有填写报告"));
         return ResponseEntity.ok().contentType(MARKDOWN).body(report);
+    }
+
+    @DeleteMapping("/workspace")
+    public ApplicationRunner.Discarded discardWorkspace(
+            @PathVariable String jobId,
+            @RequestBody(required = false) DiscardRequest request) {
+        boolean deleteJob = request != null && Boolean.TRUE.equals(request.deleteJob());
+        return runner.discard(jobId, deleteJob);
     }
 
     private static void require(String value, String name) {

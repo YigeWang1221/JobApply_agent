@@ -45,6 +45,23 @@ public final class Trash {
         }
     }
 
+    /** 挪走一个 Job 的目录。返回回收站里这次删除的目录。 */
+    public Path moveJob(String projectId, String jobId) {
+        synchronized (StorageLock.WRITES) {
+            Path source = layout.jobDir(projectId, jobId);
+            if (!Files.exists(layout.jobFile(projectId, jobId))) {
+                throw new IllegalArgumentException("Job 不存在：" + projectId + "/" + jobId);
+            }
+            Path entry = newEntry("job", jobId);
+            move(source, entry);
+            note(entry, "Job " + jobId + "（Project " + projectId + "）", List.of(layout.relative(source)));
+            TrackerWriter tracker = new TrackerWriter(layout, clock);
+            tracker.writeProject(projectId);
+            tracker.writeGlobal();
+            return entry;
+        }
+    }
+
     /**
      * 挪走整个 Project 的目录，以及它的 Job 的运行记录（{@code runs/<job>.json}）和上传暂存（{@code uploads/<job>/}），
      * 再按剩下的 Project 重新生成全局台账（{@code jobs-index.md}、{@code exports/applications.csv}）。

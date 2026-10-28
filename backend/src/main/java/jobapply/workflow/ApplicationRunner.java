@@ -9,6 +9,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -22,12 +23,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
-import java.util.stream.Collectors;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import jobapply.config.HarnessProperties;
 import jobapply.domain.Actor;
 import jobapply.domain.AgentRun;
 import jobapply.domain.ApplicationState;
+import jobapply.domain.Ids;
 import jobapply.domain.Inbox;
 import jobapply.domain.Job;
 import jobapply.domain.LeadStatus;
@@ -49,6 +52,7 @@ import jobapply.persistence.ProjectRepository;
 import jobapply.persistence.RunLog;
 import jobapply.persistence.SessionRepository;
 import jobapply.persistence.StorageLayout;
+import jobapply.persistence.Trash;
 import jobapply.persistence.UploadArea;
 import jobapply.persistence.WorkerSettingsFile;
 import jobapply.tools.BrowserSession;
@@ -122,6 +126,9 @@ public final class ApplicationRunner implements AutoCloseable {
     private final UploadArea uploads;
     private final FillReportWriter reports;
     private final RunLog runLog;
+    private final Trash trash;
+    /** 用户丢弃/删除工作台的 Job：不再写入运行记录或更新台账。 */
+    private final Set<String> discarded = ConcurrentHashMap.newKeySet();
     /** Worker 线程：按需建、空闲回收；同时跑几个只由 {@link #dispatch()} 按 {@code workerLimit} 管（C012 可以运行中改）。 */
     private final ExecutorService workers;
     private final WorkerSettingsFile workerSettings;
@@ -191,6 +198,7 @@ public final class ApplicationRunner implements AutoCloseable {
         this.uploads = new UploadArea(layout, assets);
         this.reports = new FillReportWriter(layout, clock);
         this.runLog = new RunLog(layout, clock);
+        this.trash = new Trash(layout, clock);
         AtomicInteger number = new AtomicInteger();
         this.workerSettings = new WorkerSettingsFile(layout);
         this.toolCalls = new ToolCallLimits(layout, this.limits);
@@ -223,6 +231,7 @@ public final class ApplicationRunner implements AutoCloseable {
         if (!jobs.exists(projectId, jobId)) {
             throw new ApplicationException.NotFound("Job 不存在：" + projectId + "/" + jobId);
         }
+        discarded.remove(jobId);
         Job job = jobs.load(projectId, jobId);
         LeadStatus lead = job.status().leadStatus();
         boolean convert = lead == LeadStatus.NEW || lead == LeadStatus.SHORTLISTED;
@@ -495,6 +504,72 @@ public final class ApplicationRunner implements AutoCloseable {
         browser.release(jobId);
     }
 
+    public record Discarded(String id, String mode) {
+    }
+
+    /**
+     * 丢弃工作台 / 删除 Job：强制停止、删掉 memory（运行记录、草稿报告、答案、上传文件），
+     * deleteJob 为 true 时再挪进回收站并重建台账。
+     */
+    public synchronized Discarded discard(String jobId, boolean deleteJob) {
+        String project = findProject(jobId)
+                .orElseThrow(() -> new ApplicationException.NotFound("Job 不存在：" + jobId));
+
+        discarded.add(jobId);
+
+        // 1. 强制停止（出队 + 标记停止，非阻塞，不要 awaitIdle 轮询）
+        queued.remove(jobId);
+        stopRequested.add(jobId);
+        live.remove(jobId);
+        releaseWhenDone.remove(jobId);
+        dispatch();
+        notifyAll();
+        browser.release(jobId);
+
+        // 2. 删掉这个 Job 的申请 memory
+        runs.delete(jobId);
+        reports.delete(project, jobId);
+        answers.clear(project, jobId);
+        deleteRecursively(layout.uploadsDir(jobId));
+
+        // 3. deleteJob: true 时挪进回收站并重建台账
+        String mode;
+        if (deleteJob) {
+            trash.moveJob(project, jobId);
+            mode = "job";
+        } else {
+            mode = "thread";
+        }
+
+        events.changed(null, jobId);
+        return new Discarded(jobId, mode);
+    }
+
+    private Optional<String> findProject(String jobId) {
+        if (!Ids.isJobId(jobId)) {
+            return Optional.empty();
+        }
+        for (String projectId : layout.projectIds()) {
+            if (jobs.exists(projectId, jobId)) {
+                return Optional.of(projectId);
+            }
+        }
+        return runs.find(jobId).map(AgentRun::project);
+    }
+
+    private static void deleteRecursively(Path dir) {
+        if (!Files.exists(dir)) {
+            return;
+        }
+        try (Stream<Path> walk = Files.walk(dir)) {
+            for (Path path : walk.sorted(Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException("删除目录失败：" + dir, e);
+        }
+    }
+
     /** 这个 Job 有申请线程时返回它的状态；没有时为空（界面上的 Job 列表用）。 */
     public Optional<ApplicationStatus> statusIfAny(String jobId) {
         return runs.find(jobId).isPresent() ? Optional.of(status(jobId)) : Optional.empty();
@@ -693,6 +768,17 @@ public final class ApplicationRunner implements AutoCloseable {
     /** 一个 Worker 跑一次申请：执行、更新台账、存盘，空出位置后放行排队的下一个。 */
     private void work(AgentRun run) {
         String jobId = run.job();
+        if (discarded.contains(jobId)) {
+            synchronized (this) {
+                running.remove(jobId);
+                live.remove(jobId);
+                stopRequested.remove(jobId);
+                releaseWhenDone.remove(jobId);
+                dispatch();
+                notifyAll();
+            }
+            return;
+        }
         AgentRun result;
         try {
             result = execute(run);
@@ -700,6 +786,17 @@ public final class ApplicationRunner implements AutoCloseable {
             String message = crashMessage(e);
             log.warn("Job {} 的申请线程出错：{}", jobId, message, e);
             result = runs.find(jobId).orElse(run).failed(message);
+        }
+        if (discarded.contains(jobId)) {
+            synchronized (this) {
+                running.remove(jobId);
+                live.remove(jobId);
+                stopRequested.remove(jobId);
+                releaseWhenDone.remove(jobId);
+                dispatch();
+                notifyAll();
+            }
+            return;
         }
         try {
             settle(result);
@@ -788,8 +885,10 @@ public final class ApplicationRunner implements AutoCloseable {
         HarnessLoop loop = new HarnessLoop(mainModel.get(), browser, layout, clock, limits, toolCalls::perRun);
         // 每轮存盘后发一次 changed：工作台侧栏的「进度」跟着申请状态刷新（C019）
         return loop.run(run, () -> stopRequested(jobId), progressed -> {
-            runs.save(progressed);
-            events.changed(progressed.session(), progressed.job());
+            if (!discarded.contains(jobId)) {
+                runs.save(progressed);
+                events.changed(progressed.session(), progressed.job());
+            }
         }, events.observer(run.session(), jobId), () -> inbox.take(jobId));
     }
 
