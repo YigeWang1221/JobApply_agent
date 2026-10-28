@@ -58,6 +58,7 @@
 | [C017-fix](plan/coding/C017-fix-chrome-port.md) | App 连不上 Chrome：macOS 不让 App 读 Chrome 资料夹里的端口文件，改成直接连 127.0.0.1:9222；关闭 App 卡 30 秒、强制退出留下后端 | 已施工，等用户在 Air 上试（2026-10-27） |
 | [C018](plan/coding/C018-tool-call-limits.md) | 工具调用上限在设置页由用户自己定（申请每次运行、对话每轮），可设为不限 | 已施工，等用户试（2026-10-25） |
 | [C019](plan/coding/C019-application-state.md) | 每次投递一份申请状态（字段清单 + 计划），模型每步在它上面读和更新，不再每步重读整页 | 已施工，等用户试（2026-10-25） |
+| [C020](plan/coding/C020-holistic-refinement.md) | 整体精炼（分 A–E 五个工作包）：A 提示词与 Skills 常识推理引导升级；B 下拉/日期滚轮与未完层级诚实观测；C Memory 闭环与上传按需复制；D 对话 Agent `browser_tabs`；E 工作台报告表格渲染与 `reset` 重读 | 进行中：A–E 已施工；合龙验证：本机无 Java 25，`mvn verify` 退出码 1（未改用其它 JDK）；`npm run build` 退出码 0（2026-10-28） |
 
 ## 参考（不是施工步骤）
 

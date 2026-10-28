@@ -10,7 +10,7 @@ import org.springframework.ai.tool.definition.ToolDefinition;
 /**
  * 交给对话 Agent（调研、管理候选池、开始申请）的工具（C005）。和 {@link ControlTools} 一样只有定义，
  * 由 {@link jobapply.harness.runtime.SessionLoop} 在本地执行。浏览器只给读和翻页用的那几个（快照、查找、导航、点击、
- * 输入、按键、等待），不给填表和上传。
+ * 输入、按键、等待、列出/切换标签页），不给填表和上传。
  */
 public final class ResearchTools {
 
@@ -32,7 +32,7 @@ public final class ResearchTools {
     /** 直接写本地 memory（C014），定义和申请 Agent 共用一份。 */
     public static final String REMEMBER = ControlTools.REMEMBER;
 
-    /** 调研时可以用的浏览器工具（导航另有说明）。 */
+    /** 调研时可以用的浏览器工具（导航、标签页另有说明）。 */
     static final Set<String> BROWSER = Set.of(BrowserToolPolicy.SNAPSHOT, BrowserToolPolicy.FIND,
             BrowserToolPolicy.CLICK, BrowserToolPolicy.TYPE, BrowserToolPolicy.PRESS_KEY, BrowserToolPolicy.WAIT_FOR);
 
@@ -230,6 +230,7 @@ public final class ResearchTools {
     public static List<ToolCallback> definitions() {
         List<ToolCallback> tools = new ArrayList<>();
         OWN.forEach(definition -> tools.add(new DefinitionOnly(definition)));
+        tools.add(BrowserTools.tabs());
         BrowserTools.definitions().stream()
                 .filter(tool -> BROWSER.contains(tool.getToolDefinition().name()))
                 .forEach(tools::add);
@@ -241,9 +242,10 @@ public final class ResearchTools {
         return NAMES.contains(name);
     }
 
-    /** 对话 Agent 能用的浏览器工具（含导航）。 */
+    /** 对话 Agent 能用的浏览器工具（含导航和标签页）。 */
     public static boolean isBrowserTool(String name) {
-        return BROWSER.contains(name) || BrowserToolPolicy.NAVIGATE.equals(name);
+        return BROWSER.contains(name) || BrowserToolPolicy.NAVIGATE.equals(name)
+                || BrowserToolPolicy.TABS.equals(name);
     }
 
     private static ToolDefinition definition(String name, String description, String schema) {

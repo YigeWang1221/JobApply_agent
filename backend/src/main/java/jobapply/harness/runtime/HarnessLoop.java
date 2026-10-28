@@ -48,6 +48,7 @@ import jobapply.harness.runtime.AgentLoop.Step;
 import jobapply.memory.MemoryWriter;
 import jobapply.memory.ProfileResolver;
 import jobapply.memory.ResolvedFact;
+import jobapply.persistence.AssetRegistry;
 import jobapply.persistence.AttachmentStore;
 import jobapply.persistence.FillReportWriter;
 import jobapply.persistence.FrontmatterFile;
@@ -60,6 +61,7 @@ import jobapply.persistence.PlaybookSeeder;
 import jobapply.persistence.RunLog;
 import jobapply.persistence.SiteNotes;
 import jobapply.persistence.StorageLayout;
+import jobapply.persistence.UploadArea;
 import jobapply.tools.BrowserException;
 import jobapply.tools.BrowserSession;
 import jobapply.tools.BrowserTools;
@@ -409,7 +411,8 @@ public final class HarnessLoop {
             String notes = host == null ? null : sites.read(host).map(SiteNotes.Site::notes).orElse(null);
             return new FillContext.Inputs(profileZh, profileEn, sessionAnswers,
                     run.files().stream().map(AgentRun.StagedFile::uploadName).toList(), catalog.skills(), suggested,
-                    notes, run.company() + " · " + run.title() + "：替用户填好这份申请，停在最终提交前", state);
+                    notes, run.company() + " · " + run.title() + "：替用户填好这份申请，停在最终提交前", state,
+                    memoryNotes.company(run.company()).orElse(null), memoryNotes.lessons().orElse(null));
         }
 
         /** 到了这一次运行的上限：让模型总结做到哪了（不再执行工具），交给用户决定要不要继续。 */
@@ -921,13 +924,16 @@ public final class HarnessLoop {
                         ? "失败：可上传的文件里还没有文件。没有简历时用 ask_user 的 files 请用户选一份。"
                         : "失败：file 写可上传的文件里的编号（1 到 " + run.files().size() + "）");
             }
-            Path path = stagedPaths().get(number - 1);
+            AgentRun.StagedFile staged = run.files().get(number - 1);
+            Path path = originalPath(staged);
+            if (path == null) {
+                path = stagedPaths().get(number - 1);
+            }
             if (!Files.isRegularFile(path)) {
-                return failedResult(call, "失败：文件 " + number + " 不见了：" + run.files().get(number - 1).uploadName());
+                return failedResult(call, "失败：文件 " + number + " 不见了：" + staged.uploadName());
             }
             try {
-                return result(call, ResumeMatch.fileText(path, "文件 " + number + " "
-                        + run.files().get(number - 1).uploadName()));
+                return result(call, ResumeMatch.fileText(path, "文件 " + number + " " + staged.uploadName()));
             } catch (IllegalArgumentException e) {
                 return failedResult(call, "失败：" + e.getMessage());
             }
@@ -1230,9 +1236,34 @@ public final class HarnessLoop {
         }
 
         private List<Path> stagedPaths() {
-            return run.files().stream().map(file -> file.attachment() == null
-                    ? layout.uploadsDir(run.job()).resolve(file.uploadName())
-                    : layout.jobAttachmentsDir(run.job()).resolve(file.attachment()).resolve(file.uploadName())).toList();
+            UploadArea uploads = new UploadArea(layout, new AssetRegistry(layout, clock));
+            List<Path> paths = new ArrayList<>();
+            for (AgentRun.StagedFile file : run.files()) {
+                if (file.attachment() != null) {
+                    paths.add(layout.jobAttachmentsDir(run.job()).resolve(file.attachment()).resolve(file.uploadName()));
+                    continue;
+                }
+                Path copy = layout.uploadsDir(run.job()).resolve(file.uploadName());
+                if (file.assetKey() != null && !Files.isRegularFile(copy)) {
+                    try {
+                        copy = uploads.stage(run.job(), file.assetKey());
+                    } catch (RuntimeException e) {
+                        throw new IllegalArgumentException("文件 " + file.uploadName()
+                                + " 的上传副本不见了，从原件复制失败：" + e.getMessage());
+                    }
+                }
+                paths.add(copy);
+            }
+            return paths;
+        }
+
+        /** 资料库原件路径；没有 assetKey、原件登记或文件时为 null。 */
+        private Path originalPath(AgentRun.StagedFile file) {
+            if (file.assetKey() == null) {
+                return null;
+            }
+            AssetRegistry assets = new AssetRegistry(layout, clock);
+            return assets.find(file.assetKey()).map(assets::originalPath).filter(Files::isRegularFile).orElse(null);
         }
 
         private List<String> siteUrls() {

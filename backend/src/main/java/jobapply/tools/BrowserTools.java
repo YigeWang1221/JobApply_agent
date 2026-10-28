@@ -114,10 +114,15 @@ public final class BrowserTools {
             definition(BrowserToolPolicy.SELECT_OPTION,
                     "Choose an item in any dropdown in one call: native select, custom dropdown (also an unnamed combobox "
                             + "or a read-only box that opens a list), searchable dropdown, cascader. target is the box you "
-                            + "would click to open it. The system opens it, scrolls / filters the list, clicks the item and "
-                            + "reads the box back. For a cascader give one value per level, e.g. [\"广东\", \"深圳\"]. If "
-                            + "nothing or several items match, nothing is clicked and the visible options of that level are "
-                            + "returned: pick the exact text from them and call again; if none means the same, ask the user.",
+                            + "would click to open it. The system opens it, scrolls (including a real mouse wheel for "
+                            + "virtual lists) / filters the list, clicks the item and reads the box back. For a cascader "
+                            + "give one value per level, e.g. [\"广东\", \"深圳\"]; if the profile only has the leaf, include "
+                            + "parent categories you can infer. If the call selected a prefix and another column opened, "
+                            + "add the next level from the returned option text and call again, or click it in the new "
+                            + "snapshot. If nothing or several items match, nothing is clicked and the visible options of "
+                            + "that level are returned: pick the exact text; if they are parent categories, choose the "
+                            + "belonging parent; if they mean the same thing in different wording, pick that wording; only "
+                            + "ask the user when none belongs or means the same.",
                     """
                     {"type":"object","properties":{%s,"values":{"type":"array","minItems":1,"items":{"type":"string"},\
                     "description":"Option text; one per level for a cascader"},\
@@ -125,10 +130,12 @@ public final class BrowserTools {
                     search, e.g. school or city lookups)"},%s},\
                     "required":["target","values"]}""".formatted(TARGET, FIELD_EXTRA)),
             definition(BrowserToolPolicy.SET_DATE,
-                    "Set a date field in one call: native date / month input, a box you can type into, or a read-only box "
-                            + "that opens a calendar panel. target is the date box. The system types it in the box's format "
-                            + "or picks it on the panel (jumping by year / month tables) and reads the value back. Give only "
-                            + "as much as the field needs: YYYY-MM for a month field, YYYY for a year field.",
+                    "Set a date field in one call: native date / month input, a box you can type into, a calendar grid "
+                            + "(header year/month <select>, clickable year/month labels, or only prev/next arrows), or a "
+                            + "wheel-style multi-column panel. target is the date box. The system types it in the box's "
+                            + "format or picks it on the panel (year/month tables, header dropdowns, consecutive arrow "
+                            + "paging, or scrolling wheel columns) and reads the value back. Give only as much as the field "
+                            + "needs: YYYY-MM for a month field, YYYY for a year field.",
                     """
                     {"type":"object","properties":{%s,\
                     "date":{"type":"string","description":"YYYY-MM-DD, YYYY-MM or YYYY"},%s},\

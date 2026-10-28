@@ -1091,3 +1091,47 @@
 - 指令：用户反映关闭 / 退出 / 强制退出 App 时卡一会儿；先定位，之后同意保留已做的修改。
 - 结果：根因是 Spring Boot graceful shutdown 等满 30 秒（`/api/events` 一直开着）；强制退出会留下后端进程。`server.shutdown: immediate`；外壳管道 + `config/ShellWatch.java`。见 `plan/coding/C017-fix-chrome-port.md`「追加」。
 - 验证：`mvn -B -q clean verify` 退出码 0；`macos/build-app.sh` 退出码 0；18080 上实测关闭约 0 秒（改前 30 秒）、外壳管道关闭后后端立即退出。双击 App 后关闭：未运行。
+
+## 2026-10-28 · C020 整体精炼计划（A–E 拆分）与工作包 A（提示词与 Skills 升级）
+
+- 指令：把 C020 完整设计写入 `plan/coding/C020-holistic-refinement.md`（拆分为 A–E 五个工作包，同步更新 `plan/master/` 和 `dev-plan.md`），本步只由 Gemini 4 执行工作包 A（系统提示词、Skills 正文设计与升级），工作包 B–E（`PageScripts`、`PlaywrightMcpClient`、`MemoryNotes`、`FillContext`、`SessionLoop`、`HarnessLoop`、`ApplicationRunner`、`UploadArea`、`ResearchTools`、`JobPage.tsx`）留给其他编码代理施工后回来统一验收。
+- 结果：
+  - 计划与文档：新建 `plan/coding/C020-holistic-refinement.md`（明确 A–E 五个工作包的边界、文件与步骤）；更新 `plan/master/agent-runtime.md` §7.3（扁平资料客观上下级归属由模型按常识补全、快捷工具诚实返回下一层选项或面板内容、上下文含 `companies/<company>.md` 与 `review/lessons.md`）、`plan/master/workflow.md`（恢复状态表）、`dev-plan.md` 与 `plan/README.md` 索引。
+  - 工作包 A（系统提示词与 7 个预置 Skill 升级）：
+    - `backend/src/main/java/jobapply/agents/ApplyAgent.java`：`METHOD` 增加「资料与表单的映射（扁平资料 → 层级与分类推理，客观归属自己按常识补全，主观意愿或未知更细层级才用 `ask_user`）」与「批量填写与快捷工具（未完或未找到时按返回选项/面板调整或分步点完）」；精简 `SITUATIONS` 中与组件 skill 重复的细碎操作，保留所有核心边界并指向对应 skill。
+    - `backend/src/main/java/jobapply/agents/ResearchAgent.java`：`SITUATIONS` 的「标签页」与 `browser_tabs`（`list` / `select`）对齐。
+    - `backend/src/main/resources/playbook/skills/apply-form/SKILL.md`（v3 → v4）：去掉已作废的「确认过的按钮会记进站点记录以后直接放行」，改为仅对当前页该按钮生效一次；增加扁平资料到层级/分类控件的客观推理原则。
+    - `backend/src/main/resources/playbook/skills/components/cascader-city/SKILL.md`（v2 → v3）：增加「扁平资料补全上级路径」「选不中或还有下一列时」「虚拟滚动与分组城市」。
+    - `backend/src/main/resources/playbook/skills/components/readonly-select/SKILL.md`（v2 → v3）：重构 `## 选不中时` 为三类（列表是上级分类时直接选归属项、同级异名选语义一致项、确无一致或归属才 `ask_user`）。
+    - `backend/src/main/resources/playbook/skills/components/date-picker/SKILL.md`（v3 → v4）：覆盖原生框、可键入框、日历网格面板（含头部下拉与纯箭头翻页）、滚轮式多列面板四种形态与分步回退。
+    - `backend/src/main/resources/playbook/skills/components/file-upload/SKILL.md`（v1 → v2）：去掉已作废的「先请用户选文件」，对齐 C008-fix（已有合适文件如文件 1 直接带 `target` 上传）。
+    - `backend/src/main/resources/playbook/skills/components/repeatable-entries/SKILL.md`（v2 → v3）与 `resume-parse/SKILL.md`（v1 → v2）：对齐 `update_state`（申请状态）并精炼正文。
+- 验证：
+  - `backend/` 下全量单元测试（654 个测试）：653 个直接通过，唯一 1 个 `JobApplyApplicationTest` 因本机 `~/Library/Application Support/JobApply/app.yaml` 指向用户桌面目录而与默认 `../storage` 断言不同；加上 `JOBAPPLY_APP_CONFIG=/tmp/jobapply-nonexistent-app.yaml` 隔离本机 `app.yaml` 后跑 `PlaybookSeederTest,SkillCatalogTest,JobApplyApplicationTest` 退出码 0（注：当前机器 `/opt/homebrew/opt/openjdk` 为 24.0.2，测试以 `-Djava.version=24` 运行通过）。
+  - 真实 Chrome、真实模型及工作包 B–E：未运行（待其他编码代理完成 B–E 后统一验收）。
+- 偏差：无。
+
+## 2026-10-28 · C020 工作包 C、D（Memory 闭环、按需 stage、对话 browser_tabs）
+
+- 日期：2026-10-28
+- 指令：在分支 `C20_upgrade` 实现 C020 工作包 C 与 D（一起改 `SessionLoop`）；不改 `.cursor/plans/`、`.env`、工作包 A/B/E 文件。
+- 结果：
+  - C：`MemoryNotes.lessons()`；`FillContext` 注入公司记忆与 lessons（保留 9 参数构造）；`HarnessLoop` 每步注入并让 `read_resume` 读 `base/originals/`、`stagedPaths` 缺副本时 `UploadArea.stage`；`SessionLoop` 上下文附 lessons。`UploadArea` / `ApplicationRunner` 未改。
+  - D：`ResearchTools` 开放 `BrowserTools.tabs()`；`SessionLoop` 处理 `browser_tabs` list/select，委托 `BrowserSession.tabs` / `select`。
+- 验证：本机无 `openjdk@25`。用 `JAVA_HOME=/opt/homebrew/opt/openjdk@24/...` 在 `backend/` 执行 `mvn -B -q -DskipTests compile` 退出码 0。`mvn -Dtest=BrowserToolsTest,BrowserToolPolicyTest test` 因 `release version 25 not supported` 未能跑测试。全量 `mvn clean verify`、真实 Chrome：未运行。
+- 偏差：对话 Agent 上下文只注入 `lessons.md`，没有按公司注入 `companies/<company>.md`（Session 没有当前岗位公司）。
+
+## 2026-10-28 · C020 合龙验证（verify-all）
+
+- 日期：2026-10-28
+- 指令：在 `C20_upgrade` 上对已落地的 A–E 做合龙验证：Java 25 下 `mvn -B clean verify`、计划中的 headless 日期夹具、`frontend` `npm run build`；只在 C020 引起的编译/测试失败时做最小修复；把实际结果写入 C020 / `dev-log.md` / 需要时的 `dev-recoding.md` 与索引。不读不写 `.env` / `personal.env`，不改 `.cursor/plans/` 下那份 plan。
+- 结果：A–E 代码已在工作树（本步未重写 B–E）。本机 **没有** Homebrew `openjdk@25`。按约定 **没有** 用 Java 21/24 跑 `mvn verify`。前端 `npm ci` + `npm run build` 成功。无代码修复。
+- 验证：
+  - `export JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home`；`ls "$JAVA_HOME/bin/java"` 失败（路径不存在）。`brew info openjdk@25`：`Not installed`。`/usr/libexec/java_home -V`：Temurin 21.0.7、Homebrew 17。
+  - `cd backend && JAVA_HOME=...openjdk@25... mvn -B clean verify`：**退出码 1**（`The JAVA_HOME environment variable is not defined correctly`）。单元测试与 `MemoryLedgerScenarioIT`：**未运行**。
+  - C020 未规定仓库内 headless Chromium 滚轮/箭头日期夹具；工作树无此类测试页：**未运行**（未发明夹具）。
+  - `cd frontend && npm ci` 退出码 0；`npm run build` 退出码 0（`tsc -b && vite build`，Vite chunk 体积警告，构建成功）。
+  - 真实网站与工作台浏览器冒烟：**未运行**。
+- 偏差：后端验收命令因缺 JDK 25 未能执行；未安装 JDK。
+
+
