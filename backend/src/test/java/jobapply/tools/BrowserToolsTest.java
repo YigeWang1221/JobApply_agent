@@ -45,6 +45,17 @@ class BrowserToolsTest {
         }
         assertThat(BrowserTools.isBrowserTool("browser_handle_dialog")).isFalse();
         assertThat(BrowserTools.isBrowserTool("browser_tabs")).isFalse();
+        Map<String, String> descriptions = new java.util.LinkedHashMap<>();
+        for (ToolCallback tool : tools) {
+            descriptions.put(tool.getToolDefinition().name(), tool.getToolDefinition().description());
+        }
+        assertThat(descriptions.get(BrowserToolPolicy.SELECT_OPTION))
+                .doesNotContain("if none means the same, ask the user")
+                .contains("parent categories")
+                .contains("mouse wheel");
+        assertThat(descriptions.get(BrowserToolPolicy.SET_DATE))
+                .contains("wheel")
+                .contains("arrow");
     }
 
     @Test

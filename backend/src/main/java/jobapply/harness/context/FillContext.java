@@ -24,7 +24,7 @@ import org.springframework.ai.chat.messages.Message;
  * <ol>
  *   <li>系统提示词（{@link ApplyAgent#systemPrompt()}）；</li>
  *   <li>资料和上下文：有效资料（中英两种写法都给，由模型按页面选）、本次答案、可上传的文件编号、skill 目录、
- *       这个站点的记录（一次运行里基本不变，前缀缓存能一直命中）；</li>
+ *       这个站点的记录、这家公司的记录和通用经验（一次运行里基本不变，前缀缓存能一直命中）；</li>
  *   <li>对话（{@link AgentRun#conversation()}），由 {@link Conversation} 拼成消息；</li>
  *   <li>申请状态（C019，{@link StateView}）：接在最后一条消息的末尾，紧跟最新页面。</li>
  * </ol>
@@ -40,13 +40,16 @@ public final class FillContext {
      * @param files     可上传的文件，编号从 1 开始（只有文件名）
      * @param catalog   所有 skill 的名字和描述
      * @param suggested 这个站点建议先读的 skill 名字
-     * @param siteNotes 这个站点的记录；没有时为 null
-     * @param goal      一句话目标（公司 · 岗位）
-     * @param state     申请状态（C019）
+     * @param siteNotes    这个站点的记录；没有时为 null
+     * @param goal         一句话目标（公司 · 岗位）
+     * @param state        申请状态（C019）
+     * @param companyNotes 这家公司的记录（{@code companies/<company>.md}）；没有时为 null
+     * @param lessons      已积累的通用经验（{@code review/lessons.md}）；没有时为 null
      */
     public record Inputs(Map<String, ResolvedFact> profileZh, Map<String, ResolvedFact> profileEn,
                          List<JobAnswers.Answer> answers, List<String> files, List<SkillCatalog.Skill> catalog,
-                         List<String> suggested, String siteNotes, String goal, ApplicationState state) {
+                         List<String> suggested, String siteNotes, String goal, ApplicationState state,
+                         String companyNotes, String lessons) {
 
         public Inputs {
             profileZh = profileZh == null ? Map.of() : profileZh;
@@ -56,6 +59,13 @@ public final class FillContext {
             catalog = catalog == null ? List.of() : List.copyOf(catalog);
             suggested = suggested == null ? List.of() : List.copyOf(suggested);
             state = state == null ? ApplicationState.empty() : state;
+        }
+
+        /** 没有公司记忆和通用经验时的兼容构造。 */
+        public Inputs(Map<String, ResolvedFact> profileZh, Map<String, ResolvedFact> profileEn,
+                      List<JobAnswers.Answer> answers, List<String> files, List<SkillCatalog.Skill> catalog,
+                      List<String> suggested, String siteNotes, String goal, ApplicationState state) {
+            this(profileZh, profileEn, answers, files, catalog, suggested, siteNotes, goal, state, null, null);
         }
     }
 
@@ -163,6 +173,12 @@ public final class FillContext {
 
         if (inputs.siteNotes() != null && !inputs.siteNotes().isBlank()) {
             out.append("\n# 这个站点以前的记录\n\n").append(inputs.siteNotes().strip()).append('\n');
+        }
+        if (inputs.companyNotes() != null && !inputs.companyNotes().isBlank()) {
+            out.append("\n# 这家公司的记录\n\n").append(inputs.companyNotes().strip()).append('\n');
+        }
+        if (inputs.lessons() != null && !inputs.lessons().isBlank()) {
+            out.append("\n# 通用经验（lessons.md）\n\n").append(inputs.lessons().strip()).append('\n');
         }
         return out.toString();
     }

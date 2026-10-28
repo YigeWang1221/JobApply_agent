@@ -62,9 +62,10 @@ export default function JobPage({ id }: { id: string }) {
     void load();
   }, [load]);
 
-  // 「浏览器连接断开了」从全局的连接状态推出来，而 browser 事件只在全局流里：收到就重读一次
+  // 「浏览器连接断开了」从全局的连接状态推出来，而 browser 事件只在全局流里：收到就重读一次。
+  // reset（后端重启）后工作台可能还留着旧的上传槽，也要重读（C006-fix-real-run 第 17 条）
   useEffect(() => subscribe(eventsUrl(), (event) => {
-    if (event.type === "browser") {
+    if (event.type === "browser" || event.type === "reset") {
       void load();
     }
   }), [load]);
@@ -162,7 +163,9 @@ export default function JobPage({ id }: { id: string }) {
       session: replyAs,
       ...(text.trim() ? { text: text.trim() } : {}),
       ...(Object.keys(filled).length > 0 ? { answers: filled } : {}),
-      ...(slots.length > 0 ? { files: slots.map((slot) => current.picked[slot.id] ?? "") } : {}),
+      ...(status.status === "waiting_user" && slots.length > 0
+        ? { files: slots.map((slot) => current.picked[slot.id] ?? "") }
+        : {}),
       ...(files.length > 0 ? { attachments: files } : {}),
     };
     if (await call(() => api.reply(job.id, body))) {
@@ -269,7 +272,11 @@ export default function JobPage({ id }: { id: string }) {
           <ResumeRank choice={job.resumeChoice ?? null} />
           <Progress state={status?.state ?? null} />
           {status && <HandTab jobId={job.id} />}
-          {status && (ready || status.report) && <section className="sidesec"><Report jobId={job.id} /></section>}
+          {status && (ready || status.report) && (
+            <section className="sidesec">
+              <Report jobId={job.id} version={`${status.status}:${status.usage?.toolCalls ?? 0}:${status.round ?? 1}`} />
+            </section>
+          )}
           {status?.usage && (
             <div className="stats">
               <div><strong>{status.usage.toolCalls.toLocaleString()}</strong><span className="muted small">工具调用</span></div>
@@ -644,10 +651,11 @@ function Files({ slots, offered, attachments, picked, setPicked }: {
   );
 }
 
-function Report({ jobId }: { jobId: string }) {
+function Report({ jobId, version }: { jobId: string; version: string }) {
   const [report, setReport] = useState<string | null>(null);
   const [reportError, setReportError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [raw, setRaw] = useState(false);
 
   const loadReport = useCallback(async () => {
     try {
@@ -662,18 +670,21 @@ function Report({ jobId }: { jobId: string }) {
 
   useEffect(() => {
     void loadReport();
-  }, [loadReport]);
+  }, [loadReport, version]);
 
   return (
     <>
       <div className="row">
         <strong>填写报告</strong>
         <button onClick={() => void loadReport()}>重新读取</button>
+        {report && (
+          <button onClick={() => setRaw((on) => !on)}>{raw ? "表格视图" : "查看原文"}</button>
+        )}
       </div>
       {reportError && <p className="error">{reportError}</p>}
       {loaded && !reportError && (report === null
         ? <p className="muted">还没有报告。</p>
-        : <pre className="report">{report}</pre>)}
+        : raw ? <pre className="report">{report}</pre> : <Markdown text={report} />)}
     </>
   );
 }

@@ -452,6 +452,7 @@ public final class PlaywrightMcpClient implements AutoCloseable {
                     + (Boolean.TRUE.equals(done.get("closed")) ? "" : "弹出列表还开着。");
             case "closed_early" -> "点完第 " + levels + " 层列表就关了（这个控件可能只有 " + levels + " 层，或者选中的是上一级）。"
                     + verified;
+            case "need_more_levels" -> throw new BrowserException.ToolFailed(choices(done));
             case "no_popup" -> throw new BrowserException.ToolFailed(BrowserToolPolicy.SELECT_OPTION + "：点开之后没有出现选项列表"
                     + "（能输入的下拉已经输入了第一个值，仍没有结果）。这个元素可能不是下拉框的触发元素，看新快照找对的那个；"
                     + "远程搜索没有结果时换一种写法再试，或者问用户。");
@@ -461,6 +462,31 @@ public final class PlaywrightMcpClient implements AutoCloseable {
 
     /** 没有选：第几层、为什么、这一层能看到的选项原文（快照的写法，之后照快照一样过脱敏）。 */
     static String choices(Map<String, Object> done) {
+        if ("need_more_levels".equals(done.get("status"))) {
+            int n = done.get("levels") instanceof Number num ? num.intValue() : 0;
+            int next = n + 1;
+            StringBuilder text = new StringBuilder(BrowserToolPolicy.SELECT_OPTION + "：已依次点中前 " + n
+                    + " 层，但级联还展开了第 " + next + " 层，尚未完成选择，弹出列表还开着。");
+            List<String> chosen = strings(done.get("chosen"));
+            if (!chosen.isEmpty()) {
+                text.append("已经点中：")
+                        .append(String.join(" → ", chosen.stream().map(c -> "「" + c + "」").toList()))
+                        .append("。");
+            }
+            List<String> options = strings(done.get("options"));
+            if (options.isEmpty()) {
+                text.append("第 ").append(next).append(" 层没有看到选项。");
+            } else {
+                text.append("第 ").append(next).append(" 层现在能看到的选项（原文）：\n- listbox ")
+                        .append(JSON.writeValueAsString(String.valueOf(done.getOrDefault("name", "")))).append(":");
+                options.forEach(option -> text.append("\n  - option ").append(JSON.writeValueAsString(option)));
+                if (Boolean.TRUE.equals(done.get("more"))) {
+                    text.append("\n（还有更多没列出）");
+                }
+            }
+            return text.append("\n请补上下一层的值再调用 browser_select_option，或直接在新快照里点击该项；"
+                    + "若资料里没有这一层（如具体区县）且必选，用 ask_user 问用户。").toString();
+        }
         int level = done.get("level") instanceof Number n ? n.intValue() + 1 : 1;
         StringBuilder text = new StringBuilder(BrowserToolPolicy.SELECT_OPTION + "：没有选，第 " + level + " 层");
         if ("ambiguous".equals(done.get("status"))) {
@@ -501,6 +527,7 @@ public final class PlaywrightMcpClient implements AutoCloseable {
         String how = switch (String.valueOf(done.get("how"))) {
             case "native" -> "原生日期框，直接设了值";
             case "typed" -> "按输入框占位符的格式键入后按了 Tab";
+            case "wheel" -> "在滚轮面板上按列选好";
             default -> "在日历面板上点选";
         };
         String read = Boolean.TRUE.equals(done.get("verified")) ? DATE_MATCHED : "，读回的值对不上，看新快照核对。";
@@ -515,6 +542,8 @@ public final class PlaywrightMcpClient implements AutoCloseable {
             case "need_day" -> throw new BrowserException.ToolFailed(tool + "：need_day，没有设。这个日期框要精确到日，"
                     + "你给的只有年月（或只有年）。"
                     + ("panel".equals(done.get("how")) ? "面板翻到过你给的那一年那一月，没有点任何日期，"
+                    + (Boolean.TRUE.equals(done.get("closed")) ? "之后按 Escape 关上了。" : "面板还开着。")
+                    : "wheel".equals(done.get("how")) ? "滚轮已选到年、月，没有选日，"
                     + (Boolean.TRUE.equals(done.get("closed")) ? "之后按 Escape 关上了。" : "面板还开着。")
                     : "日期框没有动。")
                     + "不要自己编日：用 ask_user 问用户这一项是哪一天（这一页有几个这样的日期就一起问），用户回答后用 "
@@ -537,6 +566,7 @@ public final class PlaywrightMcpClient implements AutoCloseable {
                 case "month" -> "月份表";
                 case "year" -> "年份表";
                 case "decade" -> "年代表";
+                case "columns" -> "滚轮面板";
                 default -> "认不出的样子";
             }).append("；头部：").append(String.join(" ", strings(panel.get("header"))))
                     .append("；格子：").append(String.join(" ", strings(panel.get("cells")))).append("。");

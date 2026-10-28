@@ -78,6 +78,15 @@ public final class MemoryNotes {
         } catch (IllegalArgumentException e) {
             return Optional.empty();
         }
+        return body(file);
+    }
+
+    /** 通用经验（{@code review/lessons.md}）的正文；没有文件或正文为空时为空。 */
+    public Optional<String> lessons() {
+        return body(layout.reviewLessons());
+    }
+
+    private static Optional<String> body(Path file) {
         if (!Files.exists(file)) {
             return Optional.empty();
         }

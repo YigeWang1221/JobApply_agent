@@ -283,6 +283,27 @@ class PlaywrightMcpClientTest {
     }
 
     @Test
+    void selectNeedMoreLevelsExplainsTheOpenNextColumn() {
+        String text = PlaywrightMcpClient.choices(Map.of(
+                "status", "need_more_levels",
+                "levels", 2,
+                "chosen", List.of("中国", "浙江"),
+                "name", "籍贯",
+                "options", List.of("杭州", "宁波", "台州"),
+                "closed", false));
+
+        assertThat(text)
+                .contains("已依次点中前 2 层")
+                .contains("第 3 层")
+                .contains("弹出列表还开着")
+                .contains("「中国」")
+                .contains("「浙江」")
+                .contains("台州")
+                .contains("请补上下一层的值再调用 browser_select_option")
+                .contains("ask_user");
+    }
+
+    @Test
     void connectionErrorTextIsRecognised() {
         assertThat(PlaywrightMcpClient.isConnectionError("Target page, context or browser has been closed")).isTrue();
         assertThat(PlaywrightMcpClient.isConnectionError("Error: net::ERR_NAME_NOT_RESOLVED")).isFalse();

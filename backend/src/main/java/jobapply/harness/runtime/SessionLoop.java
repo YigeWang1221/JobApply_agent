@@ -48,6 +48,7 @@ import jobapply.persistence.DuplicateLeadException;
 import jobapply.persistence.FrontmatterFile;
 import jobapply.persistence.JobLedger;
 import jobapply.persistence.JobRepository;
+import jobapply.persistence.MemoryNotes;
 import jobapply.persistence.PlaybookSeeder;
 import jobapply.persistence.RoundReviews;
 import jobapply.persistence.SessionPages;
@@ -288,6 +289,8 @@ public final class SessionLoop {
                     out.append("- ").append(skill.name()).append("：").append(skill.description()).append('\n');
                 }
             }
+            new MemoryNotes(layout).lessons().ifPresent(notes ->
+                    out.append("\n\n# 经验总结（lessons.md）\n\n").append(notes));
             return out.toString();
         }
 
@@ -428,8 +431,63 @@ public final class SessionLoop {
             return latest != null ? latest : new PageSnapshot("about:blank", "", "", "");
         }
 
+        /**
+         * 对话 Agent 的 {@code browser_tabs}：{@code list} 列出 Chrome 里所有标签页，{@code select} 切过去并取快照。
+         * 用户让看已开着的页面时用；申请仍由工作台转交或申请 Agent 去做。
+         */
+        private Step<Void> tabs(AgentRun.ToolCall call) {
+            Map<String, Object> args;
+            try {
+                args = parse(call.arguments());
+            } catch (IllegalArgumentException e) {
+                return failed(call, "失败：" + e.getMessage());
+            }
+            Object action = args.get("action");
+            try {
+                if ("list".equals(action)) {
+                    List<BrowserSession.TabInfo> listed = browser.tabs(session);
+                    return result(call, listed.isEmpty() ? "现在没有标签页。"
+                            : "Chrome 里所有的标签页（序号是浏览器里的序号，select 用它）。（你的）= 你开的、点击弹出的、"
+                            + "用户交给你的；（别的任务在用）= 别的申请或调研正在用，不要碰；其余是用户自己开着的页：\n"
+                            + tabLines(listed));
+                }
+                if ("select".equals(action)) {
+                    if (!(args.get("index") instanceof Number number) || number.intValue() < 0) {
+                        return failed(call, "失败：select 要给 browser_tabs list 列出的序号 index");
+                    }
+                    PageSnapshot after = browser.select(session, number.intValue());
+                    return Step.<Void>done(call, "已切到标签页 " + number.intValue() + "。系统取了新的快照：")
+                            .withPage(after);
+                }
+                return failed(call, "失败：browser_tabs 的 action 只能是 list 或 select");
+            } catch (IllegalArgumentException e) {
+                return failed(call, "失败：" + e.getMessage() + "。");
+            } catch (BrowserException.Disconnected e) {
+                return disconnected(call, e.getMessage());
+            } catch (BrowserException.Stalled e) {
+                return stalled(call, e.getMessage());
+            } catch (BrowserException.ToolFailed e) {
+                return failed(call, "失败：" + e.getMessage());
+            }
+        }
+
+        private static String tabLines(List<BrowserSession.TabInfo> tabs) {
+            StringBuilder out = new StringBuilder();
+            for (BrowserSession.TabInfo tab : tabs) {
+                out.append("- ").append(tab.index()).append(": ")
+                        .append(tab.inUse() ? "（正在用）" : "")
+                        .append(tab.yours() ? "（你的）" : "")
+                        .append(tab.others() ? "（别的任务在用）" : "")
+                        .append('[').append(tab.title()).append("](").append(tab.url()).append(")\n");
+            }
+            return out.toString().strip();
+        }
+
         private Step<Void> browserTool(AgentRun.ToolCall call) {
             String name = call.name();
+            if (BrowserToolPolicy.TABS.equals(name)) {
+                return tabs(call);
+            }
             if (BrowserToolPolicy.NAVIGATE.equals(name)) {
                 String url;
                 try {

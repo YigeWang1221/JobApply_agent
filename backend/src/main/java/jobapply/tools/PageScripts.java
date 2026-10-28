@@ -151,6 +151,29 @@ final class PageScripts {
                   }
                   return false;
                 }
+                case 'colRect': {
+                  const col = popup && shown(popup) ? column(popup, level) : null;
+                  const n = col && (col.parent || col.items[0]);
+                  if (!n) return null;
+                  const b = n.getBoundingClientRect();
+                  if (b.width <= 0 || b.height <= 0) return null;
+                  return {x: b.left + b.width / 2, y: b.top + b.height / 2, height: b.height};
+                }
+                case 'columnsInfo': {
+                  const cols = popup && shown(popup) ? columns(popup) : [];
+                  return cols.map(c => {
+                    const n = c.parent || c.items[0];
+                    const b = n ? n.getBoundingClientRect() : {left: 0, top: 0, width: 0, height: 0};
+                    return {texts: c.items.map(textOf), x: b.left + b.width / 2, y: b.top + b.height / 2, height: b.height};
+                  });
+                }
+                case 'scrollItem': {
+                  const col = popup && shown(popup) ? column(popup, level) : null;
+                  const i = col ? col.items[input.index] : null;
+                  if (!i || textOf(i) !== input.text) return false;
+                  i.scrollIntoView({block: 'center'});
+                  return true;
+                }
                 case 'search': {
                   const a = document.activeElement;
                   const ok = n => n && n.matches('input,textarea') && !n.readOnly && !n.disabled && shown(n);
@@ -229,8 +252,9 @@ final class PageScripts {
     /**
      * 选下拉里的一项。原生 select：按规范化文字找到选项原文就返回（由 MCP 的 browser_select_option 去选），找不到不选、
      * 返回全部选项。别的下拉：真实点击打开 → 等新出现的弹出层 → 一层一层按「完全相同 → 规范化后相同 → 唯一的包含」
-     * 找值并点击（级联每层一个值；没找到先滚动列表；能输入的下拉没找到时输入第一层的值过滤）→ 读回显示的值是否对得上
-     * → 还开着就按一次 Escape。有歧义或没找到时不点，返回这一层能看到的选项原文。
+     * 找值并点击（级联每层一个值；没找到先 scrollTop，动不了再用真实鼠标滚轮；能输入的下拉没找到时输入第一层的值过滤）
+     * → 点完传入的各层后若右边还展开了下一列且尚未完成赋值，不按 Escape，返回 need_more_levels 和下一列选项原文；
+     * 否则读回显示的值是否对得上，还开着就按一次 Escape。有歧义或没找到时不点，返回这一层能看到的选项原文。
      */
     static final String SELECT = """
             // jobapply:select
@@ -346,16 +370,29 @@ final class PageScripts {
                   if (found) break;
                   continue;
                 }
-                if (!(await page.evaluate(DOM, {op: 'scroll', popup, level}))) {
-                  if (level === 0 && !typed && (await searchBox())) {
-                    typed = await typeFilter(want);
-                    seen = [];
+                if (await page.evaluate(DOM, {op: 'scroll', popup, level})) {
+                  scrolled = true;
+                  await pause(150);
+                  continue;
+                }
+                const rect = await page.evaluate(DOM, {op: 'colRect', popup, level});
+                if (rect) {
+                  const before = view.texts.slice();
+                  await page.mouse.move(rect.x, rect.y);
+                  await page.mouse.wheel(0, Math.max(160, rect.height * 0.7));
+                  await pause(150);
+                  const wheeled = await page.evaluate(DOM, {op: 'level', popup, level});
+                  if (wheeled.texts.some(t => !before.includes(t))) {
+                    scrolled = true;
                     continue;
                   }
-                  break;
                 }
-                scrolled = true;
-                await pause(150);
+                if (level === 0 && !typed && (await searchBox())) {
+                  typed = await typeFilter(want);
+                  seen = [];
+                  continue;
+                }
+                break;
               }
               if (!found) {
                 const closed = await close();
@@ -378,14 +415,22 @@ final class PageScripts {
               }
             }
             await pause(250);
+            if (await isOpen()) {
+              const after = await page.evaluate(DOM, {op: 'level', popup, level: args.values.length});
+              if (after.columns > args.values.length && after.texts.length > 0 && !(await verify())) {
+                return {status: 'need_more_levels', kind: 'custom', name: info.name, levels: chosen.length, chosen,
+                  level: args.values.length, options: after.texts.slice(0, 50), more: after.texts.length > 50, closed: false};
+              }
+            }
             const closed = await close();
             return {status: 'selected', kind: 'custom', name: info.name, levels: chosen.length, closed, verified: await verify()};
             """;
 
     /**
      * 设一个日期（YYYY-MM-DD / YYYY-MM / YYYY）。原生 date / month 框直接设 ISO 值；能键入的框按占位符的格式键入再 Tab，
-     * 读回对得上就结束；只读的框（或键入没生效）点开面板：面板里有输入框就在那里键入，否则点头部的年份 / 月份切到年份表、
-     * 月份表跳过去（相差一两个月才用箭头），再点日期格。只点面板里的格子、头部的年月和翻页箭头，不点确定、今天、清除；
+     * 读回对得上就结束；只读的框（或键入没生效）点开面板：面板里有输入框就在那里键入；头部有原生年/月 select 就直接切；
+     * 否则点头部的年份 / 月份切到年份表、月份表跳过去（点了标题视图不变则改用左右箭头在一次调用里连续翻页），再点日期格。
+     * 没有日历网格、只有年/月/日列的滚轮面板按列滚动后点击。只点面板里的格子、头部的年月和翻页箭头，不点确定、今天、清除；
      * 面板要按「确定」才生效时返回 needs_confirm（由模型自己去点）。找不到时不点，返回面板上看到的内容。
      * 要到日的控件只给了年月（C016 实跑后修正）：面板翻到那一年那一月、不点任何日期，按一次 Escape 关上面板（开着的面板
      * 会盖住日期框，之后设完整日期时点不开），返回 need_day；原生 date 框同样返回 need_day，不动它。模型拿它去问用户是哪一天。
@@ -461,7 +506,7 @@ final class PageScripts {
                 inView: cells.filter(c => !off(c)).map(textOf),
                 header: header.map(textOf).slice(0, 12),
                 confirm: [...popup.querySelectorAll('button,a,[role=button],span')].some(b => shown(b)
-                  && /^(确定|确认|ok|confirm)$/i.test(textOf(b)))};
+                  && /^(确定|确认|完成|ok|confirm|done)$/i.test(textOf(b)))};
               const clean = n => n && !STOP.test(textOf(n)) ? n : null;
               if (op === 'cell') {
                 const want = input.want;
@@ -483,8 +528,32 @@ final class PageScripts {
                 const dir = input.dir < 0 ? /prev|上一|前一|left|«|‹/ : /next|下一|后一|right|»|›/;
                 const big = /year|super|decade|century|d-arrow|double|«|»|年/;
                 const found = all.filter(n => dir.test(desc(n)) && (input.big ? big.test(desc(n)) : !big.test(desc(n))));
-                const n = found[0];
+                let n = found[0];
+                if (!n) {
+                  const box = popup.getBoundingClientRect();
+                  const band = all.filter(el => {
+                    const r = el.getBoundingClientRect();
+                    return r.top + r.height / 2 <= box.top + Math.max(64, box.height * 0.35);
+                  });
+                  const side = band.filter(el => {
+                    const r = el.getBoundingClientRect();
+                    return input.dir < 0 ? r.left < box.left + box.width * 0.35 : r.right > box.left + box.width * 0.65;
+                  });
+                  n = side.sort((a, b) => a.getBoundingClientRect().width - b.getBoundingClientRect().width)[0];
+                }
                 return n ? (n.closest('button,a,[role=button]') || n) : null;
+              }
+              if (op === 'headerSelect') {
+                const want = input.want, part = input.part;
+                for (const s of [...popup.querySelectorAll('select')].filter(shown)) {
+                  const hit = [...s.options].some(o => {
+                    const t = String(o.label || o.text || o.value || '').replace(/\\s+/g, '');
+                    if (part === 'year') return parseInt(t, 10) === want || parseInt(o.value, 10) === want;
+                    return monthOf(t) === want || monthOf(String(o.value || '').replace(/\\s+/g, '')) === want;
+                  });
+                  if (hit) return s;
+                }
+                return null;
               }
               if (op === 'input') {
                 return [...popup.querySelectorAll('input')].find(i => shown(i) && !i.readOnly && !i.disabled) || null;
@@ -550,6 +619,41 @@ final class PageScripts {
             if (!panel) panel = (await page.evaluateHandle(DOM, {op: 'popup', el: target, pre: []})).asElement();
             if (!panel) return dayMissing ? {status: 'need_day', how: 'none'} : {status: 'no_panel', typedTried};
             const panelOpen = () => page.evaluate(DOM, {op: 'open', el: field || target, popup: panel});
+            const monthOfText = t => {
+              const s = String(t || '').replace(/\\s+/g, '');
+              let r = /^(\\d{1,2})月$/.exec(s);
+              if (r && +r[1] >= 1 && +r[1] <= 12) return +r[1];
+              r = /^([一二三四五六七八九十]{1,3})月$/.exec(s);
+              const ZH = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二'];
+              if (r && ZH.indexOf(r[1]) >= 0) return ZH.indexOf(r[1]) + 1;
+              const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+              const i = MONTHS.indexOf(s.slice(0, 3).toLowerCase());
+              return i >= 0 && /^[a-z]{3,9}\\.?$/i.test(s) ? i + 1 : null;
+            };
+            const classifyDateCol = texts => {
+              const list = (texts || []).map(t => String(t).trim());
+              const yearHits = list.filter(t => /^\\d{4}年?$/.test(t)).length;
+              const monthHits = list.filter(t => {
+                const s = t.replace(/\\s+/g, '');
+                return /月$/.test(s) || (monthOfText(s) !== null && !/^\\d+$/.test(s));
+              }).length;
+              const dayHits = list.filter(t => { const r = /^(\\d{1,2})日?$/.exec(t); return r && +r[1] >= 1 && +r[1] <= 31; }).length;
+              if (yearHits >= 1 && yearHits >= monthHits && yearHits >= dayHits) return 'year';
+              if (monthHits >= 1 && monthHits >= dayHits) return 'month';
+              if (dayHits >= 1) return 'day';
+              return null;
+            };
+            const loadColumns = async () => {
+              const cols = await page.evaluate(DOM, {op: 'columnsInfo', popup: panel}) || [];
+              return cols.slice(0, 3).map((c, i) => Object.assign({}, c, {part: classifyDateCol(c.texts), index: i}));
+            };
+            const overlayColumns = async (v) => {
+              if (v && v.kind !== 'unknown' && v.kind !== 'columns') return v;
+              const cols = await loadColumns();
+              if (cols.length < 1 || cols.length > 3) return v;
+              if (!cols.some(c => c.part === 'year' || c.part === 'month' || c.part === 'day')) return v;
+              return Object.assign({}, v, {kind: 'columns', cells: cols.flatMap(c => c.texts).slice(0, 60)});
+            };
             // 面板刚出现时可能还在淡入、格子还没渲染：每 100 毫秒看一次，最多约 1.2 秒，认出是哪种表就马上往下走
             const viewNow = async () => {
               let v = await page.evaluate(PANEL, {op: 'view', popup: panel});
@@ -557,7 +661,7 @@ final class PageScripts {
                 await pause(100);
                 v = await page.evaluate(PANEL, {op: 'view', popup: panel});
               }
-              return v;
+              return overlayColumns(v);
             };
             // need_day 时把面板关上（按一次 Escape）：开着的面板常盖住日期框，问完用户再设完整日期时点不开它
             const closePanel = async () => {
@@ -582,17 +686,103 @@ final class PageScripts {
               }
             }
             const click = async (h) => { await h.click({timeout: 3000}); await pause(200); };
+            const get = async (o) => (await page.evaluateHandle(PANEL, {popup: panel, ...o})).asElement();
+            const selectHeader = async (part, want) => {
+              if (want === null) return false;
+              const h = await get({op: 'headerSelect', part, want});
+              if (!h) return false;
+              const picked = await h.evaluate((s, want, part) => {
+                const monthOf = t => {
+                  const x = String(t || '').replace(/\\s+/g, '');
+                  let r = /^(\\d{1,2})月$/.exec(x);
+                  if (r && +r[1] >= 1 && +r[1] <= 12) return +r[1];
+                  const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+                  const i = MONTHS.indexOf(x.slice(0, 3).toLowerCase());
+                  return i >= 0 ? i + 1 : null;
+                };
+                const opt = [...s.options].find(o => {
+                  const t = o.label || o.text || o.value || '';
+                  if (part === 'year') return parseInt(t, 10) === want || parseInt(o.value, 10) === want;
+                  return monthOf(t) === want || monthOf(o.value) === want || parseInt(t, 10) === want;
+                });
+                return opt ? opt.value : null;
+              }, want, part);
+              if (picked === null || picked === undefined) return false;
+              await h.selectOption(picked);
+              await pause(200);
+              return true;
+            };
+            const pickColumn = async (part, wantNum) => {
+              if (wantNum === null || wantNum === undefined) return true;
+              let dir = null;
+              for (let round = 0; round < 40 && Date.now() < deadline; round++) {
+                const cols = await loadColumns();
+                const col = cols.find(c => c.part === part) || cols[{year: 0, month: 1, day: 2}[part]];
+                if (!col) return false;
+                const hit = col.texts.find(t => {
+                  if (part === 'year') return parseInt(t, 10) === wantNum;
+                  if (part === 'month') return monthOfText(String(t).replace(/\\s+/g, '')) === wantNum || parseInt(t, 10) === wantNum;
+                  const r = /^(\\d{1,2})日?$/.exec(String(t).trim());
+                  return r && +r[1] === wantNum;
+                });
+                if (hit) {
+                  const index = col.texts.indexOf(hit);
+                  await page.evaluate(DOM, {op: 'scrollItem', popup: panel, level: col.index, index, text: hit});
+                  const h = (await page.evaluateHandle(DOM, {op: 'item', popup: panel, level: col.index, index, text: hit})).asElement();
+                  if (h) {
+                    await h.click({timeout: 3000});
+                    await pause(150);
+                    return true;
+                  }
+                }
+                const nums = col.texts.map(t => part === 'month'
+                  ? (monthOfText(String(t).replace(/\\s+/g, '')) || parseInt(t, 10))
+                  : parseInt(t, 10)).filter(n => Number.isFinite(n) && n > 0);
+                const cur = nums.length ? nums[Math.floor(nums.length / 2)] : null;
+                if (dir === null) dir = (cur !== null && wantNum < cur) ? -1 : 1;
+                await page.mouse.move(col.x, col.y);
+                await page.mouse.wheel(0, dir * Math.max(160, col.height * 0.7));
+                await pause(150);
+                const after = await loadColumns();
+                const next = after.find(c => c.part === part) || after[col.index];
+                const grew = next && next.texts.some(t => !col.texts.includes(t));
+                if (!grew && round === 2) dir = -dir;
+              }
+              return false;
+            };
             let last = null;
+            let labelDead = false;
             for (let step = 0; step < 40 && Date.now() < deadline; step++) {
               if (!(await panelOpen())) {
                 const value = await readBack();
-                return {status: matches(value) ? 'set' : 'closed', how: 'panel', verified: matches(value)};
+                return {status: matches(value) ? 'set' : 'closed', how: startKind === 'columns' ? 'wheel' : 'panel',
+                  verified: matches(value)};
               }
               const view = await viewNow();
               last = view;
               if (startKind === null) startKind = view.kind;
-              const get = async (o) => (await page.evaluateHandle(PANEL, {popup: panel, ...o})).asElement();
               let h = null;
+              if (view.kind !== 'columns' && mo !== null && (view.year !== y || view.month !== mo)) {
+                const beforeYm = {year: view.year, month: view.month, kind: view.kind};
+                if (await selectHeader('year', y) || await selectHeader('month', mo)) {
+                  const afterYm = await viewNow();
+                  if (afterYm.year !== beforeYm.year || afterYm.month !== beforeYm.month || afterYm.kind !== beforeYm.kind) {
+                    continue;
+                  }
+                }
+              }
+              if (view.kind === 'columns') {
+                await pickColumn('year', y);
+                if (mo !== null) await pickColumn('month', mo);
+                const cols = await loadColumns();
+                const hasDay = cols.some(c => c.part === 'day');
+                if (d === null && hasDay) return {status: 'need_day', how: 'wheel', closed: await closePanel()};
+                if (d !== null && hasDay) await pickColumn('day', d);
+                const after = await page.evaluate(PANEL, {op: 'view', popup: panel});
+                const value = await readBack();
+                return {status: after.confirm ? 'needs_confirm' : matches(value) ? 'set' : (await panelOpen() ? 'open' : 'closed'),
+                  how: 'wheel', verified: matches(value)};
+              }
               if (view.kind === 'day') {
                 if (mo === null) {
                   h = await get({op: 'label', part: view.year === y ? 'month' : 'year'});
@@ -607,11 +797,38 @@ final class PageScripts {
                   const value = await readBack();
                   return {status: after.confirm ? 'needs_confirm' : matches(value) ? 'set' : 'open', how: 'panel',
                     verified: matches(value)};
-                } else if (view.year !== null && view.month !== null && Math.abs((y - view.year) * 12 + mo - view.month) <= 2) {
-                  h = await get({op: 'arrow', dir: (y - view.year) * 12 + mo - view.month, big: false});
                 } else {
-                  h = await get({op: 'label', part: view.year === y ? 'month' : 'year'});
-                  if (!h && view.year !== null) h = await get({op: 'arrow', dir: view.year === y ? mo - view.month : y - view.year,
+                  if (!labelDead) {
+                    const before = {kind: view.kind, year: view.year, month: view.month};
+                    h = await get({op: 'label', part: view.year === y ? 'month' : 'year'});
+                    if (h) {
+                      await click(h);
+                      const after = await viewNow();
+                      if (after.kind === before.kind && after.year === before.year && after.month === before.month) {
+                        labelDead = true;
+                      } else {
+                        continue;
+                      }
+                    }
+                  }
+                  const dist = (view.year !== null && view.month !== null && mo !== null)
+                    ? (y - view.year) * 12 + (mo - view.month) : null;
+                  if (dist) {
+                    const n = Math.min(180, Math.abs(dist));
+                    const dir = dist < 0 ? -1 : 1;
+                    let moved = false;
+                    for (let i = 0; i < n && Date.now() < deadline; i++) {
+                      const ah = await get({op: 'arrow', dir, big: false});
+                      if (!ah) break;
+                      await ah.click({timeout: 3000});
+                      await pause(40);
+                      moved = true;
+                      const now = await page.evaluate(PANEL, {op: 'view', popup: panel});
+                      if (now.year === y && now.month === mo) break;
+                    }
+                    if (moved) continue;
+                  }
+                  h = await get({op: 'arrow', dir: view.year === y ? mo - view.month : y - view.year,
                     big: view.year !== y});
                 }
               } else if (view.kind === 'month') {
@@ -657,8 +874,8 @@ final class PageScripts {
               if (!h) break;
               await click(h);
             }
-            return {status: 'not_found', how: 'panel', typedTried, panel: last && {kind: last.kind, header: last.header,
-              cells: last.cells.slice(0, 40)}};
+            return {status: 'not_found', how: last && last.kind === 'columns' ? 'wheel' : 'panel', typedTried,
+              panel: last && {kind: last.kind, header: last.header, cells: (last.cells || []).slice(0, 40)}};
             """;
 
     private PageScripts() {

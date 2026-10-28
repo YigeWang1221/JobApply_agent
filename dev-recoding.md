@@ -598,3 +598,41 @@
 - `server.shutdown: immediate` 而不是关闭前先断开推送：本机单用户，没有要等完的请求；正在跑的 Agent 本来就靠 `shutdownNow()` 中断、存盘后可续接。
 - 后端跟着外壳退出用标准输入管道，不用轮询父进程 pid：系统保证进程死掉时关掉管道，强制退出也一样，代码最少。
 - 有一个代理先改后报：用户说「先定位，不着急改」时修改已做完，如实报告后用户同意保留。
+
+## 2026-10-28 · C020 整体精炼：为什么要把客观层级归属交回模型常识，并拆成 A–E 五个工作包
+
+原意：复盘发现提示词和 skill 里还留着早期死板或已过期的字句（例如 `readonly-select` 说「没有字面一致就问用户」，导致资料写「台州」、下拉第一层是省份列表时模型不敢自己选「浙江省」而停下来问用户；`apply-form` 还写着确认按钮记进站点长期放行；`file-upload` 还写着遇到上传位置先请用户选文件）。同时下拉/日期脚本在虚拟列表、级联未完待续、多列滚轮日期面板、纯箭头日历上还缺真实滚轮和未完状态回报，Memory 的 `companies` / `lessons` 只写未读，工作台报告没按 Markdown 表格渲染。
+
+取舍：
+- **客观归属 vs 主观意愿**：省市国家归属（「台州」属于「中国 / 浙江省 / 台州市」）、专业归属学科大类是客观常识，提示词和 skill 明确让模型自己补全上级路径或从返回的第 1 层选项里直接挑出归属上级，不为这种事打断用户；只有主观意愿（意向城市、是否服从调剂）或资料里没有的更细粒度（具体到哪个区/街道）才 `ask_user`。
+- **提示词做纲领、Skill 写控件经验**：`ApplyAgent.SITUATIONS` 去掉与 `repeatable-entries`、`date-picker`、`readonly-select`、`cascader-city`、`file-upload`、`resume-parse` 重复的琐碎步骤，只留边界与一句话准则并指向对应 skill；7 个预置 skill 的 `version` 全部 +1，由 `PlaybookSeeder` 自动更新到用户本机。
+- **拆分施工**：C020 拆成 A（Prompt & Skills）、B（`PageScripts` & `PlaywrightMcpClient`）、C（Memory 闭环 & 原件直读/按需上传复制）、D（对话 Agent `browser_tabs`）、E（前端 `JobPage.tsx`）五个互不踩文件的独立工作包，本步先完成计划落盘与工作包 A，B–E 交给其他编码代理并行完成后再合龙验收。
+
+未决：
+- 工作包 B、E 已在同分支落地；合龙 `mvn verify` 仍缺 Java 25；真实表单冒烟未跑。
+- 对话 Agent 是否要在提到具体公司时再注入 `companies/<company>.md`（本步未做：Session 没有当前岗位）。
+
+## 2026-10-28 · C020 工作包 C、D
+
+原意：`remember` 写进公司记忆和 lessons 后要回到两个 Agent 的上下文；上传区 `settle` 清空后仍能读简历、再上传；对话 Agent 能 `browser_tabs`。
+
+取舍：
+- 申请循环每步注入这家公司的 `companies/<company>.md` 和 `review/lessons.md`；对话循环只注入 lessons（没有当前岗位公司）。
+- `read_resume` 优先读原件，不依赖上传区副本；`browser_file_upload` 翻译编号时若副本缺失才 `stage`。不改 `UploadArea` / `ApplicationRunner`：`stage` 已能从原件复制。
+- 对话 `browser_tabs` 与申请循环一样由循环代发，不走 MCP 模型白名单。
+
+故意没做：工作包 B（脚本/MCP）、E（前端）；不改 BrowserTools 描述。
+
+## 2026-10-28 · C020 合龙验证后仍在的风险（B/C/D/E）
+
+原意：A–E 合龙后用 `mvn verify` + `npm run build` 证明能编过，真实站点再冒烟。
+
+采用的理解：本机没有 `openjdk@25` 时不改用其它 JDK 去跑 `release 25` 的 verify，以免把「测过了」写进日志。
+
+仍在的风险：
+- **B**：滚轮虚拟列表、`need_more_levels`、多列滚轮日期、`labelDead` 箭头翻页只在脚本与返回文案上落地；没有 C020 本地 HTML 夹具，C016 scratchpad 检查未重跑，真实日历/级联未试。
+- **C**：`read_resume` 原件路径与缺副本时 `stage` 未在 verify / 真实申请里跑过；对话侧仍不注入 `companies/<company>.md`。
+- **D**：`browser_tabs` list/select 未对真实 Chrome 冒烟。
+- **E**：`npm run build` 通过，报告 Markdown / `reset` 重读 / 条件带 `files` 未在浏览器里点过。
+- **后端测试**：`mvn clean verify` 未跑到编译与 `*IT`。
+
