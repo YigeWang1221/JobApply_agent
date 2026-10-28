@@ -94,14 +94,14 @@ export function TabBody({ tab, jobs, showProject, sessions, reload, recent }: {
           onMark={(job, status, reason) => act(() => api.markLead(job.id, status, reason),
             `${job.company} · ${job.title}：${LEAD[status]}`)}
           onStart={(job) => {
-            // C008：先在发现它的 Session（没有就新开一个）里让对话 Agent 排简历，排完它自己开始申请
-            // 发现它的 Session 删了（C013）时用这个 Project 最近的一个
-            let session = (job.discoveredIn && titles.has(job.discoveredIn) ? job.discoveredIn : undefined)
+            // C021：直接在这个岗位自己的工作台里启动申请线程（第一轮先排简历、给修改建议），不再往 Session 发消息
+            // 发现它的 Session 删了（C013）时用这个 Project 最近的一个；都没有就新建一个
+            const known = (job.discoveredIn && titles.has(job.discoveredIn) ? job.discoveredIn : undefined)
               ?? sessions.find((s) => s.project === job.project)?.id;
             void act(async () => {
-              session ??= (await api.createSession(job.project)).session.id;
-              await api.sendMessage(session, `给 ${job.company} · ${job.title}（${job.id}）排一下简历，然后开始申请`);
-            }, "已交给对话 Agent：先排简历，再开始申请", () => go({ kind: "session", id: session! }));
+              const session = known ?? (await api.createSession(job.project)).session.id;
+              await api.startApplication(job.id, { project: job.project, session });
+            }, `已启动 ${job.company} · ${job.title} 的工作台：先匹配简历`, () => go({ kind: "job", id: job.id }));
           }} />
       </div>
     );

@@ -609,7 +609,7 @@
 - **拆分施工**：C020 拆成 A（Prompt & Skills）、B（`PageScripts` & `PlaywrightMcpClient`）、C（Memory 闭环 & 原件直读/按需上传复制）、D（对话 Agent `browser_tabs`）、E（前端 `JobPage.tsx`）五个互不踩文件的独立工作包，本步先完成计划落盘与工作包 A，B–E 交给其他编码代理并行完成后再合龙验收。
 
 未决：
-- 工作包 B、E 已在同分支落地；合龙 `mvn verify` 仍缺 Java 25；真实表单冒烟未跑。
+- 工作包 A–E 已在同分支落地并通过本机 JDK 25 `mvn -B clean verify`、`npm run build` 及无头 Chromium 5 项脚本验证；真实招聘站表单冒烟待用户在真实环境试跑。
 - 对话 Agent 是否要在提到具体公司时再注入 `companies/<company>.md`（本步未做：Session 没有当前岗位）。
 
 ## 2026-10-28 · C020 工作包 C、D
@@ -623,16 +623,42 @@
 
 故意没做：工作包 B（脚本/MCP）、E（前端）；不改 BrowserTools 描述。
 
-## 2026-10-28 · C020 合龙验证后仍在的风险（B/C/D/E）
+## 2026-10-28 · C020 合龙验证与无头 Chromium 实测抓虫
 
-原意：A–E 合龙后用 `mvn verify` + `npm run build` 证明能编过，真实站点再冒烟。
+原意：A–E 合龙后在本机 JDK 25 下跑通 `mvn -B clean verify`、`npm run build`，并用无头 Chromium 对 `PageScripts.SELECT` 和 `PageScripts.DATE` 的 5 项新能力做真实 DOM 验证。
 
-采用的理解：本机没有 `openjdk@25` 时不改用其它 JDK 去跑 `release 25` 的 verify，以免把「测过了」写进日志。
+取舍与发现：
+- 假 MCP 单元测试只校验外层编排和返回文案，不会真正跑 `PageScripts` 里的浏览器 JS；用无头 Chromium 实跑 5 个 DOM 场景当场抓到了两处只有真浏览器才会触发的问题：① Playwright `ElementHandle.evaluate(fn, arg)` 只收单个参数对象，`selectHeader` 原先传了两个参数 `want, part`，且 `selectHeader('year', y) || selectHeader('month', mo)` 在年份已匹配时会因返回 `true` 短路掉月份下拉；② `need_more_levels` 不关浮层是为了让模型下一轮接着选，但下一轮进来时浮层已在 `pre` 里，`popup` 过滤掉 `pre` 后把点击当成关闭浮层，因而补上 `info.expanded` 预认与 `!popup` 回退 `pre: []`。
+- 修复后 5 项无头 Chromium 测试、655 个单元测试与 1 个场景集成测试全部通过。
 
-仍在的风险：
-- **B**：滚轮虚拟列表、`need_more_levels`、多列滚轮日期、`labelDead` 箭头翻页只在脚本与返回文案上落地；没有 C020 本地 HTML 夹具，C016 scratchpad 检查未重跑，真实日历/级联未试。
-- **C**：`read_resume` 原件路径与缺副本时 `stage` 未在 verify / 真实申请里跑过；对话侧仍不注入 `companies/<company>.md`。
-- **D**：`browser_tabs` list/select 未对真实 Chrome 冒烟。
-- **E**：`npm run build` 通过，报告 Markdown / `reset` 重读 / 条件带 `files` 未在浏览器里点过。
-- **后端测试**：`mvn clean verify` 未跑到编译与 `*IT`。
+未决：
+- 真实招聘网站上的级联、滚轮日期、纯箭头日历与工作台报告渲染待用户日常投递时试跑。
 
+## 2026-10-28 · C021 工作台内闭环投递、三级 Memory 与分工拆分
+
+原意：用户指出在 Session 里排完简历再去工作台填表会造成页面来回跳转、多岗位简历讨论混在一个 Session 聊天流里；希望 Session 专注找岗位，点击岗位直接进专属工作台，在工作台内一站式完成「简历匹配排名 → 针对 JD 提修改建议 → 用户确认或上传改后简历 → 自动设为文件 1 并打开浏览器填表」，同时最左侧栏做成 `Project → Session → 已打开工作台` 三级导航。
+
+取舍：
+- **工作台两阶段懒打开浏览器**：刚开工作台且未选定简历时，`HarnessLoop.go()` 先不打开 Chrome 标签页，避免在用户还没确认用哪份简历前就弹出一堆浏览器窗口；等模型在工作台里调完 `choose_resume`（或首次调用任何浏览器工具）时由 `ensurePage()` 自动打开岗位页面并取初始快照。同时保留对直接调 `HarnessLoop.run` 的旧测试（开场不含「匹配简历」时立即打开页面）的兼容。
+- **工作台内 `choose_resume` 当场 Stage 成文件 1**：`Round.files` 设为可变列表，`choose_resume` 选定原件后立即调用 `UploadArea.stage` 和 `JobMaterials.write` 把它放进 `files` 第 1 位并随 `current()` 存盘，无需退出或重启工作台线程，下一步就能直接 `browser_file_upload` 文件 1。
+- **按模型特长拆分工作包**：涉及 Prompt 设计、Skill 演进和 Agent 循环上下文的部分（工作包 A）由 Gemini 4 亲自完成；机械性的后端侧栏 DTO 组装（工作包 B：`Views.java`）和前端三级侧栏与按钮跳转（工作包 C：`frontend/`）拆成两个文件完全正交的工作包，写清 JSON 契约供其他编码代理并行施工。
+
+未决：
+- 等待工作包 B（后端 `Views.java`）与工作包 C（前端 `frontend/`）并行施工完成后统一合龙验证。
+
+
+
+## 2026-10-28 · C021 合龙：为什么把简历匹配搬进工作台、先不打开浏览器、当场 stage 成文件 1
+
+原意：用户指出「在 Session 里排完简历再去工作台填表」在页面上来回跳、多个岗位的简历讨论混在同一条 Session 聊天流里。C021 把「简历匹配 → 修改建议 → 确认选定 → 打开 Chrome 填到提交前」整条放进该岗位专属的工作台，Session 只管找岗位、核验官网、加候选池；同时最左侧栏做成 `Project → Session → 已打开工作台` 三级。
+
+取舍：
+- **简历匹配从 Session 移到 Job 工作台**：匹配的输入是「这一份 JD + 这几份简历」，结论也只为这一个岗位服务（`job.md` 的 `resume_choice` 本来就是按 Job 存的）。放在 Session 里做，一是同一份结论要跨页面传递，二是同一 Session 里讨论 B 岗位的简历和 C 岗位的建议会混在同一条消息流里，用户回看时对不上是哪个岗位。搬到工作台后，排名表、建议、用户确认、选定、上传文件 1 全在一条时间线上，`session` 只作为一个字段记进 `resume_choice` 备查。
+- **工作台先不打开浏览器**：阶段一纯粹是「读 JD、读简历、算匹配、等用户拍板」。这时打开岗位页，用户会在 Chrome 里看到一个跟他此刻要做的事无关的标签页，而模型还要为这页花 token 取快照；用户选了「另一份简历」之后页面也没有任何变化。所以 `shouldDeferBrowser()` 只在四个条件同时成立时延迟：刚开工作台（`fresh`）、上传区还没有文件、没有已认领的标签页、这次也没有本轮的 `resume_choice`；任一不成立就照旧立即打开页面。延迟不是取消——`ensurePage()` 在模型第一次调浏览器工具时补上 `startPage()`，模型不感知差异。
+- **`choose_resume` 当场 stage 成文件 1**：上传工具只认「可上传的文件」的编号，而编号来自 `AgentRun.files`。如果只把结论写进 `job.md` 再等下一次 `ApplicationRunner.start` 重新 stage，用户必须退出重开工作台才能上传，这和「一站式」直接冲突。所以工作台里的 `choose_resume` 写到 `job.md` 之后立刻 `UploadArea.stage` + `JobMaterials.write`，并把 `Round.files` 的第 1 项换掉（原来是简历就替换，否则插到最前），随 `current()` 落盘——模型下一步就能 `browser_file_upload` 文件 1。代价是 `Round.files` 必须从 `run.files()` 的只读副本变成可变列表，这也是这次合龙专门去核对「别处有没有还在读 `run.files()`」的原因。
+- **三级侧栏只显示已打开的工作台，不显示普通候选**：候选池的岗位可能几十个，而且在「想投 / 不投」之间反复变；如果都进侧栏，最左侧栏就变成第二份候选池，Session 的层级结构被淹没。侧栏的定位是「我正在处理的、可以一键切回去的活」，所以只收 `application != null || lead_status == converted` 的岗位；普通候选留在 Session 右侧岗位栏和 Project 候选池，那里才有「想投 / 不投 / 开始申请」这些操作。
+- **旧 Session 删掉时归入最新 Session**：`job.discoveredIn` 和 `session.jobs` 都是历史记录，Session 被删（挪进 `.trash/`，C013）后这些引用还在。如果这时干脆不显示，用户明明有一个跑到一半的工作台，侧栏里却找不到，只能去全局页翻——这比「挂错一级」更糟。所以认领失败时归到当前 Project 的第一个 Session（`SessionRepository.list()` 按 `createdAt` 倒序，就是侧栏最上面那个），并且一个 Job 只归一个 Session。这是「找不到就临时挂在最新处」的兜底，不是归属语义的重新定义：一旦有存活的 Session 认领它，就回到真正的那一级。
+
+未决：
+- 真实 Chrome、真实招聘站上的两阶段闭环与三级侧栏观感待用户本机试。
+- 侧栏第一级目前是 Project + Session 平铺（Session 按今天 / 昨天 / 更早分组），严格意义上的「Project 折叠」没有做，等用户看过实际效果再定。

@@ -3,6 +3,7 @@ package jobapply.harness.runtime;
 import static jobapply.harness.runtime.ToolArgs.parse;
 import static jobapply.harness.runtime.ToolArgs.text;
 
+import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,6 +31,7 @@ import jobapply.domain.AgentRun;
 import jobapply.domain.ApplicationState;
 import jobapply.domain.Fact;
 import jobapply.domain.FactClass;
+import jobapply.domain.Job;
 import jobapply.domain.Language;
 import jobapply.domain.Placeholder;
 import jobapply.harness.context.Conversation;
@@ -53,6 +55,8 @@ import jobapply.persistence.AttachmentStore;
 import jobapply.persistence.FillReportWriter;
 import jobapply.persistence.FrontmatterFile;
 import jobapply.persistence.JobAnswers;
+import jobapply.persistence.JobLedger;
+import jobapply.persistence.JobMaterials;
 import jobapply.persistence.JobRepository;
 import jobapply.persistence.LedgerFile;
 import jobapply.persistence.MemoryNotes;
@@ -126,6 +130,8 @@ public final class HarnessLoop {
     private final MemoryNotes memoryNotes;
     private final JobRepository jobs;
     private final PersonalEnv personal;
+    /** 工作台内简历匹配与选定（C021）。 */
+    private final ResumeMatch resumes;
     private volatile boolean seeded;
 
     public HarnessLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock,
@@ -153,6 +159,7 @@ public final class HarnessLoop {
         this.memoryNotes = new MemoryNotes(layout);
         this.jobs = new JobRepository(layout);
         this.personal = new PersonalEnv(layout);
+        this.resumes = new ResumeMatch(new AssetRegistry(layout, clock), new JobLedger(layout, clock), clock);
     }
 
     /**
@@ -217,6 +224,7 @@ public final class HarnessLoop {
     private final class Round implements AgentLoop.Agent<AgentRun> {
 
         private final AgentRun run;
+        private final List<AgentRun.StagedFile> files;
         private final Consumer<AgentRun> progress;
         private final AgentLoop<AgentRun> loop;
         private final LoopDetector detector;
@@ -242,6 +250,7 @@ public final class HarnessLoop {
         Round(AgentRun run, BooleanSupplier stop, Consumer<AgentRun> progress, LoopObserver observer,
               Supplier<List<AgentRun.Turn>> inbox) {
             this.run = run;
+            this.files = new ArrayList<>(run.files());
             this.progress = progress == null ? ignored -> {
             } : progress;
             // 调模型回来时用户已经要求停止：丢掉这条回复直接停（和对话 Agent 不同，见 AgentLoop）
@@ -283,6 +292,13 @@ public final class HarnessLoop {
                 writeDraft(); // 重新开始的申请：上一次的报告换成这一次的（现在还是空的）
             }
 
+            // C021：工作台刚启动且尚未选定简历时，先不打开 Chrome 页面，让模型在工作台里读 JD 与简历、给匹配排名和修改建议；
+            // 等用户确认并调用浏览器工具（或下一轮恢复）时再打开页面
+            if (shouldDeferBrowser()) {
+                latest = null;
+                return loop.run(this);
+            }
+
             try {
                 latest = startPage();
             } catch (BrowserException.Disconnected e) {
@@ -302,6 +318,21 @@ public final class HarnessLoop {
                 SubmitGuard.pageWarning(latest).ifPresent(warning -> loop.add(AgentRun.Turn.user("系统提醒：" + warning)));
             }
             return loop.run(this);
+        }
+
+        /**
+         * 本次启动是否先不打开 Chrome 页面（C021）：刚开工作台（{@code fresh}）、上传区还没有简历（{@code files.isEmpty()}）、
+         * 没有已认领的标签页、且开场提示要求先在工作台里匹配简历。
+         */
+        private boolean shouldDeferBrowser() {
+            if (!fresh || !files.isEmpty() || browser.ownsTab(run.job())) {
+                return false;
+            }
+            if (jobs.exists(run.project(), run.job()) && resumes.current(jobs.load(run.project(), run.job()))) {
+                return false;
+            }
+            return run.conversation().stream()
+                    .anyMatch(turn -> turn.text() != null && turn.text().contains("匹配简历"));
         }
 
         // ---- 在共用循环里的结束条件 ----
@@ -406,13 +437,25 @@ public final class HarnessLoop {
         }
 
         private FillContext.Inputs inputs() {
-            List<String> suggested = catalog.autoInclude(latest.url()).stream().map(SkillCatalog.Skill::name).toList();
-            String host = host(latest);
+            String currentUrl = latest != null ? latest.url() : run.url();
+            List<String> suggested = catalog.autoInclude(currentUrl).stream().map(SkillCatalog.Skill::name).toList();
+            String host = latest != null ? host(latest) : hostUrl(run.url());
             String notes = host == null ? null : sites.read(host).map(SiteNotes.Site::notes).orElse(null);
+            Path profileFile = layout.baseProfile();
+            String profileSummary = Files.exists(profileFile) ? FrontmatterFile.read(profileFile).body().strip() : null;
+            if (profileSummary != null && profileSummary.isEmpty()) {
+                profileSummary = null;
+            }
+            String jobNote = jobs.exists(run.project(), run.job())
+                    ? jobs.load(run.project(), run.job()).extraString("lead_note") : null;
+            if (jobNote != null && jobNote.isBlank()) {
+                jobNote = null;
+            }
             return new FillContext.Inputs(profileZh, profileEn, sessionAnswers,
-                    run.files().stream().map(AgentRun.StagedFile::uploadName).toList(), catalog.skills(), suggested,
+                    files.stream().map(AgentRun.StagedFile::uploadName).toList(), catalog.skills(), suggested,
                     notes, run.company() + " · " + run.title() + "：替用户填好这份申请，停在最终提交前", state,
-                    memoryNotes.company(run.company()).orElse(null), memoryNotes.lessons().orElse(null));
+                    memoryNotes.company(run.company()).orElse(null), memoryNotes.lessons().orElse(null),
+                    profileSummary, jobNote);
         }
 
         /** 到了这一次运行的上限：让模型总结做到哪了（不再执行工具），交给用户决定要不要继续。 */
@@ -455,6 +498,12 @@ public final class HarnessLoop {
 
         private Step<AgentRun> browser(AgentRun.ToolCall call, BrowserTools.Call translated) {
             String tool = translated.tool();
+            if (latest == null) {
+                Step<AgentRun> init = ensurePage(call, translated);
+                if (init != null) {
+                    return init;
+                }
+            }
             String ref = translated.args().get("target") instanceof String target ? target : null;
             PageSnapshot before = latest;
 
@@ -773,6 +822,37 @@ public final class HarnessLoop {
             return failedResult(call, text.toString());
         }
 
+        /**
+         * 阶段一（匹配简历）尚未打开页面时，模型首次调用浏览器工具（C021）：自动打开岗位链接并取初始快照。
+         * 若本次调用本身就是 {@code browser_snapshot} 或打开当前岗位链接的 {@code browser_navigate}，直接返回初始快照。
+         */
+        private Step<AgentRun> ensurePage(AgentRun.ToolCall call, BrowserTools.Call translated) {
+            try {
+                latest = startPage();
+            } catch (BrowserException.Disconnected e) {
+                return ended(call, current -> disconnectedRun(current, e.getMessage()));
+            } catch (BrowserException.Stalled e) {
+                return stalled(call, e.getMessage());
+            } catch (BrowserException.ToolFailed e) {
+                return failed(call, translated.tool(), null, translated.args().toString(), false, e.getMessage());
+            }
+            seen(latest);
+            if (latest != null) {
+                detector.startAt(pageText(latest));
+            }
+            String tool = translated.tool();
+            boolean sameNav = BrowserToolPolicy.NAVIGATE.equals(tool)
+                    && translated.args().get("url") instanceof String url
+                    && (url.equals(run.url()) || (latest != null && url.equals(latest.url())));
+            if (BrowserToolPolicy.SNAPSHOT.equals(tool) || sameNav) {
+                log(RunLog.Entry.toolCall(run.session(), step(), tool, null, null, null, null, page(latest), "ok"));
+                StringBuilder text = new StringBuilder("完成。系统已打开岗位页面并取了快照：");
+                SubmitGuard.pageWarning(latest).ifPresent(warning -> text.append("\n系统提醒：").append(warning));
+                return Step.<AgentRun>done(call, text.toString()).withPage(latest);
+            }
+            return null;
+        }
+
         // ---- 控制工具 ----
 
         private Step<AgentRun> control(AgentRun.ToolCall call) {
@@ -787,7 +867,9 @@ public final class HarnessLoop {
                 case ControlTools.UPDATE_STATE -> updateState(call, args);
                 case ControlTools.UPDATE_PLAN -> updatePlan(call, args);
                 case ControlTools.READ_SKILL -> readSkill(call, text(args.get("name")));
-                case ControlTools.READ_RESUME -> readResume(call, args.get("file"));
+                case ControlTools.LIST_RESUMES -> result(call, resumes.list());
+                case ControlTools.READ_RESUME -> readResume(call, args);
+                case ControlTools.CHOOSE_RESUME -> chooseResume(call, args);
                 case ControlTools.FINISH -> finish(call, args);
                 case ControlTools.READ_JD -> readJd(call);
                 case ControlTools.REMEMBER -> remember(call, args);
@@ -916,15 +998,29 @@ public final class HarnessLoop {
             return result(call, "skill「" + skill.name() + "」：\n\n" + skill.body());
         }
 
-        /** 「可上传的文件」里一份的文字（C006-fix-real-run 第 8 条：申请 Agent 要能读到简历原文）。 */
-        private Step<AgentRun> readResume(AgentRun.ToolCall call, Object file) {
-            int number = file instanceof Number n ? n.intValue() : -1;
-            if (number < 1 || number > run.files().size()) {
-                return failedResult(call, run.files().isEmpty()
-                        ? "失败：可上传的文件里还没有文件。没有简历时用 ask_user 的 files 请用户选一份。"
-                        : "失败：file 写可上传的文件里的编号（1 到 " + run.files().size() + "）");
+        /**
+         * 读简历原文（C006-fix-real-run 第 8 条 / C021）：
+         * 传 {@code key}（如 {@code a-YYYY-MM-DD-NNN}）时直接从 {@code base/originals/} 读任意原件（匹配简历时对比多份）；
+         * 传 {@code file}（整数 {@code 1..N}）时读「可上传的文件」里对应的那一份（填表阶段读已选定的文件 1）。
+         */
+        private Step<AgentRun> readResume(AgentRun.ToolCall call, Map<String, Object> args) {
+            String key = text(args.get("key"));
+            if (key != null) {
+                try {
+                    return result(call, resumes.read(key));
+                } catch (IllegalArgumentException e) {
+                    return failedResult(call, "失败：" + e.getMessage());
+                }
             }
-            AgentRun.StagedFile staged = run.files().get(number - 1);
+            Object file = args.get("file");
+            int number = file instanceof Number n ? n.intValue() : -1;
+            if (number < 1 || number > files.size()) {
+                return failedResult(call, files.isEmpty()
+                        ? "失败：可上传的文件里还没有文件。匹配简历阶段请传 key（如 a-YYYY-MM-DD-NNN，先用 list_resumes 查看）；"
+                        + "或者调用 choose_resume 选定简历后再传 file: 1。"
+                        : "失败：写 key（原件键）或 file（可上传的文件里的编号 1 到 " + files.size() + "）");
+            }
+            AgentRun.StagedFile staged = files.get(number - 1);
             Path path = originalPath(staged);
             if (path == null) {
                 path = stagedPaths().get(number - 1);
@@ -937,6 +1033,67 @@ public final class HarnessLoop {
             } catch (IllegalArgumentException e) {
                 return failedResult(call, "失败：" + e.getMessage());
             }
+        }
+
+        /**
+         * 工作台内选定简历（C021）：把用户确认的简历记入 {@code job.md} 的 {@code resume_choice}，
+         * 并当场放进当前工作台上传区成为「文件 1」，接着即可打开岗位页填表并上传。
+         */
+        private Step<AgentRun> chooseResume(AgentRun.ToolCall call, Map<String, Object> args) {
+            if (!jobs.exists(run.project(), run.job())) {
+                return failedResult(call, "失败：Job 不存在：" + run.project() + "/" + run.job());
+            }
+            Job job = jobs.load(run.project(), run.job());
+            ResumeMatch.Chosen chosen;
+            try {
+                chosen = resumes.chooseInWorkspace(job, run.session(), args,
+                        new AttachmentStore(layout.jobAttachmentsDir(run.job())));
+            } catch (IllegalArgumentException e) {
+                return failedResult(call, "失败：" + e.getMessage());
+            }
+            if (chosen.asset().isEmpty()) {
+                return result(call, chosen.message() + "可以继续打开岗位页面填表，遇到需要上传简历的位置再用 ask_user 请用户选文件。");
+            }
+            AssetRegistry.Asset asset = chosen.asset().get();
+            AssetRegistry registry = new AssetRegistry(layout, clock);
+            UploadArea uploads = new UploadArea(layout, registry);
+            JobMaterials materials = new JobMaterials(layout, registry, clock);
+            // 复制原件、写 materials 失败时只是这次调用失败（原件被改过、磁盘出错）：原话交给模型，运行照常继续
+            AgentRun.StagedFile staged;
+            try {
+                Path copy = uploads.stage(run.job(), asset.key());
+                staged = new AgentRun.StagedFile(asset.key(), asset.fileName(), "简历", Files.size(copy),
+                        asset.sha256());
+                List<JobMaterials.Selection> selections = new ArrayList<>();
+                List<AgentRun.StagedFile> next = new ArrayList<>(files);
+                if (next.isEmpty()) {
+                    next.add(staged);
+                } else if ("简历".equals(next.getFirst().slot()) || next.getFirst().assetKey() != null) {
+                    next.set(0, staged);
+                } else {
+                    next.addFirst(staged);
+                }
+                for (AgentRun.StagedFile f : next) {
+                    if (f.assetKey() != null) {
+                        selections.add(new JobMaterials.Selection(f.slot(), f.assetKey()));
+                    }
+                }
+                if (!selections.isEmpty()) {
+                    materials.write(run.project(), run.job(), selections);
+                }
+                // 复制和写都成功以后才改这一轮的文件清单
+                files.clear();
+                files.addAll(next);
+            } catch (IOException e) {
+                return failedResult(call, "失败：读不到上传区的副本：" + asset.fileName() + "：" + e.getMessage()
+                        + "。简历已记进 job.md，可以再调一次 choose_resume，或者用 ask_user 请用户看一下资料库。");
+            } catch (RuntimeException e) {
+                return failedResult(call, "失败：没能把 " + asset.fileName() + " 放进上传区：" + e.getMessage()
+                        + "。简历已记进 job.md，可以再调一次 choose_resume，或者用 ask_user 请用户看一下资料库。");
+            }
+            return result(call, chosen.message() + "已放进当前工作台上传区成为「文件 1」（" + asset.fileName()
+                    + "），现在可以直接调用浏览器工具（如 browser_snapshot 或 browser_navigate）打开岗位页面填表，"
+                    + "到上传位置直接 browser_file_upload 文件 1。");
         }
 
         /** 这个岗位存下的 JD 快照、候选备注、公司记忆和写作偏好（C014：写 Cover Letter、开放问题时用）。 */
@@ -1084,7 +1241,7 @@ public final class HarnessLoop {
             List<String> names = new ArrayList<>();
             boolean allShown = true;
             for (int number : call.fileNumbers()) {
-                AgentRun.StagedFile file = run.files().get(number - 1);
+                AgentRun.StagedFile file = files.get(number - 1);
                 boolean shown = after.snapshot().contains(file.uploadName());
                 allShown &= shown;
                 names.add(file.uploadName());
@@ -1217,8 +1374,8 @@ public final class HarnessLoop {
         }
 
         private AgentRun current() {
-            AgentRun progressed = run.withProgress(state, new AgentRun.Usage(modelCalls, toolCalls(), tokens),
-                    loop.turns());
+            AgentRun progressed = run.withFiles(files)
+                    .withProgress(state, new AgentRun.Usage(modelCalls, toolCalls(), tokens), loop.turns());
             // 最后的页面地址（接着做时按它认回原页）和用户批准过的那一次点击
             String url = latest != null ? latest.url() : run.lastPage() == null ? null : run.lastPage().url();
             AgentRun.ApprovedClick approved = approval == null ? null
@@ -1238,7 +1395,7 @@ public final class HarnessLoop {
         private List<Path> stagedPaths() {
             UploadArea uploads = new UploadArea(layout, new AssetRegistry(layout, clock));
             List<Path> paths = new ArrayList<>();
-            for (AgentRun.StagedFile file : run.files()) {
+            for (AgentRun.StagedFile file : files) {
                 if (file.attachment() != null) {
                     paths.add(layout.jobAttachmentsDir(run.job()).resolve(file.attachment()).resolve(file.uploadName()));
                     continue;
@@ -1508,8 +1665,12 @@ public final class HarnessLoop {
 
     /** 页面的主机名（小写）；解析不了时为 null。 */
     private static String host(PageSnapshot page) {
+        return page == null ? null : hostUrl(page.url());
+    }
+
+    private static String hostUrl(String url) {
         try {
-            String host = page == null ? null : URI.create(page.url()).getHost();
+            String host = url == null ? null : URI.create(url).getHost();
             return host == null ? null : host.toLowerCase(Locale.ROOT);
         } catch (IllegalArgumentException e) {
             return null;

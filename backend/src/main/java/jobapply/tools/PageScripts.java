@@ -295,10 +295,13 @@ final class PageScripts {
               }
               return null;
             };
-            if (info.expanded) popup = await findPopup(300);
+            if (info.expanded) {
+              popup = (await page.evaluateHandle(DOM, {op: 'popup', el: trigger, pre: []})).asElement();
+            }
             if (!popup) {
               await trigger.click({timeout: 3000});
               popup = await findPopup(info.editable ? 800 : 3000);
+              if (!popup) popup = (await page.evaluateHandle(DOM, {op: 'popup', el: trigger, pre: []})).asElement();
             }
             const isOpen = () => page.evaluate(DOM, {op: 'open', el: trigger, popup});
             // 列表刚出现时可能还在淡入、选项还没渲染：每 100 毫秒看一次，最多约 1.2 秒，有选项就马上往下走
@@ -502,6 +505,13 @@ final class PageScripts {
                 const mm = monthOf(t.replace(/\\s+/g, ''));
                 if (mm !== null && hm === null && !/^\\d+$/.test(t)) hm = mm;
               }
+              for (const s of [...popup.querySelectorAll('select')].filter(shown)) {
+                const opt = (s.selectedOptions && s.selectedOptions[0]) || s.options[s.selectedIndex];
+                const t = opt ? String(opt.label || opt.text || opt.value || '').trim() : '';
+                if (hy === null && /^\\d{4}\\s*年?$/.test(t)) { hy = parseInt(t, 10); continue; }
+                const mm = monthOf(t.replace(/\\s+/g, ''));
+                if (hm === null && mm !== null) hm = mm;
+              }
               if (op === 'view') return {kind, year: hy, month: hm, cells: texts.slice(0, 60),
                 inView: cells.filter(c => !off(c)).map(textOf),
                 header: header.map(textOf).slice(0, 12),
@@ -691,7 +701,7 @@ final class PageScripts {
               if (want === null) return false;
               const h = await get({op: 'headerSelect', part, want});
               if (!h) return false;
-              const picked = await h.evaluate((s, want, part) => {
+              const picked = await h.evaluate((s, {want, part}) => {
                 const monthOf = t => {
                   const x = String(t || '').replace(/\\s+/g, '');
                   let r = /^(\\d{1,2})月$/.exec(x);
@@ -705,8 +715,8 @@ final class PageScripts {
                   if (part === 'year') return parseInt(t, 10) === want || parseInt(o.value, 10) === want;
                   return monthOf(t) === want || monthOf(o.value) === want || parseInt(t, 10) === want;
                 });
-                return opt ? opt.value : null;
-              }, want, part);
+                return opt && s.value !== opt.value ? opt.value : null;
+              }, {want, part});
               if (picked === null || picked === undefined) return false;
               await h.selectOption(picked);
               await pause(200);
@@ -764,7 +774,9 @@ final class PageScripts {
               let h = null;
               if (view.kind !== 'columns' && mo !== null && (view.year !== y || view.month !== mo)) {
                 const beforeYm = {year: view.year, month: view.month, kind: view.kind};
-                if (await selectHeader('year', y) || await selectHeader('month', mo)) {
+                const yChanged = view.year !== y && await selectHeader('year', y);
+                const mChanged = view.month !== mo && await selectHeader('month', mo);
+                if (yChanged || mChanged) {
                   const afterYm = await viewNow();
                   if (afterYm.year !== beforeYm.year || afterYm.month !== beforeYm.month || afterYm.kind !== beforeYm.kind) {
                     continue;

@@ -1121,17 +1121,57 @@
 - 验证：本机无 `openjdk@25`。用 `JAVA_HOME=/opt/homebrew/opt/openjdk@24/...` 在 `backend/` 执行 `mvn -B -q -DskipTests compile` 退出码 0。`mvn -Dtest=BrowserToolsTest,BrowserToolPolicyTest test` 因 `release version 25 not supported` 未能跑测试。全量 `mvn clean verify`、真实 Chrome：未运行。
 - 偏差：对话 Agent 上下文只注入 `lessons.md`，没有按公司注入 `companies/<company>.md`（Session 没有当前岗位公司）。
 
-## 2026-10-28 · C020 合龙验证（verify-all）
+## 2026-10-28 · C020 合龙验证（verify-all）与 `PageScripts.java` 修复
 
 - 日期：2026-10-28
-- 指令：在 `C20_upgrade` 上对已落地的 A–E 做合龙验证：Java 25 下 `mvn -B clean verify`、计划中的 headless 日期夹具、`frontend` `npm run build`；只在 C020 引起的编译/测试失败时做最小修复；把实际结果写入 C020 / `dev-log.md` / 需要时的 `dev-recoding.md` 与索引。不读不写 `.env` / `personal.env`，不改 `.cursor/plans/` 下那份 plan。
-- 结果：A–E 代码已在工作树（本步未重写 B–E）。本机 **没有** Homebrew `openjdk@25`。按约定 **没有** 用 Java 21/24 跑 `mvn verify`。前端 `npm ci` + `npm run build` 成功。无代码修复。
+- 指令：在 `C20_upgrade` 上对已落地的 C020 A–E 做合龙验证：本机 JDK 25 下 `mvn -B clean verify`、无头 Chromium 5 项本地 DOM 脚本测试、`frontend` `npm run build`；修复无头 Chromium 验证抓到的 `PageScripts.java` 问题并更新文档（更正此前别的机器写的「本机无 Java 25」记录）。不读不写 `.env` / `personal.env`。
+- 结果：
+  - 核对 A–E 全部改动均已落地；
+  - 修复 `backend/src/main/java/jobapply/tools/PageScripts.java` 在无头 Chromium 实测中抓到的两处问题：
+    1. `DATE` 的 `selectHeader`：`h.evaluate((s, {want, part}) => ..., {want, part})`（Playwright `evaluate` 要求多参数包装成单对象；同时仅在选项值变化时才调用 `selectOption`、分别判断年/月避免 `||` 短路漏选月份，并从可见 `<select>` 选中项兜底读取 `hy` / `hm`）；
+    2. `SELECT`：当 `need_more_levels` 保持浮层开启后，下一轮再调 `browser_select_option` 时，`if (info.expanded)` 以及点击后 `!popup` 回退 `pre: []` 认回已开着的浮层。
 - 验证：
-  - `export JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home`；`ls "$JAVA_HOME/bin/java"` 失败（路径不存在）。`brew info openjdk@25`：`Not installed`。`/usr/libexec/java_home -V`：Temurin 21.0.7、Homebrew 17。
-  - `cd backend && JAVA_HOME=...openjdk@25... mvn -B clean verify`：**退出码 1**（`The JAVA_HOME environment variable is not defined correctly`）。单元测试与 `MemoryLedgerScenarioIT`：**未运行**。
-  - C020 未规定仓库内 headless Chromium 滚轮/箭头日期夹具；工作树无此类测试页：**未运行**（未发明夹具）。
-  - `cd frontend && npm ci` 退出码 0；`npm run build` 退出码 0（`tsc -b && vite build`，Vite chunk 体积警告，构建成功）。
-  - 真实网站与工作台浏览器冒烟：**未运行**。
-- 偏差：后端验收命令因缺 JDK 25 未能执行；未安装 JDK。
+  - 本机 JDK 25（`25.0.5`，`JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home`）下在 `backend/` 执行 `mvn -B clean verify`（带 `JOBAPPLY_APP_CONFIG=/tmp/jobapply-nonexistent-app.yaml` 隔离本机桌面 `app.yaml`）：**退出码 0**（surefire 655、failsafe 1 全部通过）；修改 `PageScripts.java` 后复跑 `mvn -B -q test-compile` 与 `mvn -B -q test -Dtest=PlaywrightMcpClientTest,BrowserToolsTest,PlaybookSeederTest,SkillCatalogTest` **退出码 0**。
+  - 无头 Chromium（`/Users/yigewang/Library/Caches/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-mac-arm64/chrome-headless-shell`）跑 `PageScripts.SELECT` 与 `PageScripts.DATE` 5 项本地 DOM 测试（① 虚拟滚动 `wheel` 下拉；② 3 层级联先传 2 层返回 `need_more_levels` 保持浮层不关 → 紧接着再传 3 层选中并关闭；③ 多列滚轮日期面板 `need_day` 与完整年月日选择；④ 日历头部原生 `<select>` 选择年月；⑤ 日历头部不可点 `labelDead` 改用左右箭头连续翻页）：**5 项全部通过**（临时测试脚本跑完已删除）。
+  - `frontend/` 下 `npm run build`：**退出码 0**。
+  - 真实网站与真实 Chrome 端到端冒烟：**未运行**。
+- 偏差：无。未提交 git。
+
+## 2026-10-28 · C021 工作包 A（Prompts、Skills、工作台简历匹配闭环与三级 Memory 贯通）
+
+- 日期：2026-10-28
+- 指令：由当前模型（Gemini 4）亲自完成 C021 中涉及 System Prompts、Skills 具体内容、以及工作台 Agent Loop / 三级 Memory 闭环（`ApplyAgent`、`ResearchAgent`、`apply-form/SKILL.md`、`ControlTools`、`ResumeMatch`、`HarnessLoop`、`FillContext`、`ApplicationRunner`、`SessionLoop`、`ResearchTools`）的工作包 A；将剩余的后端侧栏视图（工作包 B：`Views.java`）与前端三级导航栏及按钮改造（工作包 C：`frontend/`）拆分为清晰的待执行工作包更新到侧边栏 Plan 文件与仓库计划文档。
+- 结果：
+  - `ControlTools` 新增 `list_resumes`、`choose_resume`，扩展 `read_resume` 同时支持 `key`（原件键）与 `file`（上传区编号）；
+  - `ResumeMatch` 新增面向工作台单 Job 的 `chooseInWorkspace`（支持 `asset`、工作台 `attachment` 登记新原件、`skip_ranking` 未给 `asset` 时自动选最新原件，`ranking` 可选）；
+  - `FillContext` 增加 `profileSummary`（`base/profile.md`）与 `jobNote`（`job.md` 的 `lead_note`），打通三级 Memory 到工作台上下文；
+  - `HarnessLoop` 实现工作台两阶段懒打开浏览器（`shouldDeferBrowser` + `ensurePage`）：启动时若未选定简历先不打开 Chrome 页面，让模型在工作台内调 `read_jd`、`list_resumes`、`read_resume` 输出排名表与修改建议并 `ask_user`；用户确认后调 `choose_resume` 当场将简历 `stage` 为当前工作台「文件 1」，随后首次调用浏览器工具时自动打开岗位页填表；
+  - `ApplicationRunner.start` 按是否已有 `resume_choice` 生成两阶段或直接填表的开场提示词；`SessionLoop.startApplication` 去掉未排简历的拦截阻断；
+  - `ApplyAgent`、`ResearchAgent`、`ResearchTools` 与 `apply-form/SKILL.md`（v4 → v5）全面对齐工作台两阶段闭环；
+  - 新建 `plan/coding/C021-workspace-flow-and-sidebar.md`，并更新侧边栏 Plan 文件 `/Users/yigewang/.cursor/plans/c021_工作台内闭环投递与三级侧栏_1b03f3ef.plan.md`，标明工作包 A 已完成，给出工作包 B（后端 `Views.java`）与工作包 C（前端 `frontend/`）的精确并行施工契约。
+- 验证：
+  - 在 `backend/` 下使用 JDK 25（`JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home`）执行 `mvn -B clean test`（带 `JOBAPPLY_APP_CONFIG=/tmp/jobapply-nonexistent-app.yaml`）：**退出码 0，Tests run: 655, Failures: 0, Errors: 0, Skipped: 0**。
+  - 工作包 B、工作包 C 及真实浏览器端到端冒烟：**未运行**（待工作包 B、C 并行施工后合龙验证）。
+- 偏差：无。未提交 git。
 
 
+
+
+## 2026-10-28 · C021 合龙验证（工作包 A / B / C）
+
+- 日期：2026-10-28
+- 指令：C021 的三个工作包（A 后端提示词/循环/三级 Memory 由 Gemini 4 做、B 后端 `Views.workspaces`、C 前端三级侧栏与三处直连工作台）已由不同代理分别完成，做合龙验证 + 文档收尾：① 只读核对 `Views.WorkspaceSummary` 与 `frontend/src/api.ts` 的 `WorkspaceSummary` 字段名与可空性，有差异只在前端对齐后端；② 只读核对 `HarnessLoop` 工作包 A 的改动是否自洽（可变 `files` 与 `current()` 存盘、`recordUploads` / `stagedPaths()`、`progress.accept(current())` 是否带上 `agentrun.files()`），能清楚定位的小问题就修；③ 后端 `mvn -B clean verify` 与前端 `npm run build` 都要退出码 0；④ 把结果写进 `plan/coding/C021-*`、`dev-plan.md`、`plan/README.md`、`dev-log.md`、`dev-recoding.md`。不改 `.cursor/plans/`，不读不写 `.env` / `personal.env`，不提交 git。
+- 结果：
+  - **契约核对**：六个字段 `id` / `company` / `title` / `application` / `bucket` / `label` 名称、顺序、可空性完全一致（`application` 两侧都可空，`bucket` 前端收窄成 `JobBucket` 联合类型，不影响 JSON）。无需改动。
+  - **工作包 A 自洽性核对**：`Round.files` 是 `new ArrayList<>(run.files())`；`readResume`、`recordUploads`、`stagedPaths()`、`inputs()` 四处都已改用实例 `files`，`rg` 核对后 `run.files()` 只剩构造处一处；`current()` 为 `run.withFiles(files).withProgress(...)`，`ApplicationRunner` 的 progress 消费者每轮 `runs.save(progressed)`，所以 `choose_resume` stage 出的文件 1 下一轮即落盘。`shouldDeferBrowser()` 四个条件与 `ensurePage()` 懒打开一致。
+  - **修了两处**：
+    1. `HarnessLoop.chooseResume`：`uploads.stage(...)` / `JobMaterials.write(...)` 抛出的 `RuntimeException` 原来会冒到 `AgentLoop` 把整次运行记成失败；改成只让这次工具调用返回「失败：…」，并把 `files` 的修改挪到复制和写 `materials` 都成功之后（原来先改 `files` 再写盘，写盘失败会留下不一致的清单）。顺带去掉不再使用的 `UncheckedIOException` import。
+    2. `frontend/src/pages/SessionPage.tsx`：工作包 C 把右侧岗位栏原来的「详情」入口整个替换掉了，`canStart === false` 的岗位（没有岗位链接、在提交中等）没有任何入口；恢复「详情」链接，与「开始投递」并列。
+  - **工作包 B 实际落地**：`Views.java` 里 `record WorkspaceSummary`、`SessionSummary` 末尾的 `workspaces`、`session(s, runner)` 默认空列表的重载、`static workspaces(sessions, jobs)` 分组函数；`Views.project(...)` 先算一次分组表再塞进去；新增 `backend/src/test/java/jobapply/api/ViewsWorkspacesTest.java`（5 项）。
+  - **工作包 C 实际落地**：`api.ts` 的 `WorkspaceSummary` + 可选 `workspaces`；`App.tsx` 三级列表与 `projectFor()` 反查；`SessionPage` 两个按钮 + 保留「详情」；`JobPage` 删掉「发消息给 Session 再跳回」改成原地 `startApplication`（多一个 `onChanged` prop）；`Dashboard.tsx` 候选池直接 `startApplication` 后 `go`；`styles.css` 新增 `.side-workspaces` / `.side-ws-dot` / `button.btn-xs`。
+- 验证：
+  - 后端：`backend/` 下 `JOBAPPLY_APP_CONFIG=/tmp/jobapply-nonexistent-app.yaml JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home mvn -B clean verify` → **退出码 0**；`Tests run: 660, Failures: 0, Errors: 0, Skipped: 0`（surefire，含新增 `ViewsWorkspacesTest` 5 项）+ `MemoryLedgerScenarioIT` **1** 项通过。
+  - 过程中出现过一次 `DeleteSessionProjectTest.deletesExactlyTheSessionOrProjectAndRefusesWhileAnApplicationRuns` 失败：快照里多出 `playbook/skills/research/verify-official/.SKILL.md*.tmp`，是 `AtomicFiles` 的 `Files.createTempFile` 临时文件被 `TestStorage.snapshot()` 的 `Files.walk` 撞见。该测试文件自 C013（`a62e5a6`）起未改动；单独连跑 10 次全通过，改完代码后重跑全量也通过 → 判为**既有 flaky，不是 C021 引入**，本步不改。
+  - 前端：`frontend/` 下 `npm run build` → **退出码 0**（`tsc -b && vite build`，只有 Vite 的 chunk > 500 kB 提示）；`node_modules` 已在，未重跑 `npm ci`。
+  - 真实 Chrome、真实招聘站端到端冒烟与侧栏观感：**未运行**。
+- 偏差：无（两处修复都是这次核对中定位到的、会影响流程的小问题）。未提交 git。

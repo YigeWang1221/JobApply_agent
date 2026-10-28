@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, errorText, type ProjectSummary, type SessionSummary } from "./api";
+import { api, errorText, type ProjectSummary, type SessionSummary, type WorkspaceSummary } from "./api";
 import BrowserBanner from "./BrowserBanner";
 import { DeleteConfirm, type DeleteTarget } from "./DeleteConfirm";
 import { Icon } from "./chat/icons";
@@ -50,8 +50,8 @@ export default function App() {
       <main className={route.kind === "session" || route.kind === "job" ? "main full" : "main"}>
         {route.kind === "global" && <Global projects={projects} />}
         {route.kind === "project" && <ProjectPage key={route.id} id={route.id} onChanged={refresh} />}
-        {route.kind === "session" && <SessionPage key={route.id} id={route.id} />}
-        {route.kind === "job" && <JobPage key={route.id} id={route.id} />}
+        {route.kind === "session" && <SessionPage key={route.id} id={route.id} onChanged={refresh} />}
+        {route.kind === "job" && <JobPage key={route.id} id={route.id} onChanged={refresh} />}
         {route.kind === "settings" && <Settings tab={route.tab} />}
       </main>
     </div>
@@ -60,7 +60,7 @@ export default function App() {
 
 const SIDEBAR_KEY = "jobapply.sidebar.collapsed";
 
-// 「新对话」建在哪个 Project：当前看的 Project / 当前 Session 所在的 Project，否则第一个
+// 「新对话」建在哪个 Project：当前看的 Project / 当前 Session / 当前工作台所在的 Project，否则第一个
 function projectFor(route: Route, projects: ProjectSummary[] | null): string | null {
   if (!projects || projects.length === 0) {
     return null;
@@ -70,6 +70,14 @@ function projectFor(route: Route, projects: ProjectSummary[] | null): string | n
   }
   if (route.kind === "session") {
     const owner = projects.find((p) => p.sessions.some((s) => s.id === route.id));
+    if (owner) {
+      return owner.id;
+    }
+  }
+  if (route.kind === "job") {
+    // 工作台属于哪个 Project 由后端已有的数据反查（C021）：岗位被哪个 Session 发现、或挂在哪个已打开的工作台下
+    const owner = projects.find((p) => p.sessions.some((s) => s.jobs.includes(route.id)
+      || (s.workspaces ?? []).some((w) => w.id === route.id)));
     if (owner) {
       return owner.id;
     }
@@ -130,6 +138,23 @@ function SidebarRail({ route, projects, onExpand, onCreated }: {
       </div>
     </aside>
   );
+}
+
+// 工作台状态圆点（C021）：在跑 / 排队 → running；等你、失败、中断 → waiting；停在提交前 → ready；已投递 → applied
+function wsDotClass(w: WorkspaceSummary): string {
+  if (w.application === "running" || w.application === "queued") {
+    return "running";
+  }
+  if (w.application === "waiting_user" || w.application === "failed" || w.application === "interrupted") {
+    return "waiting";
+  }
+  if (w.application === "ready") {
+    return "ready";
+  }
+  if (w.bucket === "applied") {
+    return "applied";
+  }
+  return "";
 }
 
 // Session 按今天 / 昨天 / 更早分组（按创建时间）
@@ -226,6 +251,22 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
                           <button className="iconbtn renamebtn delbtn" title="删除对话" aria-label={`删除 ${s.title}`}
                             onClick={() => setDeleting({ kind: "session", session: s })}><Icon name="trash" size={12} /></button>
                         </div>
+                      )}
+                      {/* 第三级（C021）：这个 Session 下已经打开的工作台，点一下直接切过去 */}
+                      {(s.workspaces ?? []).length > 0 && (
+                        <ul className="side-workspaces">
+                          {(s.workspaces ?? []).map((w) => (
+                            <li key={w.id}>
+                              <button
+                                className={"side-workspace" + (route.kind === "job" && route.id === w.id ? " active" : "")}
+                                onClick={() => go({ kind: "job", id: w.id })}
+                                title={`${w.company} · ${w.title}（${w.label}）`}>
+                                <span className={"side-ws-dot " + wsDotClass(w)} aria-hidden="true" />
+                                <span className="side-ws-text">{w.company} · {w.title}</span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
                       )}
                     </li>
                   ))}

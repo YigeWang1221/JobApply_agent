@@ -288,6 +288,81 @@ a {
   font-weight: 500;
 }
 
+/* 三级侧栏（C021）：Session 下面已经打开的工作台，缩进一道竖线 */
+.sess .side-workspaces {
+  list-style: none;
+  margin: 1px 0 4px 6px;
+  padding: 0 0 0 8px;
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sess button.side-workspace {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 6px;
+  border: 0;
+  background: none;
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--ink-2);
+  text-align: left;
+}
+
+.sess button.side-workspace:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.sess button.side-workspace.active {
+  background: var(--accent-wash);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.side-ws-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 工作台状态圆点：在跑（呼吸）/ 等你（黄）/ 停在提交前（蓝）/ 已投递（绿） */
+.side-ws-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0.5;
+}
+
+.side-ws-dot.running {
+  background: var(--accent);
+  opacity: 1;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.side-ws-dot.waiting {
+  background: var(--warn);
+  opacity: 1;
+}
+
+.side-ws-dot.ready {
+  background: var(--accent);
+  opacity: 1;
+}
+
+.side-ws-dot.applied {
+  background: var(--good);
+  opacity: 1;
+}
+
 .side .newproject {
   display: flex;
   flex-direction: column;
@@ -709,6 +784,19 @@ button.primary:hover:not(:disabled) {
 button.linkbtn {
   padding: 2px 8px;
   font-size: 12px;
+}
+
+/* 岗位卡片上的紧凑操作按钮（C021）：「开始投递 / 打开工作台」 */
+button.btn-xs {
+  padding: 1px 8px;
+  font-size: 12px;
+  border-radius: 5px;
+}
+
+button.btn-xs.primary {
+  border: 0;
+  background: var(--ink);
+  color: var(--surface);
 }
 
 button.danger {
