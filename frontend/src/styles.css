@@ -2181,24 +2181,31 @@ ul.checklist li {
   display: flex;
   align-items: center;
   gap: 2px;
+  width: 100%;
 }
 
-.siderow > button:first-child {
-  flex: 1;
+.siderow > button.sessbtn,
+.siderow > button.pbtn,
+.siderow > button:first-child:not(.side-ws-toggle) {
+  flex: 1 1 auto;
   min-width: 0;
+  width: auto;
 }
 
 /* 工作台折叠展开按钮与数量角标 */
+.sess button.side-ws-toggle,
 .side .side-ws-toggle {
   flex: none;
+  width: auto !important;
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 1px 4px;
+  padding: 1px 4px !important;
   min-height: 20px;
   border-radius: 4px;
   color: var(--muted);
   cursor: pointer;
+  background: none;
 }
 
 .side .side-ws-toggle:hover {

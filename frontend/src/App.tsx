@@ -272,12 +272,6 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
                             onSave={async (title) => { await api.renameSession(s.id, title); await onCreated(); }} />
                         ) : (
                           <div className="siderow">
-                            <button title={`${s.title}（双击改名）`} aria-current={current({ kind: "session", id: s.id })}
-                              onClick={() => go({ kind: "session", id: s.id })} onDoubleClick={() => setRenaming(`session:${s.id}`)}>
-                              <span className="sesst">{s.title}</span>
-                              {s.status === "running" && <span className="rundot" title="运行中" aria-label="运行中" />}
-                              {s.status === "interrupted" && <span className="rundot bad" title="中断了" aria-label="中断了" />}
-                            </button>
                             {hasWorkspaces && (
                               <button
                                 type="button"
@@ -293,6 +287,12 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
                                 {!isExpanded && <span className="side-ws-count">{wsList.length}</span>}
                               </button>
                             )}
+                            <button className="sessbtn" title={`${s.title}（双击改名）`} aria-current={current({ kind: "session", id: s.id })}
+                              onClick={() => go({ kind: "session", id: s.id })} onDoubleClick={() => setRenaming(`session:${s.id}`)}>
+                              <span className="sesst">{s.title}</span>
+                              {s.status === "running" && <span className="rundot" title="运行中" aria-label="运行中" />}
+                              {s.status === "interrupted" && <span className="rundot bad" title="中断了" aria-label="中断了" />}
+                            </button>
                             <button className="iconbtn renamebtn" title="改名" aria-label={`给 ${s.title} 改名`}
                               onClick={() => setRenaming(`session:${s.id}`)}><Icon name="pencil" size={12} /></button>
                             <button className="iconbtn renamebtn delbtn" title="删除对话" aria-label={`删除 ${s.title}`}
