@@ -2,11 +2,12 @@ import { go } from "../route";
 import Assets from "./Assets";
 import ModelSettings from "./ModelSettings";
 import PersonalSettings from "./PersonalSettings";
+import RagSettings from "./RagSettings";
 import StorageLocationSettings from "./StorageLocation";
 import ToolCallSettings from "./ToolCallSettings";
 import WorkerSettings from "./WorkerSettings";
 
-// 设置：模型（C004-A，下面是「同时申请」C012、「工具调用上限」C018、「敏感信息」C014-D）和资料（原件、来源、整理与确认、事实与画像）两个子标签
+// 设置：模型（C004-A，下面是「同时申请」C012、「工具调用上限」C018、「经验检索」C022、「敏感信息」C014-D）和资料（原件、来源、整理与确认、事实与画像）两个子标签
 export default function Settings({ tab }: { tab: "models" | "profile" }) {
   return (
     <>
@@ -26,7 +27,7 @@ export default function Settings({ tab }: { tab: "models" | "profile" }) {
         </button>
       </nav>
       <div className="content">
-        {tab === "models" ? <><ModelSettings /><WorkerSettings /><ToolCallSettings /><PersonalSettings /><StorageLocationSettings /></> : <Assets />}
+        {tab === "models" ? <><ModelSettings /><WorkerSettings /><ToolCallSettings /><RagSettings /><PersonalSettings /><StorageLocationSettings /></> : <Assets />}
       </div>
     </>
   );

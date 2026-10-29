@@ -238,6 +238,7 @@ public final class FillReportWriter {
     public Path writeDraft(String projectId, String jobId, Report report) {
         Path file = layout.fillReport(projectId, jobId);
         AtomicFiles.write(file, render(report, true, Timestamps.now(clock)));
+        StorageWrites.changed(file);
         return file;
     }
 
@@ -245,6 +246,7 @@ public final class FillReportWriter {
     public Path writeFinal(String projectId, String jobId, Report report) {
         Path file = layout.fillReport(projectId, jobId);
         AtomicFiles.write(file, render(report, false, Timestamps.now(clock)));
+        StorageWrites.changed(file);
         List<Path> written = new ArrayList<>(List.of(file));
         Path runLog = layout.runLog(projectId, jobId);
         if (Files.exists(runLog)) {
@@ -257,6 +259,7 @@ public final class FillReportWriter {
     public void delete(String projectId, String jobId) {
         try {
             Files.deleteIfExists(layout.fillReport(projectId, jobId));
+            StorageWrites.changed(layout.fillReport(projectId, jobId));
         } catch (IOException e) {
             throw new UncheckedIOException("删除填写报告失败：" + projectId + "/" + jobId, e);
         }

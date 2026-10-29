@@ -62,6 +62,31 @@
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-anthropic</artifactId>
         </dependency>
+        <!-- 经验检索（C022）：本地 ONNX 嵌入模型 + SimpleVectorStore；模型文件第一次用到时才下载 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-transformers</artifactId>
+            <!-- 只用它带来的 ONNX Runtime 和分词器；池化自己做，不用 DJL 的 PyTorch 引擎（它会在运行时另外联网下载 libtorch） -->
+            <exclusions>
+                <exclusion>
+                    <groupId>ai.djl.pytorch</groupId>
+                    <artifactId>pytorch-engine</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>ai.djl</groupId>
+                    <artifactId>model-zoo</artifactId>
+                </exclusion>
+                <!-- DJL 带的 commons-compress 比 Tika 4 要的旧，会把 Tika 的压缩包识别弄坏；用 Tika 带来的版本 -->
+                <exclusion>
+                    <groupId>org.apache.commons</groupId>
+                    <artifactId>commons-compress</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-vector-store</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.apache.tika</groupId>
             <artifactId>tika-core</artifactId>

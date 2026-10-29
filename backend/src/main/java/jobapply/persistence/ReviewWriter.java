@@ -59,6 +59,7 @@ final class ReviewWriter {
         AtomicFiles.write(layout.reviewQuestions(), questionsMarkdown(asked));
         written.add(layout.reviewQuestions());
         written.addAll(writeCompanies(all));
+        StorageWrites.changed(written);
         return written;
     }
 
@@ -182,6 +183,7 @@ final class ReviewWriter {
             for (Path file : files.filter(f -> f.toString().endsWith(".md") && !keep.contains(f)).toList()) {
                 if (AtomicFiles.read(file).startsWith(TrackerWriter.GENERATED)) {
                     Files.deleteIfExists(file);
+                    StorageWrites.changed(file);
                 }
             }
         } catch (IOException e) {

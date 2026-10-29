@@ -633,6 +633,13 @@ export interface WorkerSettings {
   queued: number;
 }
 
+// 经验检索（C022）：本地嵌入模型的状态和下载进度（0–1）
+export interface RagStatus {
+  state: "absent" | "downloading" | "ready" | "failed";
+  progress: number;
+  message: string;
+}
+
 // 工具调用上限（C018）：申请每次运行、对话每条消息最多几次工具调用；0 = 不限。default* 是 application.yml 的默认值
 export interface ToolCallSettings {
   perRun: number;
@@ -691,6 +698,8 @@ export const api = {
   workerSettings: () => request<WorkerSettings>("GET", "/api/settings/workers"),
   saveWorkerSettings: (workers: number, perSite: number) =>
     request<WorkerSettings>("PUT", "/api/settings/workers", { workers, perSite }),
+  ragStatus: () => request<RagStatus>("GET", "/api/rag/status"),
+  downloadRagModel: () => request<RagStatus>("POST", "/api/rag/download"),
   toolCallSettings: () => request<ToolCallSettings>("GET", "/api/settings/tool-calls"),
   saveToolCallSettings: (perRun: number, perMessage: number) =>
     request<ToolCallSettings>("PUT", "/api/settings/tool-calls", { perRun, perMessage }),
