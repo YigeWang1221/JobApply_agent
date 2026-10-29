@@ -27,15 +27,10 @@ import jobapply.domain.Job;
 import jobapply.domain.JobBucket;
 import jobapply.domain.JobPosting;
 import jobapply.domain.LeadStatus;
-import jobapply.domain.Outcome;
 import jobapply.domain.Phase;
-import jobapply.domain.HiringRound;
 import jobapply.domain.Transition;
 import jobapply.harness.context.Conversation;
 import jobapply.harness.context.SkillCatalog;
-import jobapply.harness.policies.BrowserToolPolicy;
-import jobapply.harness.policies.GuardDecision;
-import jobapply.harness.policies.SnapshotRedactor;
 import jobapply.harness.policies.SubmitGuard;
 import jobapply.harness.policies.ToolNotAllowedException;
 import jobapply.harness.runtime.AgentLoop.Step;
@@ -50,15 +45,12 @@ import jobapply.persistence.JobLedger;
 import jobapply.persistence.JobRepository;
 import jobapply.persistence.MemoryNotes;
 import jobapply.persistence.PlaybookSeeder;
-import jobapply.persistence.RoundReviews;
 import jobapply.persistence.SessionPages;
 import jobapply.persistence.StorageLayout;
 import jobapply.tools.BrowserException;
 import jobapply.tools.BrowserSession;
-import jobapply.tools.BrowserTools;
 import jobapply.tools.PageSnapshot;
 import jobapply.tools.ResearchTools;
-import jobapply.tools.SnapshotIndex;
 import jobapply.tools.WebFetch;
 import jobapply.tools.WebSearch;
 import org.springframework.ai.chat.messages.Message;
@@ -95,12 +87,6 @@ public final class SessionLoop {
          * 不能开始时抛出异常，原因交给模型。
          */
         String start(String jobId, String projectId, String sessionId);
-
-        /** 用户说的事实（已提交、岗位下线、不投了）记下之前，请这个 Job 正在跑的申请线程停下；没在跑时什么都不做。 */
-        void stop(String jobId);
-
-        /** 这个申请结束了（已投递、准备中就结束）：关掉它在浏览器里开的页（C011-fix 2026-10-24）。 */
-        void closeTabs(String jobId);
 
         /**
          * 申请线程现在的状态，和界面同一个（排队、在跑只看内存，重启前在跑的是中断，用户定下了的是 done）；
@@ -199,7 +185,8 @@ public final class SessionLoop {
         private final SkillCatalog catalog = SkillCatalog.scan(layout);
         /** 这个 Session 读过的网页（开头部分，存在 Session 目录里），add_lead 时作为 JD 快照。 */
         private final SessionPages pages;
-        private PageSnapshot latest;
+        /** 这个 Session 自己的调研标签页（只读）。 */
+        private final ReadOnlyTab tab;
 
         Round(String project, String session, List<AgentRun.Turn> history, BooleanSupplier stop,
               Consumer<AgentRun.Turn> append, LoopObserver observer, Supplier<List<AgentRun.Turn>> inbox) {
@@ -210,6 +197,7 @@ public final class SessionLoop {
                     observer, history, append, inbox);
             this.firstNew = Math.max(0, history.size() - 1);
             this.pages = new SessionPages(layout.sessionPagesDir(project, session));
+            this.tab = new ReadOnlyTab(browser, fetch, session, loop::forgetPage);
         }
 
         void go() {
@@ -220,7 +208,7 @@ public final class SessionLoop {
         public void sawPage(PageSnapshot page) {
             // 浏览器里打开的页面（详情页等）也存一份，之后 add_lead 能取到
             pages.save(Conversation.render(page), page.url());
-            latest = page;
+            tab.saw(page);
         }
 
         @Override
@@ -311,7 +299,7 @@ public final class SessionLoop {
         public Step<Void> handle(AgentRun.ToolCall call) {
             String name = call.name();
             if (ResearchTools.isBrowserTool(name)) {
-                return browserTool(call);
+                return tab.handle(call);
             }
             if (!ResearchTools.isOwnTool(name)) {
                 return failed(call, "失败：没有这个工具：" + name + "。");
@@ -335,10 +323,6 @@ public final class SessionLoop {
                     case ResearchTools.READ_RESUME -> result(call, resumes.read(text(args.get("key"))));
                     case ResearchTools.CHOOSE_RESUME -> result(call, resumes.choose(job(text(args.get("job"))), session,
                             args, new AttachmentStore(layout.sessionAttachmentsDir(project, session))));
-                    case ResearchTools.MARK_SUBMITTED -> result(call, markSubmitted(args));
-                    case ResearchTools.RECORD_STATUS -> result(call, recordStatus(args));
-                    case ResearchTools.RECORD_ROUND -> result(call, recordRound(args));
-                    case ResearchTools.SAVE_REVIEW -> result(call, saveReview(args));
                     case ResearchTools.ASK_USER -> askUser(call, text(args.get("message")));
                     case ResearchTools.READ_SKILL -> readSkill(call, text(args.get("name")));
                     case ResearchTools.REMEMBER -> result(call, memory.remember(project, MemoryWriter.Item.from(args),
@@ -394,16 +378,16 @@ public final class SessionLoop {
             }
             PageSnapshot page;
             try {
-                page = openInBrowser(url);
+                page = tab.open(url);
             } catch (BrowserException.Disconnected e) {
                 return failed(call, "失败：" + why + "，但浏览器连接断开了（" + e.getMessage() + "）。请用户确认 Chrome 开着、"
                         + "chrome://inspect/#remote-debugging 的远程调试开关已打开，或者把岗位内容贴过来。");
             } catch (BrowserException.Stalled e) {
-                return stalled(call, e.getMessage());
+                return ReadOnlyTab.stalled(call, e.getMessage());
             } catch (BrowserException.ToolFailed | IllegalStateException e) {
                 return failed(call, "失败：" + why + "，在浏览器里也没打开：" + e.getMessage());
             }
-            latest = page;
+            tab.saw(page);
             String text = Conversation.render(page);
             pages.save(text, page.url(), url);
             return result(call, pageText(fetch.page(page.url(), text), why + "（你的调研标签页现在就是这个页面）"));
@@ -416,162 +400,6 @@ public final class SessionLoop {
                 out.append("太长，只给开头和结尾；全文存在 ").append(page.savedTo()).append("。\n");
             }
             return out.append('\n').append(page.text()).toString();
-        }
-
-        /** 在这个 Session 自己的标签页打开网址（第一次时新开一个）。 */
-        private PageSnapshot openInBrowser(String url) {
-            if (!browser.ownsTab(session)) {
-                return browser.open(url, session);
-            }
-            return browser.act(session, BrowserToolPolicy.NAVIGATE, Map.of("url", url),
-                    BrowserToolPolicy.Context.model(SnapshotIndex.of(latestOr()), List.of(url), null));
-        }
-
-        private PageSnapshot latestOr() {
-            return latest != null ? latest : new PageSnapshot("about:blank", "", "", "");
-        }
-
-        /**
-         * 对话 Agent 的 {@code browser_tabs}：{@code list} 列出 Chrome 里所有标签页，{@code select} 切过去并取快照。
-         * 用户让看已开着的页面时用；申请仍由工作台转交或申请 Agent 去做。
-         */
-        private Step<Void> tabs(AgentRun.ToolCall call) {
-            Map<String, Object> args;
-            try {
-                args = parse(call.arguments());
-            } catch (IllegalArgumentException e) {
-                return failed(call, "失败：" + e.getMessage());
-            }
-            Object action = args.get("action");
-            try {
-                if ("list".equals(action)) {
-                    List<BrowserSession.TabInfo> listed = browser.tabs(session);
-                    return result(call, listed.isEmpty() ? "现在没有标签页。"
-                            : "Chrome 里所有的标签页（序号是浏览器里的序号，select 用它）。（你的）= 你开的、点击弹出的、"
-                            + "用户交给你的；（别的任务在用）= 别的申请或调研正在用，不要碰；其余是用户自己开着的页：\n"
-                            + tabLines(listed));
-                }
-                if ("select".equals(action)) {
-                    if (!(args.get("index") instanceof Number number) || number.intValue() < 0) {
-                        return failed(call, "失败：select 要给 browser_tabs list 列出的序号 index");
-                    }
-                    PageSnapshot after = browser.select(session, number.intValue());
-                    return Step.<Void>done(call, "已切到标签页 " + number.intValue() + "。系统取了新的快照：")
-                            .withPage(after);
-                }
-                return failed(call, "失败：browser_tabs 的 action 只能是 list 或 select");
-            } catch (IllegalArgumentException e) {
-                return failed(call, "失败：" + e.getMessage() + "。");
-            } catch (BrowserException.Disconnected e) {
-                return disconnected(call, e.getMessage());
-            } catch (BrowserException.Stalled e) {
-                return stalled(call, e.getMessage());
-            } catch (BrowserException.ToolFailed e) {
-                return failed(call, "失败：" + e.getMessage());
-            }
-        }
-
-        private static String tabLines(List<BrowserSession.TabInfo> tabs) {
-            StringBuilder out = new StringBuilder();
-            for (BrowserSession.TabInfo tab : tabs) {
-                out.append("- ").append(tab.index()).append(": ")
-                        .append(tab.inUse() ? "（正在用）" : "")
-                        .append(tab.yours() ? "（你的）" : "")
-                        .append(tab.others() ? "（别的任务在用）" : "")
-                        .append('[').append(tab.title()).append("](").append(tab.url()).append(")\n");
-            }
-            return out.toString().strip();
-        }
-
-        private Step<Void> browserTool(AgentRun.ToolCall call) {
-            String name = call.name();
-            if (BrowserToolPolicy.TABS.equals(name)) {
-                return tabs(call);
-            }
-            if (BrowserToolPolicy.NAVIGATE.equals(name)) {
-                String url;
-                try {
-                    url = text(parse(call.arguments()).get("url"));
-                } catch (IllegalArgumentException e) {
-                    return failed(call, "失败：" + e.getMessage());
-                }
-                if (url == null) {
-                    return failed(call, "失败：browser_navigate 要写 url");
-                }
-                try {
-                    fetch.checkUrl(url);
-                    PageSnapshot page = openInBrowser(url);
-                    return Step.<Void>done(call, "完成。系统取了新的快照：").withPage(page);
-                } catch (ToolNotAllowedException e) {
-                    return rejected(call, "被拒绝：" + e.getMessage());
-                } catch (BrowserException.Disconnected e) {
-                    return disconnected(call, e.getMessage());
-                } catch (BrowserException.Stalled e) {
-                    return stalled(call, e.getMessage());
-                } catch (BrowserException.ToolFailed | IllegalStateException e) {
-                    return failed(call, "失败：" + e.getMessage());
-                }
-            }
-            if (!browser.ownsTab(session) || latest == null) {
-                if (browser.ownsTab(session)) {
-                    try {
-                        latest = browser.snapshot(session);
-                    } catch (BrowserException.Disconnected e) {
-                        return disconnected(call, e.getMessage());
-                    } catch (BrowserException.Stalled e) {
-                        return stalled(call, e.getMessage());
-                    } catch (BrowserException.ToolFailed | IllegalStateException e) {
-                        return failed(call, "失败：" + e.getMessage());
-                    }
-                } else {
-                    return failed(call, "失败：调研标签页还没有打开页面，先用 browser_navigate 打开一个网址。");
-                }
-            }
-            BrowserTools.Call translated;
-            try {
-                translated = BrowserTools.translate(name, call.arguments(), List.of());
-            } catch (IllegalArgumentException e) {
-                return failed(call, "失败：" + e.getMessage());
-            }
-            String ref = translated.args().get("target") instanceof String target ? target : null;
-            if (BrowserToolPolicy.CLICK.equals(name)) {
-                // 调研只拦硬边界词和判断不了的元素；「下一页」「加载更多」这类软按钮放行（C006-fix-runtime-2）
-                if (SubmitGuard.readOnly(latest, ref) instanceof GuardDecision.Reject reject) {
-                    return rejected(call, "被拒绝：" + reject.reason() + "。调研只读，不点申请类按钮。");
-                }
-            }
-            BrowserToolPolicy.Context policy = BrowserToolPolicy.Context.model(SnapshotIndex.of(latest),
-                    List.of(latest.url()), null);
-            try {
-                if (BrowserToolPolicy.FIND.equals(name)) {
-                    String found = browser.find(session, translated.args(), policy);
-                    return result(call, "找到的内容：\n" + SnapshotRedactor.redact(found == null ? "" : found));
-                }
-                PageSnapshot after = browser.act(session, translated.tool(), translated.args(), policy);
-                return Step.<Void>done(call, translated.write() ? "完成。系统取了新的快照：" : "完成。").withPage(after);
-            } catch (ToolNotAllowedException e) {
-                return rejected(call, "被拒绝：" + e.getMessage());
-            } catch (BrowserException.Disconnected e) {
-                return disconnected(call, e.getMessage());
-            } catch (BrowserException.Stalled e) {
-                return stalled(call, e.getMessage());
-            } catch (BrowserException.ToolFailed | IllegalStateException e) {
-                return failed(call, "失败：" + e.getMessage());
-            }
-        }
-
-        private Step<Void> disconnected(AgentRun.ToolCall call, String reason) {
-            latest = null;
-            loop.forgetPage();
-            return failed(call, "失败：浏览器连接断开了（" + reason + "）。告诉用户确认 Chrome 开着、远程调试开关"
-                    + "（chrome://inspect/#remote-debugging）已打开，"
-                    + "然后点页面顶部的「重新连接」或者回复，就会重新连接；不用浏览器的事可以接着做。");
-        }
-
-        /** 浏览器这次没回应（C011-fix）：连接还在，标签页记录不动；只是这一步失败，由模型决定再试、换做法还是问用户。 */
-        private Step<Void> stalled(AgentRun.ToolCall call, String reason) {
-            return failed(call, "失败：" + reason + "。这次没有完成；可以再试一次、换个做法或换个来源；一直没有回应时告诉用户"
-                    + "看一下 Chrome。");
         }
 
         private String listJobs(String filter) {
@@ -744,102 +572,6 @@ public final class SessionLoop {
         /** 已投递、没结束、下次查看的日子到了（和界面同一个判断，{@link Job#checkDue}）。 */
         private boolean due(Job job) {
             return job.checkDue(LocalDate.now(clock));
-        }
-
-        private String markSubmitted(Map<String, Object> args) {
-            String jobId = text(args.get("job"));
-            if (jobId == null || !jobs.exists(project, jobId)) {
-                throw new IllegalArgumentException("这个 Project 里没有 Job " + jobId);
-            }
-            // 可重放（C006-fix 第 4 节）：已经记过的返回当时记下的时间，不再记一次
-            if (JobLedger.alreadyApplied(jobs.load(project, jobId).status())) {
-                Job job = jobs.load(project, jobId);
-                return "已经记为已投递了：" + jobId + "（" + job.status().label() + "），投递时间 "
-                        + job.extraString("applied_at") + "，下次 " + job.extraString("next_check_at") + " 提醒。没有再记一次。";
-            }
-            // 用户说的事实优先（第 3 节）：申请 Agent 还在填就先请它停下，它结束时不会改掉这里记下的状态
-            applications.stop(jobId);
-            Job job = ledger.markSubmitted(project, jobId, session, text(args.get("note")));
-            applications.closeTabs(jobId);
-            return jobId + "：记为已投递（" + job.status().label() + "），" + job.extraString("next_check_at")
-                    + " 提醒用户去看状态。";
-        }
-
-        private String recordStatus(Map<String, Object> args) {
-            String jobId = text(args.get("job"));
-            if (jobId == null || !jobs.exists(project, jobId)) {
-                throw new IllegalArgumentException("这个 Project 里没有 Job " + jobId);
-            }
-            String phase = text(args.get("phase"));
-            String outcome = text(args.get("outcome"));
-            Integer days = args.get("next_check_in_days") instanceof Number number ? number.intValue() : null;
-            if (outcome != null && jobs.load(project, jobId).status().phase() == Phase.PREP) {
-                // 准备中就结束了（岗位下线、不投了）：申请 Agent 还在填就先请它停下
-                applications.stop(jobId);
-            }
-            int events = ledger.events(project, jobId).size();
-            Job job = ledger.recordStatus(project, jobId, session, phase == null ? null : Phase.of(phase),
-                    outcome == null ? null : Outcome.of(outcome), text(args.get("note")), days);
-            if (job.status().phase() != Phase.PREP) {
-                applications.closeTabs(jobId);
-            }
-            String next = job.extraString("next_check_at");
-            // 可重放（C006-fix 第 4 节）：和上一次记的一样时台账不写，这里也照实说
-            if (ledger.events(project, jobId).size() == events) {
-                return "已经是这样了：" + jobId + " 现在是 " + job.status().label() + "，上一次已经记过，没有再记一次。";
-            }
-            return jobId + "：记下了（现在是 " + job.status().label() + "）"
-                    + (next == null ? "，不再提醒。" : "，下次 " + next + " 提醒。");
-        }
-
-        /** 记下或更新一轮（C014-A）：阶段跟着轮次走，结果里给出 seq，之后 save_review 用。 */
-        private String recordRound(Map<String, Object> args) {
-            String jobId = job(text(args.get("job"))).id();
-            Integer seq = args.get("seq") instanceof Number number ? number.intValue() : null;
-            Map<String, String> fields = new LinkedHashMap<>();
-            for (String key : List.of("name", "type", "scheduled_at", "happened_at", "format", "interviewer_role",
-                    "result", "result_source")) {
-                fields.put(key, text(args.get(key)));
-            }
-            int events = ledger.events(project, jobId).size();
-            Job job = ledger.recordRound(project, jobId, session, seq, fields, text(args.get("note")));
-            List<HiringRound> rounds = HiringRound.of(job);
-            String name = fields.get("name");
-            HiringRound round = rounds.stream().filter(r -> seq != null ? r.seq() == seq : r.name().equalsIgnoreCase(name))
-                    .findFirst().orElse(rounds.getLast());
-            String what = "第 " + round.seq() + " 轮「" + round.name() + "」（" + round.type() + "，" + round.result() + "）";
-            if (ledger.events(project, jobId).size() == events) {
-                return "已经是这样了：" + jobId + " 的" + what + "，没有再记一次。";
-            }
-            String next = job.extraString("next_check_at");
-            return jobId + "：记下了" + what + "，现在是 " + job.status().label()
-                    + (next == null ? "，不再提醒。" : "，下次 " + next + " 提醒。")
-                    + "要写复盘时用 save_review，seq 写 " + round.seq() + "。";
-        }
-
-        /** 写一轮的复盘（C014-A）：直接写进文件，回复里给用户看写了什么。 */
-        private String saveReview(Map<String, Object> args) {
-            String jobId = job(text(args.get("job"))).id();
-            if (!(args.get("seq") instanceof Number seq)) {
-                throw new IllegalArgumentException("save_review 要写 seq（record_round 的结果里有）");
-            }
-            List<RoundReviews.Question> questions = new ArrayList<>();
-            if (args.get("questions") instanceof List<?> list) {
-                for (Object item : list) {
-                    if (item instanceof Map<?, ?> q) {
-                        List<String> topics = strings(q.get("topic")).stream().map(RoundReviews::topic).toList();
-                        String canonical = text(q.get("canonical"));
-                        questions.add(new RoundReviews.Question(text(q.get("title")), topics,
-                                canonical == null ? null : RoundReviews.topic(canonical), text(q.get("answer")),
-                                text(q.get("self_review")), text(q.get("follow_up")), text(q.get("status"))));
-                    }
-                }
-            }
-            RoundReviews.Review review = new RoundReviews.Review(text(args.get("summary")), questions,
-                    text(args.get("feedback")), strings(args.get("lessons")));
-            Path file = ledger.saveReview(project, jobId, session, seq.intValue(), review);
-            return "已写好复盘：" + layout.relative(file) + "（" + questions.size() + " 道题），题库和按公司汇总也更新了。"
-                    + "在回复里把写了什么简短告诉用户（经过、每道题、教训），用户要改就再调一次 save_review。";
         }
 
         private Job job(String jobId) {

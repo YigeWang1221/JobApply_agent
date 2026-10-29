@@ -60,6 +60,7 @@
 | [C019](plan/coding/C019-application-state.md) | 每次投递一份申请状态（字段清单 + 计划），模型每步在它上面读和更新，不再每步重读整页 | 已施工，等用户试（2026-10-25） |
 | [C020](plan/coding/C020-holistic-refinement.md) | 整体精炼（分 A–E 五个工作包）：A 提示词与 Skills 常识推理引导升级；B 下拉/日期滚轮与未完层级诚实观测；C Memory 闭环与上传按需复制；D 对话 Agent `browser_tabs`；E 工作台报告表格渲染与 `reset` 重读 | 已施工，等用户试（2026-10-28；合龙验证：JDK 25 下 `mvn -B clean verify` 退出码 0、`npm run build` 退出码 0、无头 Chromium 5 项新脚本验证通过） |
 | [C021](plan/coding/C021-workspace-flow-and-sidebar.md) | 工作台内闭环投递（先排简历提建议再开浏览器填表）、三级 Memory 贯通（`profile.md` + `lead_note` 注入工作台）、最左侧 `Project → Session → 已打开工作台` 三级导航栏（拆为 A/B/C 三个工作包） | 已施工，等用户在本机试（2026-10-28；合龙验证：JDK 25 下 `mvn -B clean verify` 退出码 0（单元 660 + 场景 1）、`npm run build` 退出码 0、`WorkspaceSummary` 前后端字段核对一致；真实 Chrome 端到端未跑） |
+| [C022](plan/coding/C022-workspace-followup-and-rag.md) | 工作台「后续」：投递后切到新的一段对话（界面仍是一个工作台），后续工具从 Session 搬入工作台；跨工作台经验检索（RAG） | 已施工，等用户在本机试（2026-10-28；`mvn -B clean verify` 和 `npm run build` 退出码 0；真实模型与真实 Chrome 下的后续段未跑） |
 
 ## 参考（不是施工步骤）
 

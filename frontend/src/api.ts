@@ -622,6 +622,18 @@ export interface JobDetail {
   session: string | null;
   // 记录里引用、但已经删除的 Session
   deletedSessions: string[];
+  // 工作台的后续段（C022）：投递以后另起的一段对话；还在 prep 时为 null
+  followup?: FollowupView | null;
+}
+
+// 工作台后续段（C022）：和投递段分开存的对话，推送走同一条 /api/events?job=
+export interface FollowupView {
+  open: boolean;
+  status: "running" | "idle" | "interrupted";
+  error: string | null;
+  messages: ChatMessage[];
+  activity?: Activity | null;
+  inserted?: string[] | null;
 }
 
 // 同时申请（C012）：两个上限和此刻在跑、排队的个数
@@ -631,6 +643,13 @@ export interface WorkerSettings {
   maxWorkers: number;
   running: number;
   queued: number;
+}
+
+// 经验检索（C022）：本地嵌入模型的状态和下载进度（0–1）
+export interface RagStatus {
+  state: "absent" | "downloading" | "ready" | "failed";
+  progress: number;
+  message: string;
 }
 
 // 工具调用上限（C018）：申请每次运行、对话每条消息最多几次工具调用；0 = 不限。default* 是 application.yml 的默认值
@@ -691,6 +710,8 @@ export const api = {
   workerSettings: () => request<WorkerSettings>("GET", "/api/settings/workers"),
   saveWorkerSettings: (workers: number, perSite: number) =>
     request<WorkerSettings>("PUT", "/api/settings/workers", { workers, perSite }),
+  ragStatus: () => request<RagStatus>("GET", "/api/rag/status"),
+  downloadRagModel: () => request<RagStatus>("POST", "/api/rag/download"),
   toolCallSettings: () => request<ToolCallSettings>("GET", "/api/settings/tool-calls"),
   saveToolCallSettings: (perRun: number, perMessage: number) =>
     request<ToolCallSettings>("PUT", "/api/settings/tool-calls", { perRun, perMessage }),
@@ -773,6 +794,13 @@ export const api = {
   discardWorkspace: (jobId: string, deleteJob: boolean) =>
     request<{ id: string; mode: "thread" | "job" }>("DELETE", `/api/jobs/${enc(jobId)}/workspace`, { deleteJob }),
   jobAttachment: (jobId: string, file: File) => uploadFile<Attachment>(`${jobPath(jobId)}/attachments`, file),
+  // 后续段（C022）：发消息（运行中是插话）、附件、停止
+  followupMessage: (jobId: string, text: string, attachments: string[] = []) =>
+    request<FollowupView>("POST", `/api/jobs/${enc(jobId)}/followup/messages`,
+      attachments.length > 0 ? { text, attachments } : { text }),
+  followupAttachment: (jobId: string, file: File) =>
+    uploadFile<Attachment>(`/api/jobs/${enc(jobId)}/followup/attachments`, file),
+  stopFollowup: (jobId: string) => request<FollowupView>("POST", `/api/jobs/${enc(jobId)}/followup/stop`),
   // 没有主人的标签页（只给界面看）；把其中一个交给这个申请：标签页变了或者有主人了时 409
   freeTabs: () => request<{ tabs: BrowserTab[] }>("GET", "/api/browser/tabs"),
   handOverTab: (jobId: string, tab: BrowserTab) =>

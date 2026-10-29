@@ -1386,6 +1386,32 @@ pre.report {
   padding: 12vh 0 0;
   text-align: center;
 }
+/* 工作台后续段（C022）：上面折起来的投递段、分隔线「已投递 · 后续」 */
+.fillsegment {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.fillsegment > .textbtn {
+  align-self: flex-start;
+  color: var(--muted);
+}
+.fillsegment.open {
+  opacity: 0.85;
+}
+.segdivider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.segdivider::before,
+.segdivider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--line);
+}
 
 .emptychat h2 {
   font-size: 20px;

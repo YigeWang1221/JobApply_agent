@@ -1,5 +1,6 @@
 package jobapply.harness.runtime;
 
+import jobapply.memory.ExperienceIndex;
 import static jobapply.harness.runtime.ToolArgs.parse;
 import static jobapply.harness.runtime.ToolArgs.text;
 
@@ -31,6 +32,7 @@ import jobapply.domain.AgentRun;
 import jobapply.domain.ApplicationState;
 import jobapply.domain.Fact;
 import jobapply.domain.FactClass;
+import jobapply.domain.IllegalTransitionException;
 import jobapply.domain.Job;
 import jobapply.domain.Language;
 import jobapply.domain.Placeholder;
@@ -70,6 +72,7 @@ import jobapply.tools.BrowserException;
 import jobapply.tools.BrowserSession;
 import jobapply.tools.BrowserTools;
 import jobapply.tools.ControlTools;
+import jobapply.tools.FollowupTools;
 import jobapply.tools.PageSnapshot;
 import jobapply.tools.PlaywrightMcpClient;
 import jobapply.tools.SnapshotIndex;
@@ -133,6 +136,7 @@ public final class HarnessLoop {
     /** 工作台内简历匹配与选定（C021）。 */
     private final ResumeMatch resumes;
     private volatile boolean seeded;
+    private final ExperienceIndex experience;
 
     public HarnessLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock,
                        HarnessProperties limits) {
@@ -142,6 +146,13 @@ public final class HarnessLoop {
     /** @param toolCallsPerRun 一次运行最多几次工具调用，每步读一次（设置页改了马上生效，C018）；为 null 时用 {@code limits} 的值 */
     public HarnessLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock,
                        HarnessProperties limits, IntSupplier toolCallsPerRun) {
+        this(model, browser, layout, clock, limits, toolCallsPerRun, null);
+    }
+
+    /** @param experience 跨工作台经验检索（C022）；为 null 时 {@code search_experience} 回报不可用 */
+    public HarnessLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock,
+                       HarnessProperties limits, IntSupplier toolCallsPerRun, ExperienceIndex experience) {
+        this.experience = experience;
         this.model = model;
         this.browser = browser;
         this.layout = layout;
@@ -254,8 +265,8 @@ public final class HarnessLoop {
             this.progress = progress == null ? ignored -> {
             } : progress;
             // 调模型回来时用户已经要求停止：丢掉这条回复直接停（和对话 Agent 不同，见 AgentLoop）
-            this.loop = new AgentLoop<>(model, ApplyAgent.tools(), clock, toolCallsPerRun, true, stop,
-                    observer, run.conversation(), null, inbox);
+            this.loop = new AgentLoop<>(model, WorkbenchTools.with(ApplyAgent.tools()), clock, toolCallsPerRun, true,
+                    stop, observer, run.conversation(), null, inbox);
             this.detector = new LoopDetector(limits);
             this.state = run.state();
             this.modelCalls = run.usage().modelCalls();
@@ -478,6 +489,14 @@ public final class HarnessLoop {
         @Override
         public Step<AgentRun> handle(AgentRun.ToolCall call) {
             String name = call.name();
+            Step<AgentRun> shared = WorkbenchTools.handle(new WorkbenchTools.Where(run.project(), run.job(),
+                    run.company(), run.title(), WorkbenchTools.Where.FILL), call, experience);
+            if (shared != null) {
+                return shared;
+            }
+            if (FollowupTools.MARK_SUBMITTED.equals(name)) {
+                return markSubmitted(call);
+            }
             if (ControlTools.isControlTool(name)) {
                 return control(call);
             }
@@ -1094,6 +1113,32 @@ public final class HarnessLoop {
             return result(call, chosen.message() + "已放进当前工作台上传区成为「文件 1」（" + asset.fileName()
                     + "），现在可以直接调用浏览器工具（如 browser_snapshot 或 browser_navigate）打开岗位页面填表，"
                     + "到上传位置直接 browser_file_upload 文件 1。");
+        }
+
+        /**
+         * 用户在工作台里说已经在 Chrome 里提交了（C022，原来在 Session 的对话 Agent 那里）：记为已投递，用户的话就是证据。
+         * 不结束这次运行：模型回一句话就停下；用户定下了，结束时不会改回去，工作台接着进入后续段。
+         */
+        private Step<AgentRun> markSubmitted(AgentRun.ToolCall call) {
+            Map<String, Object> args;
+            try {
+                args = parse(call.arguments());
+            } catch (IllegalArgumentException e) {
+                return failedResult(call, "失败：" + e.getMessage());
+            }
+            JobLedger ledger = new JobLedger(layout, clock);
+            if (JobLedger.alreadyApplied(jobs.load(run.project(), run.job()).status())) {
+                Job job = jobs.load(run.project(), run.job());
+                return result(call, "已经记为已投递了（" + job.status().label() + "），投递时间 "
+                        + job.extraString("applied_at") + "。没有再记一次。");
+            }
+            try {
+                Job job = ledger.markSubmitted(run.project(), run.job(), run.session(), text(args.get("note")));
+                return result(call, "记为已投递（" + job.status().label() + "），" + job.extraString("next_check_at")
+                        + " 提醒用户去看状态。不要再动页面；用一句话告诉用户记下了，之后的笔试、面试在这个工作台的后续段里聊。");
+            } catch (IllegalArgumentException | IllegalTransitionException e) {
+                return failedResult(call, "失败：" + e.getMessage());
+            }
         }
 
         /** 这个岗位存下的 JD 快照、候选备注、公司记忆和写作偏好（C014：写 Cover Letter、开放问题时用）。 */

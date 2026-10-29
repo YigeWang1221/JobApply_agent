@@ -1,5 +1,6 @@
 package jobapply.config;
 
+import jobapply.memory.ExperienceIndex;
 import java.nio.file.Path;
 import java.time.Clock;
 import jobapply.persistence.EnvFile;
@@ -9,6 +10,7 @@ import jobapply.tools.BrowserSession;
 import jobapply.tools.WebFetch;
 import jobapply.tools.WebSearch;
 import jobapply.workflow.ApplicationRunner;
+import jobapply.workflow.FollowupRunner;
 import jobapply.workflow.RuntimeEvents;
 import jobapply.workflow.SessionRunner;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -62,8 +64,9 @@ public class ApplicationConfiguration {
 
     @Bean(destroyMethod = "close")
     ApplicationRunner applicationRunner(StorageLayout layout, Clock clock, BrowserSession browser,
-                                        ModelRegistry models, HarnessProperties limits, RuntimeEvents events) {
-        return new ApplicationRunner(layout, clock, browser, models::main, limits, events);
+                                        ModelRegistry models, HarnessProperties limits, RuntimeEvents events,
+                                        ExperienceIndex experience) {
+        return new ApplicationRunner(layout, clock, browser, models::main, limits, events, experience);
     }
 
     @Bean
@@ -81,5 +84,12 @@ public class ApplicationConfiguration {
     SessionRunner sessionRunner(StorageLayout layout, Clock clock, BrowserSession browser, ModelRegistry models,
                                 WebSearch search, WebFetch fetch, ApplicationRunner applications) {
         return new SessionRunner(layout, clock, browser, models::main, search, fetch, applications);
+    }
+
+    /** 工作台的后续段（C022）：和申请线程共用事件日志和工具调用上限。 */
+    @Bean(destroyMethod = "close")
+    FollowupRunner followupRunner(StorageLayout layout, Clock clock, BrowserSession browser, ModelRegistry models,
+                                  WebFetch fetch, ApplicationRunner applications) {
+        return new FollowupRunner(layout, clock, browser, models::main, fetch, applications);
     }
 }

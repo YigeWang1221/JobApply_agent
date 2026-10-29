@@ -68,7 +68,8 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 │   │   ├── rounds/<seq>-<type>.md    # 每一轮的记录与复盘（用户确认的原始内容）
 │   │   ├── events.jsonl              # 追加式事件；每条事件带 session 字段
 │   │   ├── run-log.jsonl             # 填写过程日志：工具、守卫结论、按钮用途、用户反馈；不记填写的值和快照全文
-│   │   └── fill-report.md            # 关卡 B 的填写报告
+│   │   ├── fill-report.md            # 关卡 B 的填写报告
+│   │   └── followup/                 # C022：工作台后续段的对话（和投递段 AgentRun 分开存）
 │   ├── sessions/<session-id>/        # 一次对话：调研 / 投递 / 复盘的任意组合
 │   │   ├── session.md                # 标题、自动标签、涉及的 job 列表、结束时的交接摘要
 │   │   └── transcript.jsonl          # 对话原文（不压缩，可追溯）
@@ -92,7 +93,8 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 │   └── .env                          # API key（用户确认：保存在本地 .env）；权限 600，开发代理不读
 ├── browser/sites.md                  # 站点登录登记（全局，因为浏览器只有一个）
 ├── uploads/                          # MCP 允许读取的上传暂存区（等字节副本）
-├── cache/                            # 可以随时删除：web/（抽取结果）、playwright-mcp/（MCP 输出目录，每次连接和关闭时清空）
+├── model/RAG/                        # C022：本地 ONNX 嵌入模型（multilingual-e5-small），第一次用时下载
+├── cache/                            # 可以随时删除：rag/（经验检索的向量索引，可重建）、web/（抽取结果）、playwright-mcp/（MCP 输出目录，每次连接和关闭时清空）
 ├── checkpoints.sqlite                # LangGraph4j 持久化 Checkpoint（sqlite-saver），按 session-id 区分
 ├── index.sqlite                      # 可重建的查询索引（台账、Dashboard、题库 FTS5），删掉也能从文件重建
 └── exports/                          # 全局台账的 csv（各 Project 的 csv 在各自 tracker/ 下）
@@ -375,6 +377,10 @@ blocker: <阻塞原因>
 - **事实与流程分开**：事实写进 Memory，流程写进 Playbook skill；写陈述句，不写命令句。
 - **修补优先**：复盘出来的站点经验，优先修补已有的站点 skill，不新建；修补同样要你确认。
 - **历史检索**：`index.sqlite` 用 FTS5 支持「搜历史 Session 和复盘」。
+
+## 经验检索（用户确认，2026-10-28，C022）
+
+各工作台的经验要能互相用上，包括跨 Session 的工作台。系统在本地对这些文件建向量索引：轮次记录 `jobs/*/rounds/`、`review/questions.md`、`review/companies/`、`fill-report.md`。嵌入模型是本地 ONNX，放在 `model/RAG/`，第一次用时下载，之后不联网。索引在 `cache/rag/`，删掉也能重建。没有嵌入模型时退回关键词检索。工作台的两段都可以调用 `search_experience` 检索，什么时候查由模型决定。Session 对话、`profile.md` 和密钥文件都不进索引。
 
 ## 不做
 

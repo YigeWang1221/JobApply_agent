@@ -10,7 +10,8 @@ import org.springframework.ai.tool.definition.ToolDefinition;
 /**
  * 交给对话 Agent（调研、管理候选池、开始申请）的工具（C005）。和 {@link ControlTools} 一样只有定义，
  * 由 {@link jobapply.harness.runtime.SessionLoop} 在本地执行。浏览器只给读和翻页用的那几个（快照、查找、导航、点击、
- * 输入、按键、等待、列出/切换标签页），不给填表和上传。
+ * 输入、按键、等待、列出/切换标签页），不给填表和上传。投递之后的记状态、轮次和复盘不在这里，在工作台的后续段
+ * （{@link FollowupTools}，C022）。
  */
 public final class ResearchTools {
 
@@ -20,13 +21,9 @@ public final class ResearchTools {
     public static final String ADD_LEAD = "add_lead";
     public static final String UPDATE_LEAD = "update_lead";
     public static final String START_APPLICATION = "start_application";
-    public static final String MARK_SUBMITTED = "mark_submitted";
-    public static final String RECORD_STATUS = "record_status";
     public static final String LIST_RESUMES = "list_resumes";
     public static final String READ_RESUME = "read_resume";
     public static final String CHOOSE_RESUME = "choose_resume";
-    public static final String RECORD_ROUND = "record_round";
-    public static final String SAVE_REVIEW = "save_review";
     public static final String ASK_USER = ControlTools.ASK_USER;
     public static final String READ_SKILL = ControlTools.READ_SKILL;
     /** 直接写本地 memory（C014），定义和申请 Agent 共用一份。 */
@@ -141,72 +138,6 @@ public final class ResearchTools {
                     "reason":{"type":"string"},"gap":{"type":"string"}},"required":["key","rank","reason"]}},\
                     "suggestions":{"type":"array","items":{"type":"string"}}},\
                     "required":["job"]}"""),
-            definition(MARK_SUBMITTED,
-                    "Record that the user has submitted this application themselves in Chrome (they said so in the "
-                            + "chat). The user's word is the evidence; the job moves to applied and the next status check "
-                            + "is scheduled. note: the user's words. Only when the user clearly said it was submitted and "
-                            + "it is clear which job; otherwise ask first. Works whatever the application was doing (a "
-                            + "running application agent is stopped first); a job already applied returns the recorded "
-                            + "time and records nothing new.",
-                    """
-                    {"type":"object","properties":{"job":{"type":"string","description":"Job id"},\
-                    "note":{"type":"string","description":"What the user said"}},"required":["job"]}"""),
-            definition(RECORD_STATUS,
-                    "Record what the user found when checking an applied job (email / careers site). No phase and no "
-                            + "outcome: checked, nothing new. phase: screening / assessment / interview / offer when it "
-                            + "moved on. outcome: rejected / withdrawn / ghosted / accepted / declined / posting_closed (the posting "
-                            + "was taken down) when it ended. A job still being prepared (not submitted yet) can only end: "
-                            + "outcome posting_closed, or not_submitted when the user no longer wants to apply. "
-                            + "Repeating the same call records nothing new. "
-                            + "note: the user's words. next_check_in_days: when to remind again (default from "
-                            + "preferences, usually 4); with a deadline or interview date, set it to the day before.",
-                    """
-                    {"type":"object","properties":{"job":{"type":"string","description":"Job id"},\
-                    "phase":{"type":"string","enum":["screening","assessment","interview","offer"]},\
-                    "outcome":{"type":"string","enum":["rejected","withdrawn","ghosted","accepted","declined","posting_closed","not_submitted"]},\
-                    "note":{"type":"string"},"next_check_in_days":{"type":"integer","minimum":1,"maximum":90}},\
-                    "required":["job"]}"""),
-            definition(RECORD_ROUND,
-                    "Record or update one round of an applied job (OA, written test, interview, HR call, offer call) "
-                            + "from what the user said. Without seq a new round is added after the last one; with seq "
-                            + "only the fields you give are changed (e.g. seq 2 + result passed). The phase follows the "
-                            + "rounds: latest round a test -> assessment, an interview -> interview, an offer-call round "
-                            + "-> offer, latest round failed -> closed as rejected. Also sets the next event (the nearest "
-                            + "pending round still to come). The job must be applied already (mark_submitted first). "
-                            + "Dates are yyyy-MM-dd or yyyy-MM-ddTHH:mm with offset. Don't record interviewer names. "
-                            + "Repeating the same call records nothing new; the result gives the round's seq.",
-                    """
-                    {"type":"object","properties":{"job":{"type":"string","description":"Job id"},\
-                    "seq":{"type":"integer","minimum":1,"description":"round number; omit to add a new round"},\
-                    "name":{"type":"string","description":"the company's name for it, e.g. 一面, 技术二面, HR 面, Onsite 1"},\
-                    "type":{"type":"string","enum":["screen-call","oa","written-test","assessment","technical",\
-                    "coding","system-design","behavioral","manager","hr","final","offer-call","other"]},\
-                    "scheduled_at":{"type":"string"},"happened_at":{"type":"string"},\
-                    "format":{"type":"string","description":"e.g. 线上 60 分钟, 线下, 电话"},\
-                    "interviewer_role":{"type":"string","description":"role only, e.g. 组内工程师"},\
-                    "result":{"type":"string","enum":["pending","passed","failed","cancelled"]},\
-                    "result_source":{"type":"string","enum":["user","portal","email","recruiter"]},\
-                    "note":{"type":"string","description":"the user's words"}},"required":["job"]}"""),
-            definition(SAVE_REVIEW,
-                    "Write the review of one round (record_round it first) as rounds/<seq>-<type>.md, from what the "
-                            + "user told you: what happened, each question with topics and a canonical id, the user's "
-                            + "answer, self-assessment, follow-ups, the interviewer's feedback, lessons. Write it "
-                            + "directly, then show the user what you wrote in the chat; when they want changes call it "
-                            + "again with the whole review (it replaces the file). Only what the user said; don't invent "
-                            + "questions or answers. topic: short lowercase tags like system-design, coding, "
-                            + "data-structure, behavioral, project-deep-dive. canonical: q-<short-slug>, the same id for "
-                            + "the same question when it is asked again.",
-                    """
-                    {"type":"object","properties":{"job":{"type":"string","description":"Job id"},\
-                    "seq":{"type":"integer","minimum":1},\
-                    "summary":{"type":"string","description":"how the round went"},\
-                    "questions":{"type":"array","items":{"type":"object","properties":{\
-                    "title":{"type":"string"},"topic":{"type":"array","items":{"type":"string"}},\
-                    "canonical":{"type":"string"},"answer":{"type":"string"},"self_review":{"type":"string"},\
-                    "follow_up":{"type":"string"},\
-                    "status":{"type":"string","enum":["todo","reviewed","mastered"]}},"required":["title"]}},\
-                    "feedback":{"type":"string"},"lessons":{"type":"array","items":{"type":"string"}}},\
-                    "required":["job","seq"]}"""),
             definition(ASK_USER,
                     "Hand control to the user and end this turn: e.g. ask them to log in to a careers site in Chrome, "
                             + "to paste a link you cannot reach, or to choose which jobs to apply to. message is shown "
@@ -221,8 +152,7 @@ public final class ResearchTools {
             ControlTools.REMEMBER_DEFINITION);
 
     private static final Set<String> NAMES = Set.of(WEB_SEARCH, WEB_FETCH, LIST_JOBS, ADD_LEAD, UPDATE_LEAD,
-            START_APPLICATION, MARK_SUBMITTED, RECORD_STATUS, LIST_RESUMES, READ_RESUME, CHOOSE_RESUME, ASK_USER,
-            READ_SKILL, RECORD_ROUND, SAVE_REVIEW, REMEMBER);
+            START_APPLICATION, LIST_RESUMES, READ_RESUME, CHOOSE_RESUME, ASK_USER, READ_SKILL, REMEMBER);
 
     private ResearchTools() {
     }
