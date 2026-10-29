@@ -254,6 +254,26 @@ public record StorageLayout(Path root) {
         return jobDir(projectId, jobId).resolve("rounds");
     }
 
+    /**
+     * 工作台的「后续」段（C022）：投递之后另起的一段对话，和投递段的运行记录（{@code runs/<job>.json}）分开存。
+     * {@code transcript.jsonl} 是对话，{@code followup.md} 记上一次运行的状态，{@code attachments/} 是用户附的文件。
+     */
+    public Path followupDir(String projectId, String jobId) {
+        return jobDir(projectId, jobId).resolve("followup");
+    }
+
+    public Path followupTranscript(String projectId, String jobId) {
+        return followupDir(projectId, jobId).resolve("transcript.jsonl");
+    }
+
+    public Path followupStatus(String projectId, String jobId) {
+        return followupDir(projectId, jobId).resolve("followup.md");
+    }
+
+    public Path followupAttachmentsDir(String projectId, String jobId) {
+        return followupDir(projectId, jobId).resolve("attachments");
+    }
+
     /** 一轮的复盘文件 {@code rounds/<seq>-<type>.md}；{@code type} 只能是 {@link HiringRound#TYPES} 里的。 */
     public Path roundReview(String projectId, String jobId, int seq, String type) {
         if (seq < 1 || !HiringRound.TYPES.contains(type)) {

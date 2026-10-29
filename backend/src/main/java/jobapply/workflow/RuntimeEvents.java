@@ -296,13 +296,33 @@ public final class RuntimeEvents {
         return copy(inFlight.get(key(null, jobId)));
     }
 
+    /** 工作台后续段（C022）现在在做什么：和同一个 Job 的申请线程分开记。 */
+    public synchronized Activity followupActivity(String jobId) {
+        return activities.get(followupKey(jobId));
+    }
+
+    public synchronized InFlight followupInFlight(String jobId) {
+        return copy(inFlight.get(followupKey(jobId)));
+    }
+
     private static InFlight copy(InFlight current) {
         return current == null ? null : new InFlight(current.assistant(), Map.copyOf(current.results()));
     }
 
     /** 对话 Agent 的循环（{@code job} 为 null）或申请线程（{@code job} 是它的 Job，{@code session} 是它所在的 Session）。 */
     LoopObserver observer(String session, String job) {
-        String key = key(session, job);
+        return observer(session, job, key(session, job));
+    }
+
+    /**
+     * 工作台后续段的循环（C022）：推送照样带 {@code job}（工作台订阅的 {@code ?job=} 收得到），活动和还没写进对话的结果
+     * 按自己的键记，不和申请线程混。
+     */
+    LoopObserver followupObserver(String job) {
+        return observer(null, job, followupKey(job));
+    }
+
+    private LoopObserver observer(String session, String job, String key) {
         return new LoopObserver() {
             @Override
             public void thinking() {
@@ -310,7 +330,7 @@ public final class RuntimeEvents {
                     // 上一轮的工具结果已经写进对话
                     inFlight.remove(key);
                 }
-                setActivity(session, job, new Activity("thinking", null, Timestamps.now(clock)));
+                setActivity(session, job, key, new Activity("thinking", null, Timestamps.now(clock)));
             }
 
             @Override
@@ -336,7 +356,7 @@ public final class RuntimeEvents {
 
             @Override
             public void tool(AgentRun.ToolCall call) {
-                setActivity(session, job, new Activity("tool", call, Timestamps.now(clock)));
+                setActivity(session, job, key, new Activity("tool", call, Timestamps.now(clock)));
             }
 
             @Override
@@ -359,22 +379,35 @@ public final class RuntimeEvents {
 
     /** 跑完了：清掉活动和还没写进对话的结果，发最后的状态。 */
     void finished(String session, String job, String status) {
+        finished(session, job, key(session, job), status);
+    }
+
+    /** 后续段跑完了（C022）。 */
+    void followupFinished(String job, String status) {
+        finished(null, job, followupKey(job), status);
+    }
+
+    private void finished(String session, String job, String key, String status) {
         synchronized (this) {
-            activities.remove(key(session, job));
-            inFlight.remove(key(session, job));
+            activities.remove(key);
+            inFlight.remove(key);
         }
         publish(ACTIVITY, session, job, null);
         publish(STATUS, session, job, status);
     }
 
-    private void setActivity(String session, String job, Activity activity) {
+    private void setActivity(String session, String job, String key, Activity activity) {
         synchronized (this) {
-            activities.put(key(session, job), activity);
+            activities.put(key, activity);
         }
         publish(ACTIVITY, session, job, activity);
     }
 
     private static String key(String session, String job) {
         return job != null ? "job:" + job : "session:" + session;
+    }
+
+    private static String followupKey(String job) {
+        return "followup:" + job;
     }
 }

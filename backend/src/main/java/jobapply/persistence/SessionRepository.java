@@ -186,7 +186,8 @@ public final class SessionRepository {
         }
     }
 
-    private static Map<String, Object> line(String at, AgentRun.Turn turn) {
+    /** 一条对话在 jsonl 里的那一行（工作台「后续」段的对话用同一种格式，C022）。 */
+    static Map<String, Object> line(String at, AgentRun.Turn turn) {
         Map<String, Object> line = new LinkedHashMap<>();
         line.put("at", at);
         line.put("role", turn.role());
@@ -235,8 +236,13 @@ public final class SessionRepository {
 
     /** 读回全部对话。只有 {@code role} 和 {@code text} 的旧行照样读成一条。 */
     public List<TimedTurn> readTurns(String projectId, String sessionId) {
+        return turns(readTranscript(projectId, sessionId));
+    }
+
+    /** jsonl 的行读回成对话（{@link #line} 的反过来）。 */
+    static List<TimedTurn> turns(List<Map<String, Object>> lines) {
         List<TimedTurn> turns = new ArrayList<>();
-        for (Map<String, Object> line : readTranscript(projectId, sessionId)) {
+        for (Map<String, Object> line : lines) {
             List<AgentRun.ToolCall> calls = new ArrayList<>();
             for (Map<?, ?> item : maps(line.get("calls"))) {
                 calls.add(new AgentRun.ToolCall(string(item.get("id")), string(item.get("name")),

@@ -23,10 +23,12 @@ export interface MessageListProps {
   onRegenerate?: () => void;
   onStop?: () => void;
   empty?: ReactNode;
+  // 接在消息前面、一起滚动的内容（工作台后续段上面折起来的投递段，C022）
+  before?: ReactNode;
 }
 
 export function MessageList(props: MessageListProps) {
-  const { messages, running, activity, jobs = [], pending, error, empty, inserted = [] } = props;
+  const { messages, running, activity, jobs = [], pending, error, empty, inserted = [], before } = props;
   const turns = toTurns(messages, running);
   const scroller = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
@@ -60,6 +62,7 @@ export function MessageList(props: MessageListProps) {
   return (
     <div className="msgscroll" ref={scroller} onScroll={onScroll}>
       <div className="msgcol">
+        {before}
         {nothing && empty}
         {turns.map((turn, i) => (
           <TurnView key={turn.key} turn={turn} jobs={jobs} live={running && i === turns.length - 1}
@@ -98,6 +101,17 @@ export function MessageList(props: MessageListProps) {
         <button className="tobottom" onClick={toBottom}><Icon name="down" size={14} /> 回到底部</button>
       )}
     </div>
+  );
+}
+
+// 只读地列出一段已经结束的对话（不滚动、不能重新生成）：工作台后续段上面的投递段（C022）
+export function TranscriptTurns({ messages, jobs = [] }: { messages: ChatMessage[]; jobs?: JobView[] }) {
+  return (
+    <>
+      {toTurns(messages, false).map((turn) => (
+        <TurnView key={turn.key} turn={turn} jobs={jobs} live={false} last={false} />
+      ))}
+    </>
   );
 }
 

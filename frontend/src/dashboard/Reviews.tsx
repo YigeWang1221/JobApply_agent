@@ -22,7 +22,7 @@ export function Reviews({ jobs }: { jobs: JobView[] }) {
     <div className="panel">
       <h2>复盘概览</h2>
       <p className="sub">{rounds.length} 轮记录，复盘了 {questions} 道题；题库在 storage/review/questions.md</p>
-      {rounds.length === 0 ? <p className="empty">还没有记录过笔试或面试。在对话里告诉 Agent 面试情况就会记下。</p> : (
+      {rounds.length === 0 ? <p className="empty">还没有记录过笔试或面试。在申请工作台的后续段里告诉 Agent 面试情况就会记下。</p> : (
         <>
           <strong className="small">常考主题</strong>
           {top.length === 0 ? <p className="empty">还没有写过复盘。</p> : <Bars rows={top} unit="题" fill="--s1" />}

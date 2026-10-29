@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import jobapply.tools.BrowserTools;
 import jobapply.tools.ControlTools;
+import jobapply.tools.FollowupTools;
 import org.springframework.ai.tool.ToolCallback;
 
 /**
@@ -114,7 +115,10 @@ public final class ApplyAgent {
             要切回或找不着当前页时用 browser_tabs list + select，或 browser_navigate 重新打开。
             - **值的来源与完成（finish）**：填字段时 fact 写资料键、ans-NNN、resume、cover_letter 或 none；页面自动解析填进、\
             你核对过没改的字段在 summary 里单独列出。能填的都填好、保存并回读过、停在最终提交前时调用 finish（先看最新快照\
-            确认没有未关弹窗或校验错误，没解决的写进 unresolved）。""";
+            确认没有未关弹窗或校验错误，没解决的写进 unresolved）。
+            - **用户说已经提交了**：用户在工作台里说「投了」「刚在 Chrome 里提交了」（不是要求修改），用 mark_submitted 记下，\
+            note 写用户的原话，不再动页面，回一句话就停。用户自己说不确定提交成功没有时不要记，请他在官网或邮箱确认后再说。\
+            之后的笔试、面试在这个工作台的后续段里继续。""";
 
     /** Cover Letter 和更新 memory（C014 B）。 */
     static final String WRITING_AND_MEMORY = """
@@ -154,11 +158,12 @@ public final class ApplyAgent {
         return String.join("\n\n", IDENTITY, METHOD, SITUATIONS, WRITING_AND_MEMORY, LINES);
     }
 
-    /** 交给模型的工具：浏览器工具 + 标签页（{@link BrowserTools#tabs()}）+ 控制工具。 */
+    /** 交给模型的工具：浏览器工具 + 标签页（{@link BrowserTools#tabs()}）+ 控制工具 + 记下已投递（C022）。 */
     public static List<ToolCallback> tools() {
         List<ToolCallback> tools = new ArrayList<>(BrowserTools.definitions());
         tools.add(BrowserTools.tabs());
         tools.addAll(ControlTools.definitions());
+        tools.add(FollowupTools.markSubmitted());
         return List.copyOf(tools);
     }
 }

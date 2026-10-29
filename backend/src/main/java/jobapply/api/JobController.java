@@ -26,6 +26,7 @@ import jobapply.persistence.StorageLayout;
 import jobapply.workflow.ApplicationException;
 import jobapply.workflow.ApplicationRunner;
 import jobapply.workflow.ApplicationStatus;
+import jobapply.workflow.FollowupRunner;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -54,10 +55,11 @@ public class JobController {
      * @param session     从这个页面发消息用哪个 Session：申请线程的、发现它的，都删了时用这个 Project 最新的一个；
      *                    一个都没有时为 null（C013）
      * @param deletedSessions 记录里引用、但已经删除的 Session（界面上显示「会话已删除」，C013）
+     * @param followup    工作台的后续段（C022）：离开 prep 以后才有；还在 prep 时为 null
      */
     public record JobDetail(Views.JobView job, List<EventView> events, ApplicationStatus application,
                             List<Views.ChatMessage> steps, Views.Activity activity, String session,
-                            List<String> deletedSessions) {
+                            List<String> deletedSessions, FollowupController.FollowupView followup) {
     }
 
     /** @param status {@code new} / {@code shortlisted} / {@code skipped}；不投时 {@code reason} 必填 */
@@ -81,14 +83,16 @@ public class JobController {
     private final ApplicationRunner applications;
     private final Clock clock;
     private final SessionRepository sessions;
+    private final FollowupRunner followups;
 
-    public JobController(StorageLayout layout, Clock clock, ApplicationRunner applications) {
+    public JobController(StorageLayout layout, Clock clock, ApplicationRunner applications, FollowupRunner followups) {
         this.layout = layout;
         this.jobs = new JobRepository(layout);
         this.ledger = new JobLedger(layout, clock, applications.events()::changed);
         this.applications = applications;
         this.clock = clock;
         this.sessions = new SessionRepository(layout, clock);
+        this.followups = followups;
     }
 
     /** 这个 Job 的视图；「该查看了」按服务器今天的日期算。 */
@@ -110,7 +114,8 @@ public class JobController {
                                 "/api/jobs/" + id + "/application/attachments"))
                         .orElse(List.of()),
                 Views.activity(applications.events().jobActivity(id)), usable,
-                referenced.stream().filter(s -> !sessions.exists(job.project(), s)).toList());
+                referenced.stream().filter(s -> !sessions.exists(job.project(), s)).toList(),
+                FollowupRunner.open(job) ? FollowupController.view(followups, id) : null);
     }
 
     @PatchMapping(path = "/lead", consumes = MediaType.APPLICATION_JSON_VALUE)

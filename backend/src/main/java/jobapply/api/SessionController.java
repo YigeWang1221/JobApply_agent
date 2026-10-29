@@ -152,7 +152,7 @@ public class SessionController {
     }
 
     /** 插话的原文；只有附件时写附件名。 */
-    private static String insertedText(AgentRun.Turn turn) {
+    static String insertedText(AgentRun.Turn turn) {
         if (turn.text() != null && !turn.text().isBlank()) {
             return turn.text();
         }

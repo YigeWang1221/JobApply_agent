@@ -10,12 +10,13 @@ import { ChatSkeleton } from "../chat/ChatSkeleton";
 import { eventsUrl, subscribe } from "../chat/eventStream";
 import { Composer } from "../chat/Composer";
 import { Icon } from "../chat/icons";
-import { MessageList } from "../chat/MessageList";
+import { MessageList, TranscriptTurns } from "../chat/MessageList";
+import { readDraft, writeDraft } from "../chat/draft";
 import { useAttachments } from "../chat/useAttachments";
 import { useLiveUpdates } from "../chat/useLiveUpdates";
 import { go } from "../route";
 import {
-  APPLICATION, JobState, ROUND_CHIP, ROUND_RESULT, RoundProgress, SubmitConfirm, VerifiedChip,
+  APPLICATION, JobState, phaseText, ROUND_CHIP, ROUND_RESULT, RoundProgress, SubmitConfirm, VerifiedChip,
 } from "../status";
 import { toast } from "../toast";
 
@@ -40,7 +41,8 @@ interface ReplyForm {
 
 // 申请工作台（C005-ui.md「页面」，C006-fix 改成整屏）：和 Session 页同一套布局。中间是 Agent 每一步做了什么，
 // 底部输入框就是回复（文字 + 附件）；右栏是现在要你做的事：问题、上传位置、进度（申请状态，C019）、报告、用量、事件。
-// Agent 停在最终提交前，不会替你点提交。新内容走 /api/events?job= 推送，断了浏览器自己重连
+// Agent 停在最终提交前，不会替你点提交。新内容走 /api/events?job= 推送，断了浏览器自己重连。
+// 投递以后（离开 prep，C022）工作台接着是「后续」段：投递段折起来只读，下面是另一段对话，输入框发给后续段的 Agent
 export default function JobPage({ id, onChanged }: { id: string; onChanged?: () => Promise<void> }) {
   const [detail, setDetail] = useState<JobDetail | null>(null);
   const [pollError, setPollError] = useState<string | null>(null);
@@ -71,9 +73,23 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
   }), [load]);
 
   const running = detail?.application?.status === "running" || detail?.application?.status === "queued";
-  const sse = useLiveUpdates({ job: id }, running, load);
+  const followupRunning = detail?.followup?.status === "running";
+  // 推送里的 activity 只按 Job 分：投递段和后续段不会同时在跑，哪段在跑就是哪段的
+  const sse = useLiveUpdates({ job: id }, running || followupRunning, load);
   const upload = useCallback((file: File) => api.jobAttachment(id, file), [id]);
   const attach = useAttachments(upload);
+  const followupUpload = useCallback((file: File) => api.followupAttachment(id, file), [id]);
+  const followupAttach = useAttachments(followupUpload);
+  // 后续段的输入框草稿存在本地（「该查看了」的「我看了」会预先填好一句，C007）
+  const draftId = `followup.${id}`;
+  const [followupText, setFollowupTextState] = useState(() => readDraft(draftId));
+  useEffect(() => {
+    setFollowupTextState(readDraft(draftId));
+  }, [draftId]);
+  const setFollowupText = (value: string) => {
+    setFollowupTextState(value);
+    writeDraft(draftId, value);
+  };
 
   useEffect(() => {
     document.title = detail ? `${detail.job.company} · ${detail.job.title} · JobApply` : "JobApply";
@@ -147,7 +163,7 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
   const lockedReason = !status
     ? "还没有开始申请"
     : job.phase !== "prep" || USER_DECIDED.has(job.prepState ?? "")
-      ? `这个申请现在是「${job.label}」，你已经定下了，不用再回复申请 Agent；之后的进展在 Session 对话里告诉 Agent`
+      ? `这个申请现在是「${job.label}」，你已经定下了，不用再回复申请 Agent`
     : running || waiting ? null : "现在不需要回复";
   // 挡住发送的只有这一条；必填问题没答、上传位置空着都不挡，Agent 会再问（C006-fix 第 5 节、第 6 节）
   const hints = [
@@ -189,6 +205,16 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
     }
   }
 
+  const followup = detail.followup ?? null;
+
+  async function sendFollowup() {
+    const files = followupAttach.ready.map((file) => file.id);
+    if (await call(() => api.followupMessage(job.id, followupText.trim(), files))) {
+      setFollowupText("");
+      followupAttach.clear();
+    }
+  }
+
   return (
     <div className="chatpage">
       <div className="chatmain">
@@ -197,6 +223,7 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
             <h1>{job.company} · {job.title}</h1>
             <span className="muted small headmeta">
               {[job.city.join("、"), job.type, job.site].filter(Boolean).join(" · ")}
+              {followup && <span title="投递以后，工作台接着是后续段">阶段：{phaseText(job)}</span>}
               {job.resumeChoice?.file && <span title="对话 Agent 按这个岗位排名选定的简历">拟用简历：{job.resumeChoice.file}</span>}
               {job.url && <a href={job.url} target="_blank" rel="noreferrer">岗位链接</a>}
               {job.officialUrl && <a href={job.officialUrl} target="_blank" rel="noreferrer">官方链接</a>}
@@ -229,6 +256,33 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
           </div>
         </header>
         {pollError && <p className="error small pad">刷新失败：{pollError}</p>}
+        {followup ? (
+          <>
+            <MessageList messages={followup.messages} running={followupRunning} jobs={[job]}
+              inserted={followup.inserted ?? []} error={followup.error}
+              activity={sse.activity !== undefined ? sse.activity : followup.activity}
+              onStop={() => void call(() => api.stopFollowup(job.id))}
+              before={<FillSegment steps={steps} job={job} />}
+              empty={
+                <p className="muted small">现在是「{phaseText(job)}」。在这里接着聊：收到的笔试 / OA 题、面试准备、面完的情况。
+                  Agent 会把轮次和复盘记下来，题目进题库，别的工作台以后也用得上。</p>
+              } />
+            <div className="composerwrap">
+              <Composer value={followupText} onChange={setFollowupText} running={followupRunning} disabled={busy}
+                attach={followupAttach}
+                onSend={() => void sendFollowup()}
+                onStop={() => void call(() => api.stopFollowup(job.id))}
+                onInterrupt={() => void call(async () => {
+                  await api.stopFollowup(job.id);
+                  await api.followupMessage(job.id, followupText.trim());
+                  setFollowupText("");
+                })}
+                placeholder={followupRunning ? "Agent 正在做，可以随时插话，它下一步会看到"
+                  : "说说进展（「收到 OA，周五截止」「一面问了…」），贴题目，或者让它帮你准备面试；可以附文件和截图"} />
+            </div>
+          </>
+        ) : (
+        <>
         <MessageList messages={steps} running={running} jobs={[job]} inserted={status?.inserted ?? []}
           activity={sse.activity !== undefined ? sse.activity : detail.activity}
           onStop={() => void call(() => api.stop(job.id))}
@@ -256,6 +310,8 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
             placeholder={running ? "Agent 正在做，可以随时插话（例如「先别填这个，改成…」），它下一步会看到" : ready ? "要修改时写明要改什么" : "回复 Agent（可选，例如「登录好了」），可以附文件和截图"} />
           {ready && <p className="privacy composerhint">修改说明原文会记进过程日志（run-log.jsonl），不要写个人信息。</p>}
         </div>
+        </>
+        )}
       </div>
       {panelOpen && (
         <aside className="jobsside" aria-label="现在要你做的事">
@@ -298,6 +354,24 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
         </aside>
       )}
     </div>
+  );
+}
+
+// 后续段上面的投递段（C022）：只读，默认折起来；下面一条分隔线「已投递 · 后续」
+function FillSegment({ steps, job }: { steps: JobDetail["steps"]; job: JobDetail["job"] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      {steps.length > 0 && (
+        <section className={`fillsegment${open ? " open" : ""}`}>
+          <button className="textbtn" aria-expanded={open} onClick={() => setOpen(!open)}>
+            <Icon name="down" size={13} /> {open ? "收起投递过程" : `投递过程（${steps.length} 条，只读）`}
+          </button>
+          {open && <TranscriptTurns messages={steps} jobs={[job]} />}
+        </section>
+      )}
+      <div className="segdivider"><span>已投递 · 后续</span></div>
+    </>
   );
 }
 
@@ -375,7 +449,7 @@ function Progress({ state }: { state: ApplicationState | null }) {
   );
 }
 
-// 轮次与复盘（C014-A）：对话 Agent 按你在对话里说的记下；写过复盘的点开看全文
+// 轮次与复盘（C014-A）：后续段的 Agent 按你说的记下（C022）；写过复盘的点开看全文
 function Rounds({ jobId, rounds }: { jobId: string; rounds: RoundView[] }) {
   const [open, setOpen] = useState<number | null>(null);
   const [review, setReview] = useState<string | null>(null);

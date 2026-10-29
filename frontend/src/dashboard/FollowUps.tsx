@@ -1,28 +1,19 @@
-import { useState } from "react";
-import { api, errorText, localDay, type JobView } from "../api";
+import { localDay, type JobView } from "../api";
 import { writeDraft } from "../chat/draft";
 import { go } from "../route";
 import { PHASE } from "../status";
-import { toast } from "../toast";
 import { applications, dayOf, daysBetween, md } from "./metrics";
 
-// 待追踪（C007「该查看了」）：已投递、到了下次查看日子的申请。「我看了」在它的 Project 里新建 Session，第一句已经填好
+// 待追踪（C007「该查看了」）：已投递、到了下次查看日子的申请。「我看了」打开它的工作台，后续段的第一句已经填好（C022）
 export function FollowUps({ jobs, showProject }: { jobs: JobView[]; showProject?: boolean }) {
-  const [busy, setBusy] = useState<string | null>(null);
   const today = localDay();
   const due = applications(jobs).filter((j) => j.due);
   const since = (job: JobView) => dayOf(job.lastCheckedAt) ?? dayOf(job.appliedAt);
   due.sort((a, b) => (since(a) ?? "").localeCompare(since(b) ?? ""));
-  async function open(job: JobView) {
-    setBusy(job.id);
-    try {
-      const view = await api.createSession(job.project);
-      writeDraft(view.session.id, `我看了 ${job.company} · ${job.title} 的状态：`);
-      go({ kind: "session", id: view.session.id });
-    } catch (e) {
-      toast(`新建对话失败：${errorText(e)}`, "error");
-      setBusy(null);
-    }
+  function open(job: JobView) {
+    // 和 JobPage 后续段输入框的草稿同一个键
+    writeDraft(`followup.${job.id}`, `我看了 ${job.company} · ${job.title} 的状态：`);
+    go({ kind: "job", id: job.id });
   }
   return (
     <div className="panel">
@@ -47,8 +38,8 @@ export function FollowUps({ jobs, showProject }: { jobs: JobView[]; showProject?
                         PHASE[job.phase ?? ""] ?? job.label].filter(Boolean).join(" · ")}
                     </small>
                   </div>
-                  <button className="linkbtn" disabled={busy !== null} title="去邮箱或官网看看，看完在对话里告诉 Agent"
-                    onClick={() => void open(job)}>我看了</button>
+                  <button className="linkbtn" title="去邮箱或官网看看，看完在它的工作台里告诉 Agent"
+                    onClick={() => open(job)}>我看了</button>
                 </div>
               );
             })}

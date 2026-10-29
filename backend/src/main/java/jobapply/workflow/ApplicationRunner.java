@@ -299,7 +299,7 @@ public final class ApplicationRunner implements AutoCloseable {
         Job job = jobs.load(run.project(), jobId);
         if (JobLedger.userDecided(job.status(), Actor.USER)) {
             throw new ApplicationException.Conflict("Job " + jobId + " 现在是 " + job.status().label()
-                    + "，你已经定下了，申请 Agent 不再接着做；投递后的进展在 Session 对话里告诉 Agent");
+                    + "，你已经定下了，申请 Agent 不再接着做；投递后的进展在这个工作台的后续段里告诉 Agent");
         }
         requireKnownSession(run.project(), reply.session());
         String text = reply.text() == null ? "" : reply.text().strip();
@@ -820,7 +820,8 @@ public final class ApplicationRunner implements AutoCloseable {
                 live.remove(jobId);
                 stopRequested.remove(jobId);
             }
-            release = releaseWhenDone.remove(jobId);
+            // 用户在工作台里说了「投了」（mark_submitted，C022）：这一页也不用留了
+            release = releaseWhenDone.remove(jobId) | appliedNow(result);
             // 跑完时还没被看到的插话（最后一步正好到的、或者「打断并发送」）：接着跑，不回报（C010）
             again = !release && resumeWithInserted(result);
             dispatch();
@@ -854,9 +855,9 @@ public final class ApplicationRunner implements AutoCloseable {
             String text = switch (run.status()) {
                 case AgentRun.READY -> run.pageShowsSubmitted()
                         ? name + "：" + SubmitWords.SUBMITTED_NOTICE + "确认一下：在 Chrome 里看投递状态，"
-                                + "投了就告诉我；没投的话在申请工作台里说。"
-                        : name + " 已经填好，停在提交前。请在 Chrome 里检查并提交，提交后告诉我；"
-                                + "要改的话在申请工作台里说。";
+                                + "投了就在申请工作台里点「我已经提交了」或者说一声；没投的话也在工作台里说。"
+                        : name + " 已经填好，停在提交前。请在 Chrome 里检查并提交，提交后在申请工作台里点「我已经提交了」"
+                                + "或者说一声；要改的话在工作台里说。";
                 case AgentRun.WAITING_USER -> name + " 在等你："
                         + shorten(run.message() == null ? "需要你回复" : run.message(), 200) + " 去申请工作台回复。";
                 case AgentRun.FAILED -> name + " 出错停下了：" + shorten(run.error(), 200)
@@ -868,6 +869,15 @@ public final class ApplicationRunner implements AutoCloseable {
             }
         } catch (RuntimeException e) {
             log.warn("Job {} 没有回报给 Session {}：{}", run.job(), run.session(), rootMessage(e));
+        }
+    }
+
+    /** 这次运行里已经记为已投递了（申请 Agent 的 mark_submitted）。读不出时当作没有。 */
+    private boolean appliedNow(AgentRun run) {
+        try {
+            return JobLedger.alreadyApplied(jobs.load(run.project(), run.job()).status());
+        } catch (RuntimeException e) {
+            return false;
         }
     }
 

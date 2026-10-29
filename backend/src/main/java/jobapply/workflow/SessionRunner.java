@@ -445,7 +445,7 @@ public final class SessionRunner implements AutoCloseable {
         }
     }
 
-    /** 对话 Agent 的 {@code start_application}，以及记下用户说的事实之前停下申请线程。 */
+    /** 对话 Agent 的 {@code start_application} 和申请线程的状态。 */
     private SessionLoop.Applications applicationTools() {
         return new SessionLoop.Applications() {
             @Override
@@ -463,16 +463,6 @@ public final class SessionRunner implements AutoCloseable {
                             + "之后在申请工作台里看进度。";
                 }
                 return "已经开始申请 " + job + "（申请线程：" + status.status() + "）。之后在申请工作台里进行。";
-            }
-
-            @Override
-            public void stop(String job) {
-                applications.statusIfAny(job).ifPresent(status -> applications.stop(job));
-            }
-
-            @Override
-            public void closeTabs(String job) {
-                applications.closeTabs(job);
             }
 
             @Override
