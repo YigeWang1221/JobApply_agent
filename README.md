@@ -1,55 +1,151 @@
 # JobApply
 
-让 Agent 帮你找岗位、填申请，把时间留给选择和面试。
+**JobApply 是一个在本机运行的求职 Agent，负责岗位调研、简历匹配、申请填写和投递后的跟进。** 它在用户日常使用的 Chrome 中操作招聘页面，复用已有登录状态，把申请填到最终提交前，并将岗位、材料、对话与复盘保存在本地工作区。
 
-求职者每投一份简历，往往都要注册账号、上传文件，再把简历里的教育和项目经历填一遍。换一个招聘网站，又要重复同样的操作。完成投递后，还要记录申请进度、安排面试和跟进结果。
+用户准备求职资料、说明方向，在需要时补充信息，并亲自完成登录和最终提交。每个岗位都有独立工作台，从选简历到准备面试都围绕同一份岗位记录展开。
 
-**JobApply 是一个在本机运行的求职 Agent。** 它根据你提供的资料和求职方向调研岗位、推荐简历，在你的 Chrome 里填写申请，并记录投递和面试进度。
+[求职工作流](#求职工作流) · [模型驱动的工具循环](#模型驱动的工具循环) · [资料与经验复用](#资料与经验复用) · [技术实现](#技术实现) · [设计借鉴](#设计借鉴) · [本地运行](#本地运行)
 
-你只需准备资料、说明要求，在需要时补充信息，并在浏览器中完成登录和最终提交。
+## 求职工作流
 
-[选型与借鉴](#选型与借鉴) · [系统框架](#系统框架) · [Agent 设计](#agent-设计) · [技术实现](#技术实现) · [本地运行](#本地运行)
+JobApply 用 **Project** 组织求职方向与资料，用 **Session** 保存岗位调研对话，用 **Job 工作台** 处理单个岗位的申请和后续。侧栏按这些关系提供入口，便于在调研对话和已打开的工作台之间切换。
 
-## 功能概览
+### 调研对话整理候选岗位
 
-你可以用一句话开始求职：“帮我找上海的 Java 后端岗位，优先看应届生职位。”JobApply 会围绕这个目标完成以下工作：
+调研 Agent 根据求职要求搜索职位、读取 JD、核实官网招聘信息，并将岗位加入候选池。它结合个人画像和求职偏好说明岗位要求与匹配情况，保留 JD 快照和调研备注，供工作台继续使用。
 
-- **找岗位。** 搜索职位、读取 JD、核实是否还在招聘，把合适的岗位放进候选池。
-- **准备材料。** 根据岗位比较已有简历，给出修改建议，和你确定这次上传哪一份。
-- **填申请。** 读取页面、填写表单、上传材料，并在缺少信息或遇到验证码时请你补充。
-- **跟进结果。** 记录提交后的投递状态、面试轮次与复盘，在工作区汇总后续事项。
+### 岗位工作台完成简历匹配与填写
 
-![JobApply 工作区：投递漏斗、阶段看板和待处理事项](docs/images/dashboard-demo.png)
+申请 Agent 在工作台中比较已有简历与当前 JD，给出匹配排名和修改建议。它把用户确认的简历设为本次上传材料，再调用浏览器工具填写申请。简历讨论、材料选择、表单填写和填写报告保存在同一个岗位下，多份申请各自保留对话。
 
-*界面示意来自[历史原型](plan/reference/ui-mockup.html)，使用虚构数据。[查看申请总表示意](docs/images/applications-demo.png)。*
+JobApply 将简历选择放在工作台，是因为匹配结论属于具体岗位：同一个 Session 可以找到多个岗位，但每个岗位需要的经历重点和简历版本不同。工作台在材料准备阶段延迟打开招聘页面，直到需要浏览器操作时再建立标签页；选定的简历立即进入本次文件清单，下一次工具调用即可上传。
 
-## 选型与借鉴
+### 后续对话记录 OA、面试与复盘
 
-### Spring AI 模型接入与自研 AgentLoop
+JobApply 在用户告知已提交后记录投递状态，并在原工作台开启“后续”对话。后续 Agent 读取 JD、选用的简历、当前阶段和轮次摘要，继续处理 OA、面试讨论、状态更新与复盘。
 
-JobApply 的早期实现采用 LangGraph4j，将申请步骤组织成固定节点，并在九处设置等待点。由于这套实现将登录判断和用户交接绑定到流程分支，新出现的页面行为往往需要通过修改节点逻辑处理。
+JobApply 将后续对话单独保存，界面仍保留之前的投递记录。这样，面试讨论可以沿用岗位与材料信息，无需把此前逐字段填表的工具历史带入新对话。后续 Agent 通过 `record_round`、`save_review` 等工具保存轮次和题目，并将记录汇总到题库、公司复盘与进度视图。
 
-JobApply 随后改用 Java Harness，将申请步骤交给模型根据工具反馈决定。它保留 Spring AI 的模型、消息和工具协议，通过 `AgentLoop` 控制每轮调用，通过 `HarnessLoop` 与 `SessionLoop` 处理申请和调研，从而直接管理消息组装、Skills 加载、用户插话与对话持久化。
+![JobApply 进度视图示意](docs/images/dashboard-demo.png)
 
-| 方案 | JobApply 的选择与原因 |
+*历史界面原型，使用虚构数据；[申请总表示意](docs/images/applications-demo.png)。*
+
+## 模型驱动的工具循环
+
+招聘网站的页面结构、控件和交接时机各不相同。JobApply 将下一步操作交给模型根据页面与工具结果决定，由 Java Harness 负责消息组装、工具执行、状态保存和任务调度。Spring AI 提供模型与工具协议，项目自己的 `AgentLoop` 控制每轮调用。
+
+```mermaid
+flowchart LR
+    input["用户要求与运行时补充"] --> context["资料、Skills 索引、对话、当前状态"]
+    context --> model["模型选择下一步"]
+    model --> tools["执行工具调用"]
+    tools --> result["记录结果与最新页面"]
+    result --> context
+    model --> reply["回复用户"]
+    tools --> handoff["ask_user / finish：保存并交回用户"]
+```
+
+`AgentLoop` 每轮调用模型，依次执行返回的工具调用，再把结果送入下一轮。调研、申请和后续共用这个循环，分别由 `SessionLoop`、`HarnessLoop`、`FollowupLoop` 提供提示词、上下文和工具集。浏览器错误也作为工具结果返回，供模型调整操作。
+
+模型通过 `ask_user` 请求缺失信息，通过 `finish` 结束本次填写并生成报告。Harness 保存对话和工具结果，在用户回复后接着运行。用户在运行期间补充的要求先进入 `Inbox`，由循环在下一次模型调用前加入对话。
+
+实现：[AgentLoop](backend/src/main/java/jobapply/harness/runtime/AgentLoop.java)、[HarnessLoop](backend/src/main/java/jobapply/harness/runtime/HarnessLoop.java)、[FollowupLoop](backend/src/main/java/jobapply/harness/runtime/FollowupLoop.java)。
+
+### 申请状态连接计划、填写结果与报告
+
+长表单需要持续记录哪些字段已填、哪些已核对、哪些仍缺信息。JobApply 用一份 `ApplicationState` 保存当前阶段、计划、字段清单和决定，并在每次模型请求的末尾附上最新状态。
+
+模型通过 `update_state` 整理字段与下一步计划；Harness 根据填写和读回结果更新字段状态。工作台侧栏与填写报告读取同一份状态，使模型看到的待办与用户看到的进度对应起来。已经完成的区域在上下文中压缩为概要，尚未完成的字段保留值、来源和待处理原因。
+
+实现：[ApplicationState](backend/src/main/java/jobapply/domain/ApplicationState.java)、[StateView](backend/src/main/java/jobapply/harness/context/StateView.java)。
+
+### 消息与页面反馈按轮组织
+
+`Conversation` 将内部对话转换为 Spring AI 消息，并按调用 ID 配对工具请求和结果。它保留最新页面，将旧页面快照缩减为操作记录；遇到未完成的工具调用时补上中断说明，使续接后的消息仍有对应结果。
+
+JobApply 将稳定的职责和操作说明放入 system prompt，将资料、上传文件编号、Skills 索引与站点经验放入任务上下文。工具名称、参数 Schema 和说明通过 Spring AI 随请求发送。对于需要回传思考内容的 OpenAI 兼容协议，`Conversation` 保留最近一条用户消息之后的思考元数据，支持带工具调用的连续推理。
+
+实现：[Conversation](backend/src/main/java/jobapply/harness/context/Conversation.java)、[FillContext](backend/src/main/java/jobapply/harness/context/FillContext.java)、[ModelFactory](backend/src/main/java/jobapply/config/ModelFactory.java)。
+
+### Skills 按需提供控件操作方法
+
+JobApply 在上下文中列出 Skill 名称和用途，由模型通过 `read_skill` 加载所需正文。Skills 保存申请表、级联选择、日期控件、重复经历和文件上传等操作方法；浏览器工具负责执行操作，返回可选项、读回值和未完成原因。
+
+这层分工把控件经验从主提示词中拆出：主提示词说明任务与判断原则，Skill 说明具体操作方法。模型通过 `remember` 更新记忆或替换 Skill 段落，将一次申请积累的方法留给后续任务。
+
+实现：[SkillCatalog](backend/src/main/java/jobapply/harness/context/SkillCatalog.java)、[预置 Skills](backend/src/main/resources/playbook/skills)、[MemoryWriter](backend/src/main/java/jobapply/memory/MemoryWriter.java)。
+
+## 资料与经验复用
+
+### 分层资料保留事实与出处
+
+JobApply 将求职资料分为来源、证据、事实和画像四层。来源层保留原件与登记信息，证据层关联成果依据，事实层保存经历和项目内容，画像层概括技能与求职方向。概要与来源引用保留同一段经历的上下文，便于按需读取详细材料。
+
+`ProfileResolver` 按“本次回答 → 当前 Project → 父 Project → 基础资料”的顺序解析事实。同一份基础经历可以服务不同求职方向，当前项目的覆盖值决定本次采用的表达。
+
+JobApply 将站点操作经验、公司记忆和通用教训分别保存。申请上下文读取当前公司的记忆与通用教训，调研上下文读取通用教训，Skills 则提供可复用的操作方法。
+
+实现：[ProfileResolver](backend/src/main/java/jobapply/memory/ProfileResolver.java)、[MemoryWriter](backend/src/main/java/jobapply/memory/MemoryWriter.java)。
+
+### 本地 RAG 让不同工作台共享经验
+
+准备新申请或面试时，相关经验可能保存在另一个 Project 或 Session 下的岗位中。JobApply 为工作台提供 `search_experience`，从历史填写报告的字段内容、轮次记录、题库和公司复盘中检索相关片段，并返回文件出处、岗位等元数据。模型可以按公司、阶段或记录类型过滤，也可以跨公司查找相似问题。
+
+JobApply 使用本地 `multilingual-e5-small` ONNX 模型生成向量，通过 Spring AI `SimpleVectorStore` 将索引保存为本地文件。原始 Markdown 仍保存完整记录和所属关系，向量索引负责发现相关经验，两者共同支持从片段回到出处。
+
+嵌入模型首次使用时下载到 `storage/model/RAG/`，之后从本地加载。项目直接用 ONNX Runtime 推理，并在 Java 中完成池化，原因是封装后的嵌入实现还会通过 PyTorch 引擎下载额外运行库，无法将下载位置和进度统一纳入应用管理。模型不可用或索引重建期间，检索返回关键词匹配结果并标明原因。
+
+JobApply 在记录写入后增量更新索引，并在启动和检索时同步文件变化。投递段可以查找过去的开放式问题回答，后续段可以查找 OA 题目和面试复盘；检索时机由模型根据当前任务决定。
+
+实现：[ExperienceIndex](backend/src/main/java/jobapply/memory/ExperienceIndex.java)、[ExperienceSources](backend/src/main/java/jobapply/memory/ExperienceSources.java)、[ExperienceModel](backend/src/main/java/jobapply/memory/ExperienceModel.java)、[E5Embedding](backend/src/main/java/jobapply/memory/E5Embedding.java)。
+
+## 技术实现
+
+```mermaid
+flowchart TB
+    ui["React 工作区"] <-->|REST / SSE| api["Spring Boot"]
+    api --> runners["调研、申请、后续任务"]
+    runners --> loop["共用 AgentLoop"]
+    loop <--> model["Spring AI · 模型协议"]
+    loop --> tools["资料、Skills、岗位与复盘工具"]
+    loop --> browser["Playwright MCP · 独立任务会话"]
+    browser <--> chrome["用户的 Chrome · 共享登录、独立标签页"]
+    tools <--> files[("本地资料与运行记录")]
+    loop --> rag["经验检索 · ONNX + SimpleVectorStore"]
+    rag <--> files
+    runners --> files
+```
+
+### 共享 Chrome 登录，按任务调度申请
+
+JobApply 通过 CDP 连接用户正在使用的 Chrome，为各任务分配 MCP 会话和标签页。申请 Worker 池分别管理总并发数与同站点并发数，站点名额已满时可以推进其他站点的任务。保活会话维持共享浏览器连接，连续申请沿用同一份登录状态。
+
+实现：[ApplicationRunner](backend/src/main/java/jobapply/workflow/ApplicationRunner.java)、[BrowserSession](backend/src/main/java/jobapply/tools/BrowserSession.java)、[OwnerBrowser](backend/src/main/java/jobapply/tools/OwnerBrowser.java)。
+
+### 本地文件保存对话，事件流更新界面
+
+JobApply 用 Markdown 与 YAML 保存资料和岗位记录，用 JSON / JSONL 保存运行状态、对话与事件，用 CSV 导出台账。后台任务独立于页面订阅运行，`RuntimeEvents` 通过 SSE 推送消息和工具进度，并按事件序号支持短暂断线后的补发；缓冲过期时，前端重新读取已保存的状态。
+
+JobApply 在模型上下文中以 `{KEY}` 表示敏感字段，仅在发出浏览器填写调用时替换真实值。本地文件保存资料和记录，云端对话模型与搜索服务仍会接收各自请求所需的上下文；经验嵌入计算在本机完成。
+
+| 部分 | 技术 |
 | --- | --- |
-| LangChain / Deep Agents | JobApply 借鉴其循环、Skills 和子任务机制，并在 Java 后端实现这些设计，使 Agent 与现有资料和浏览器工具运行在同一进程。 |
-| LangGraph / LangGraph4j | JobApply 用 AgentLoop 替换了早期的 LangGraph4j 流程，通过保存对话、计划和运行状态实现暂停与续接。 |
-| Spring AI Alibaba Graph | JobApply 在选型研究后采用模型与工具循环，自行管理运行状态，没有引入 Alibaba Graph。 |
-| LangChain4j | JobApply 已通过 Spring AI 接入模型，因此没有再引入同属 Java 生态的 LangChain4j。 |
-| Spring AI | JobApply 使用 Spring AI 接入模型与工具协议，自行管理工具执行和下一轮调用。 |
+| 后端与模型接入 | Java 25、Spring Boot 4.1.1、Spring AI 2.0.1；OpenAI 兼容与 Anthropic 协议 |
+| 浏览器操作 | Playwright MCP 0.0.83、Chrome CDP |
+| 前端 | React 19.3.1、TypeScript 7.0.2、Vite 8.3.4 |
+| 文档解析 | Apache Tika 4.1.0 |
+| 经验检索 | ONNX Runtime、multilingual-e5-small、SimpleVectorStore |
+| 桌面打包 | macOS：Swift / WKWebView；Linux / Windows：jpackage 构建脚本 |
 
-JobApply 移除 LangGraph4j 是为了调整自身的流程建模方式，并非认为图框架只能执行固定步骤；Deep Agents 就是在 LangGraph 上构建动态 Agent 的例子。
+依赖定义：[backend/pom.xml](backend/pom.xml)、[frontend/package.json](frontend/package.json)。
 
-### 开源设计参考与实现
-
-JobApply 参考 [OpenMAIC](https://github.com/THU-MAIC/OpenMAIC)、[Deep Agents](https://github.com/langchain-ai/deepagents) 和 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 的源码与设计，用 Java 实现了以下机制。
+## 设计借鉴
 
 **OpenMAIC：用户交接与事件续接。** JobApply 参考 OpenMAIC 课堂导演的 `cue_user` 机制，通过 `ask_user` 结束本次运行、请求补充信息，并在收到回复后续接对话。JobApply 还借鉴了 OpenMAIC 将运行与 SSE 读者分离、按序号补发事件的设计，采用本地文件保存状态、内存缓冲保存实时事件。
 
 出处：[导演循环](https://github.com/THU-MAIC/OpenMAIC/blob/dff201b49857918885cc5ebadb4a8af254b6ae9d/lib/chat/pi/director-loop.ts)；落地：[HarnessLoop](backend/src/main/java/jobapply/harness/runtime/HarnessLoop.java)、[RuntimeEvents](backend/src/main/java/jobapply/workflow/RuntimeEvents.java)。
 
-**Deep Agents：共用循环与按需加载。** JobApply 参考 Deep Agents 通过 `create_agent` 组装不同 Agent 的方式，用同一个 `AgentLoop` 驱动调研和申请，通过 `SessionLoop` 与 `HarnessLoop` 提供各自的上下文和工具处理。JobApply 也借鉴了它的 Skills 按需加载、工具中断结果补齐和子任务回报机制。
+**Deep Agents：共用循环与按需加载。** JobApply 参考 Deep Agents 通过 `create_agent` 组装不同 Agent 的方式，用同一个 `AgentLoop` 驱动不同任务，通过任务各自的 Loop 提供上下文和工具处理。JobApply 也借鉴了它的 Skills 按需加载、工具中断结果补齐和子任务回报机制。
 
 出处：[Agent 组装](https://github.com/langchain-ai/deepagents/blob/3e7d5faa9d275beb3d54f11266aac3c60e3d50b9/libs/deepagents/deepagents/graph.py)、[工具结果补齐](https://github.com/langchain-ai/deepagents/blob/3e7d5faa9d275beb3d54f11266aac3c60e3d50b9/libs/deepagents/deepagents/middleware/patch_tool_calls.py)；落地：[AgentLoop](backend/src/main/java/jobapply/harness/runtime/AgentLoop.java)、[Conversation](backend/src/main/java/jobapply/harness/context/Conversation.java)、[ApplicationRunner](backend/src/main/java/jobapply/workflow/ApplicationRunner.java)。
 
@@ -57,207 +153,11 @@ JobApply 参考 [OpenMAIC](https://github.com/THU-MAIC/OpenMAIC)、[Deep Agents]
 
 出处：[主循环与 steer](https://github.com/NousResearch/hermes-agent/blob/e5dad4ac57ad11d39fe18b1ac895c0e0ae5b6494/run_agent.py)、[Memory 工具](https://github.com/NousResearch/hermes-agent/blob/e5dad4ac57ad11d39fe18b1ac895c0e0ae5b6494/tools/memory_tool.py)；落地：[ApplyAgent](backend/src/main/java/jobapply/agents/ApplyAgent.java)、[Inbox](backend/src/main/java/jobapply/domain/Inbox.java)、[MemoryWriter](backend/src/main/java/jobapply/memory/MemoryWriter.java)。
 
-**[SillyTavern（酒馆）](https://github.com/SillyTavern/SillyTavern)：分层资料与按需展开。** JobApply 从酒馆项目获得启发，在上层资料中保留概要与引用，为模型提供按需追溯下层内容的路径。它据此组织原始材料、整理后的资料和运行记录，保留资料之间的上下文关系。
-
-更完整的源码路径、研究版本和未采用的机制见[研究笔记](plan/reference/research-agent-design.md)。
-
-## 系统框架
-
-JobApply 用 **Project** 组织求职资料与方向，用 **Session** 保存调研和讨论，用 **Job** 跟踪岗位申请及后续进度。通过这三个对象，JobApply 将对话与岗位记录分开管理，支持跨对话继续推进同一份申请。
-
-```mermaid
-flowchart TB
-    ui["React 工作区 · 对话、申请与进度"]
-    api["Spring Boot API"]
-    ui <-->|REST| api
-
-    subgraph runtime["Agent 运行时"]
-        session["SessionRunner · 岗位调研与对话"]
-        workers["ApplicationRunner · 并发申请 Worker 池"]
-        loop["AgentLoop · 上下文 → 模型 → 工具 → 反馈"]
-        session --> loop
-        workers --> loop
-    end
-
-    api --> session
-    api --> workers
-    loop <--> model["Spring AI · 模型接入"]
-    loop --> tools["领域工具 · 搜索、JD、资料、Skills、Memory"]
-    loop --> browser["浏览器工具 · 每个任务独立 MCP 会话"]
-    browser --> mcp["Playwright MCP · 共享 CDP 连接"]
-    mcp <--> chrome["本机 Chrome · 共享登录、独立标签页"]
-    tools <--> storage[("本地文件 · 资料、经验与投递台账")]
-    session --> storage
-    workers --> storage
-    session --> events["RuntimeEvents · 运行事件"]
-    workers --> events
-    events -->|SSE| ui
-
-    classDef interface fill:#eff6ff,stroke:#3b82f6,color:#1e3a8a
-    classDef agent fill:#f0fdf4,stroke:#22c55e,color:#14532d
-    classDef resource fill:#fff7ed,stroke:#f59e0b,color:#7c2d12
-    class ui,api,events interface
-    class session,workers,loop agent
-    class model,tools,browser,mcp,chrome,storage resource
-```
-
-JobApply 根据 Session 中的求职要求搜索岗位、整理候选，并根据 JD 推荐简历。在用户确定岗位和材料后，JobApply 启动申请任务，在 Chrome 中填写表单、上传文件，再将填写报告和申请进度回传到对话。
-
-用户可以在这段对话中持续补充资料、调整要求，完成申请前再审阅内容并亲自提交。
-
-JobApply 采用共用的 AgentLoop 驱动调研与申请，通过不同的提示词、上下文和工具集区分两者的职责。它将页面与工具反馈交给模型选择下一步，随后执行调用并保存对话；需要补充信息时，它保存本轮结果，等待用户回复后继续执行。
-
-## Agent 设计
-
-JobApply 的核心是一个 Java Harness，负责组装上下文、调用模型、执行工具和保存对话。Harness 以 `AgentLoop` 为共用骨架，通过 `HarnessLoop` 处理申请，通过 `SessionLoop` 处理调研与对话。两个任务实现都通过 `messages`、`handle`、`roundDone` 等接口接入循环。
-
-### Round Loop：模型决策与工具反馈
-
-`AgentLoop` 将一次模型调用及其返回的一批工具执行作为一轮。它先接收用户插话，组装消息并调用模型，再将返回的工具调用逐个交给对应 Agent 执行。收齐结果后，它将结果加入对话，进入下一轮。
-
-```mermaid
-flowchart LR
-    inbox["接收用户消息"] --> context["组装上下文与历史消息"]
-    context --> model["调用模型"]
-    model --> calls["执行模型选择的工具"]
-    calls --> results["记录结果、更新页面与计划"]
-    results --> context
-    model --> reply["文字回复 · 交回用户"]
-    calls --> finish["ask_user / finish · 保存并结束本轮运行"]
-```
-
-模型通过 `update_plan` 维护申请清单，通过 `ask_user` 请求补充信息，通过 `finish` 生成填写报告并交回用户。它根据每次工具调用的结果调整后续动作，包括处理执行失败时返回的错误。
-
-Harness 负责保存这些调用和结果，并在收到用户回复后读取已有对话、追加新消息，继续运行。
-
-JobApply 将运行职责分为三部分：通过 `ApplicationRunner` 调度申请任务，通过 `HarnessLoop` 处理单个任务的工具调用，通过 `AgentLoop` 控制模型与工具之间的轮转。
-
-实现：[AgentLoop](backend/src/main/java/jobapply/harness/runtime/AgentLoop.java)、[HarnessLoop](backend/src/main/java/jobapply/harness/runtime/HarnessLoop.java)、[SessionLoop](backend/src/main/java/jobapply/harness/runtime/SessionLoop.java)。
-
-### 消息格式与工具调用关联
-
-JobApply 用 `AgentRun.Turn` 保存内部对话，在每条记录中保存角色、文字、工具调用、工具结果和附件。对于工具调用，JobApply 记录 `id`、`name` 和 JSON 参数；对于执行结果，它记录对应的调用 `id`、执行状态与耗时。
-
-`Conversation` 在请求模型前将这些记录转换为 Spring AI 消息：
-
-| 消息 | 内容与用途 |
-| --- | --- |
-| `SystemMessage` | Agent 的职责、工作方法与操作说明 |
-| `UserMessage`（上下文） | 本轮使用的资料、Skills 索引、计划等运行信息 |
-| `UserMessage`（对话） | 用户要求、补充回答与附件 |
-| `AssistantMessage` | 模型回复及其 `toolCalls` |
-| `ToolResponseMessage` | 按调用 ID 对应的执行结果，供下一轮模型判断 |
-
-`Conversation` 在构建请求时完整保留最新页面快照，只保留历史页面的操作记录，避免重复发送整页内容。它会为缺少结果的工具调用补充中断说明，保持调用与结果成对；对于已保存的模型思考内容，它不再放回请求，只保留在对话记录中供界面展示。
-
-JobApply 将申请对话和计划保存在 Job 的运行 JSON 中，将 Session 对话保存在 JSONL 中。后续运行时，JobApply 从这些记录重建模型消息，接着处理用户的新回复。
-
-实现：[AgentRun](backend/src/main/java/jobapply/domain/AgentRun.java)、[Conversation](backend/src/main/java/jobapply/harness/context/Conversation.java)、[AgentRunStore](backend/src/main/java/jobapply/persistence/AgentRunStore.java)。
-
-### System Prompt 与每轮上下文组装
-
-JobApply 将稳定的工作说明与变化的任务资料分开组装：通过 `ApplyAgent` 拼接 system prompt，通过 `FillContext` 准备每轮上下文，再通过 `Conversation` 按“system prompt → 本轮上下文 → 历史对话”的顺序生成消息列表。
-
-其中，system prompt 包括身份与目标、工作方法、场景指导、写作与记忆、操作约束；每轮上下文包括有效资料、本次回答、上传文件编号、Skills 索引、站点记录和模型计划。
-
-JobApply 为调研和申请准备不同的输入。调研侧采用 `ResearchAgent` 的 system prompt，并通过 `SessionLoop` 提供日期、Project、用户画像、求职偏好、已有资料键和调研类 Skills；申请侧提供可填表的中英资料与本次申请信息，将任务集中在一个 Job 上。
-
-Harness 通过 Spring AI 的 `ToolCallback` 随请求单独发送工具名称、说明和参数 Schema，并根据模型返回的名称和参数执行调用。
-
-实现：[ApplyAgent](backend/src/main/java/jobapply/agents/ApplyAgent.java)、[ResearchAgent](backend/src/main/java/jobapply/agents/ResearchAgent.java)、[FillContext](backend/src/main/java/jobapply/harness/context/FillContext.java)、[ModelFactory](backend/src/main/java/jobapply/config/ModelFactory.java)。
-
-### Skills 索引与按需加载
-
-JobApply 通过 `SkillCatalog` 扫描 `playbook/skills/` 下的 `SKILL.md`，读取 frontmatter 中的名称、描述、分组和站点匹配信息。它在申请上下文中列出可用 Skills 的名称与描述，并推荐匹配招聘站点的 Skill；在调研上下文中则只列出 research 分组。
-
-Harness 根据模型发出的 `read_skill(name)` 调用读取正文，以工具结果的形式返回，供下一轮使用。它只在收到调用后加载对应文件，无需预先将所有 Skill 正文放入上下文。
-
-Agent 通过 `remember` 的 skill 类型更新已有方法。它先读取 Skill，再用唯一匹配的原文定位并替换段落，将本次积累的方法保留给后续申请。
-
-实现：[SkillCatalog](backend/src/main/java/jobapply/harness/context/SkillCatalog.java)、[MemoryWriter](backend/src/main/java/jobapply/memory/MemoryWriter.java)。
-
-### Memory 分层与资料解析
-
-JobApply 按资料的用途建立四层 Memory，让原始材料、可用事实和求职表达各自保存：
-
-| 层 | 保存的内容 | 在 Agent 中的用途 |
-| --- | --- | --- |
-| 来源层 | 上传原件、文件索引、本地目录与公开仓库的来源登记 | 保留资料出处，支持读取原件 |
-| 证据层 | 来源清单、论断台账 | 关联经历与成果的依据 |
-| 事实层 | 个人事实、项目卡、中英术语 | 提供填表与材料写作使用的具体内容 |
-| 画像层 | 求职方向、技能分组、亮点与定位 | 为岗位调研和匹配提供概要 |
-
-`ProfileResolver` 按 **本次回答 → 当前 Project 覆盖 → 父 Project 覆盖 → base 基础资料** 的优先级解析事实。它对同名事实采用高优先级的值，并通过 `unset` 屏蔽指定的继承值。
-
-用户可以据此复用基础经历，同时为不同求职方向维护各自的资料。
-
-JobApply 将操作经验单独保存在 Playbook 中，按域名组织站点记录，用 Skills 保存可复用的方法。它通过申请 Harness 读取站点记录，通过 `read_skill` 提供具体方法，并通过 `MemoryWriter` 执行 `remember` 请求，更新个人事实、站点和公司记录。对于已有内容，JobApply 支持替换和删除，减少重复追加。
-
-实现：[ProfileResolver](backend/src/main/java/jobapply/memory/ProfileResolver.java)、[MemoryWriter](backend/src/main/java/jobapply/memory/MemoryWriter.java)；设计：[Memory 分层](plan/master/memory.md)。
-
-### 分层 Markdown 与按需追溯
-
-一组求职资料往往包含语义不同、逻辑相关的内容，例如同一段项目经历中的技术实现、个人职责和业务结果，或同一次求职中不同方向的岗位。这些内容仅靠相似度匹配容易被割裂，难以完整呈现所属关系和前后依据。
-
-JobApply 选择分层 Markdown 来保留这些逻辑关系，按资料的归属组织内容，避免只从扁平向量索引中召回零散片段。
-
-JobApply 在来源层保留原件，在证据与事实层保存整理后的内容，在画像层提供概要，并在 Job 与 Session 中保存申请过程的对话和记录。它通过 Project、Job 和来源引用连接这些资料，为模型提供沿业务关系读取内容的路径。
-
-JobApply 借鉴 **[SillyTavern（酒馆）](https://github.com/SillyTavern/SillyTavern)** 的思路设计分层阅读，在上层资料中保留概要和指向下层资料的链接。
-
-模型先阅读概要，再根据任务判断是否需要展开，沿引用追溯详细内容或原始材料。
-
-JobApply 使用 Markdown 正文保存经历、经验和方法，使用 YAML frontmatter 保存字段与引用；对于运行状态、对话和事件，它分别采用 JSON 与 JSONL，并以 CSV 导出台账。
-
-用户可以直接阅读、修改 Markdown 文件，也可以用 Obsidian 浏览资料之间的关系。
-
-JobApply 用 Markdown 保存内容，用层级、归属和来源引用组织读取路径，不以扁平的相似度召回代替这些关系。
-
-## 技术实现
-
-JobApply 采用 Java 后端和 React 前端，通过 Spring AI 接入模型，通过 Playwright MCP 操作浏览器，并在自身的 Harness 中管理求职工具、循环、任务调度与资料保存。
-
-| 部分 | 使用的技术 |
-| --- | --- |
-| 后端 | Java 25、Spring Boot 4.1.1 |
-| 模型接入 | Spring AI 2.0.1，支持 OpenAI 兼容与 Anthropic 协议 |
-| 浏览器 | Playwright MCP 0.0.83，通过 CDP 连接本机 Chrome |
-| 前端 | React 19.3.1、TypeScript 7.0.2、Vite 8.3.4 |
-| 文档解析 | Apache Tika 4.1.0 |
-| 存储 | Markdown、YAML、JSON / JSONL、CSV |
-| 实时更新 | REST + SSE |
-
-版本来源：[后端依赖](backend/pom.xml)、[前端依赖](frontend/package.json)。
-
-### Worker 池与独立浏览器会话实现并发申请
-
-JobApply 采用 Worker 池调度申请，为每个任务分配独立的 MCP 会话和标签页，在共享 Chrome 登录状态的同时并行执行多份申请。它通过标签页归属和弹出页的 `opener` 确定任务对应的页面。
-
-JobApply 分别管理总并发数和同站点并发数，在站点名额满时优先推进其他站点的申请。它通过保活会话维持共享 CDP 连接，在连续申请时沿用已有授权，并提供设置页供用户调整并发数量。
-
-实现：[ApplicationRunner](backend/src/main/java/jobapply/workflow/ApplicationRunner.java)、[BrowserSession](backend/src/main/java/jobapply/tools/BrowserSession.java)、[OwnerBrowser](backend/src/main/java/jobapply/tools/OwnerBrowser.java)。
-
-### 消息收件箱实现运行时 Steer
-
-用户可以在 Agent 工作时直接补充要求，无需等待整份申请完成。
-
-JobApply 通过消息收件箱实现这种 Steer 交互：它先保存补充要求，等当前一批工具执行完，再通过 AgentLoop 将消息加入下一次模型调用的上下文。对于运行结束时尚未处理的消息，JobApply 会通过 Runner 继续处理。
-
-实现：[Inbox](backend/src/main/java/jobapply/domain/Inbox.java)、[AgentLoop](backend/src/main/java/jobapply/harness/runtime/AgentLoop.java)。
-
-### SSE 事件续接与对话持久化
-
-JobApply 将后台任务与前端事件订阅分离，通过 SSE 推送工具调用和申请进度。它为事件分配递增序号，在页面短暂断线后按序补发，并在页面刷新期间继续执行后台任务。
-
-JobApply 将对话与任务状态保存到本地文件，在事件缓冲过期时提供已保存的状态供前端重新读取。服务重启后，JobApply 根据已保存的对话续接任务，并重新核对浏览器页面。
-
-实现：[RuntimeEvents](backend/src/main/java/jobapply/workflow/RuntimeEvents.java)、[Conversation](backend/src/main/java/jobapply/harness/context/Conversation.java)。
-
-JobApply 在模型上下文中使用 `{KEY}` 表示敏感字段，只在发送浏览器填表调用时替换为用户在设置页填写的真实值。它将资料保存在本机 `storage/` 中，并在调用云端模型或搜索服务时发送相应上下文。
+**[SillyTavern（酒馆）](https://github.com/SillyTavern/SillyTavern)：分层资料的设计启发。** 项目作者从对酒馆的研究中获得“上层概要、下层资料、引用按需展开”的思路，将它用于 JobApply 的资料组织：画像提供概要，事实与证据保留细节，来源记录指向原件。这是资料组织方式的借鉴，具体落地见 [ProfileResolver](backend/src/main/java/jobapply/memory/ProfileResolver.java) 与 [SourceInventory](backend/src/main/java/jobapply/memory/SourceInventory.java)。
 
 ## 本地运行
 
-JobApply 的本地运行环境包括 JDK 25、Maven、满足 [Vite 8 要求](https://vite.dev/guide/)的 Node.js（20.19+ 或 22.12+）、npm，以及开启远程调试的 Chrome。
+源码运行需要 JDK 25、Maven、与项目 Vite 版本兼容的 Node.js、npm，以及开启远程调试的 Chrome。
 
 ```bash
 # 终端 1：在仓库根目录执行
@@ -281,12 +181,8 @@ npm run dev
 1. 在“设置 → 模型”添加提供方、配置模型，分配主模型与辅助模型。
 2. 在资料页上传简历，整理并确认事实与画像；按需求建立 Project。
 3. 在 Chrome 的 `chrome://inspect/#remote-debugging` 开启远程调试；首次连接时允许访问。通过 CDP 连接，无需安装 MCP 扩展。
-4. 新建 Session 描述求职目标，选择岗位和简历后启动申请；按提示完成登录或验证码，并在 Agent 填写完成后审阅、提交。
+4. 新建 Session 描述求职目标，选择岗位进入工作台，在工作台中确认简历并开始填写；按提示完成登录或验证码，并在 Agent 填写完成后审阅、提交。
 
-JobApply 的后端默认监听 `127.0.0.1:8080`，通过前端开发服务器的 `/api` 代理接收请求。JobApply 默认将数据保存在仓库根目录下的 `storage/`，通过设置页管理密钥。
+JobApply 的后端默认监听 `127.0.0.1:8080`，通过前端开发服务器的 `/api` 代理接收请求。数据目录可在设置中选择；未指定时，以上启动方式使用仓库根目录下的 `storage/`。
 
-## 继续阅读
-
-- [运行时设计](plan/master/agent-runtime.md)：循环、工具、提示词与用户交接。
-- [模块职责](plan/master/architecture.md)：后端分层与职责。
-- [源码研究笔记](plan/reference/research-agent-design.md)：参考项目到本项目实现的取舍。
+桌面构建入口位于 [appbuild/](appbuild/README.md)，产物输出到 `releases/`。macOS 使用 WKWebView 承载工作区，Linux 与 Windows 的构建脚本使用 jpackage 打包运行环境，并通过默认浏览器打开工作区。
