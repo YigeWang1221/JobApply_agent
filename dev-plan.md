@@ -52,7 +52,7 @@
 | [C014](plan/coding/C014-move-forward.md) | Move forward：面试轮次与复盘、Agent 自己更新 memory、Cover Letter、敏感信息占位符（原 C009） | 已施工，等用户试（2026-10-24；A、B、D 合并后 `mvn verify` 和 `npm run build` 通过） |
 | [C005-fix 开场](plan/coding/C005-fix-session-opening.md) | 新建 Session 不再自动写项目总结：空白对话，项目状态看 Project 主页 | 已施工，等用户试（2026-10-24） |
 
-| [C015](plan/coding/C015-readme.md) | README：目的、框架、技术选型与源码借鉴、图片显示修正 | 完成（2026-10-24；第二次修改与本地渲染验证） |
+| [C015](plan/coding/C015-readme.md) | README：项目介绍、核心机制与设计借鉴 | 完成（2026-10-28；按当前实现与写作要求更新） |
 | [C016](plan/coding/C016-dropdowns.md) | 下拉框、级联、日期控件：参考开源做法改工具和 skill | 已施工；实跑后修正（下拉淡入、弹出层留整页、发回思考、去掉来回提醒、日期 need_day、第 18 条放行）已施工，等用户在真实网站试（2026-10-25） |
 | [C017](plan/coding/C017-macos-app.md) | 打包成本机自用的 macOS App：Swift 窗口外壳 + 自带 Java 运行时、node 和 Playwright MCP；数据位置由用户在首次打开和设置页里选 | 已施工，等用户双击试（2026-10-27） |
 | [C017-fix](plan/coding/C017-fix-chrome-port.md) | App 连不上 Chrome：macOS 不让 App 读 Chrome 资料夹里的端口文件，改成直接连 127.0.0.1:9222；关闭 App 卡 30 秒、强制退出留下后端 | 已施工，等用户在 Air 上试（2026-10-27） |

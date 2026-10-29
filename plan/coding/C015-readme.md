@@ -63,3 +63,14 @@
 按用户要求通读并润色 README：补齐省略主语，减少单句和短段内在用户、模型、Harness、系统之间反复切换；用户操作与实现说明分段，开源借鉴统一从 JobApply 采用的设计展开。保留技术内容、图、链接与运行命令。复读正文并检查本地链接、代码围栏、标题与 git diff --check；应用测试未运行（纯文案）。
 
 - 2026-10-24：按用户要求，为 README 两处 SillyTavern（酒馆）添加官方 GitHub 仓库链接；页面可访问，git diff --check 通过。
+
+
+## 第八次修改：按当前实现重写项目介绍（2026-10-28）
+
+用户授权按十条写作要求更新 README。本次沿用 C015，仅修改 README 与开发记录，不改应用代码、Master 或产品边界。
+
+- 主线调整为岗位调研、工作台简历匹配与填写、独立后续对话、跨工作台经验复用；补充 ApplicationState、Skills、本地 ONNX RAG 与桌面构建入口。
+- 对照 AgentLoop、HarnessLoop、FollowupLoop、Conversation、StateView、ExperienceIndex / Sources、依赖文件与 C021 / C022 记录；修正“Session 推荐简历”“思考内容不回传”“不采用向量检索”等过时叙述。
+- 采用项目和具体模块作主语，删除重复框架对比、无关选型与内部进度入口；用工作台归属、后续上下文分段和 ONNX 运行库下载解释实际取舍。
+- 保留开源参考固定提交出处与本项目实现链接；SillyTavern 按作者提供的设计启发描述。现有图片仍注明历史原型，不作为当前界面截图。
+- 验证：README 本地链接与图片路径存在性、代码围栏配对、git diff --check 通过；全文复读完成。外链在线复查、Markdown / Mermaid 实际渲染、应用构建与测试未运行（纯文档修改）。
