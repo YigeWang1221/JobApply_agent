@@ -22,9 +22,7 @@ JobApply 将简历选择放在工作台，是因为匹配结论属于具体岗�
 
 ### 后续对话记录 OA、面试与复盘
 
-JobApply 在用户告知已提交后记录投递状态，并在原工作台开启“后续”对话。后续 Agent 读取 JD、选用的简历、当前阶段和轮次摘要，继续处理 OA、面试讨论、状态更新与复盘。
-
-JobApply 将后续对话单独保存，界面仍保留之前的投递记录。这样，面试讨论可以沿用岗位与材料信息，无需把此前逐字段填表的工具历史带入新对话。后续 Agent 通过 `record_round`、`save_review` 等工具保存轮次和题目，并将记录汇总到题库、公司复盘与进度视图。
+JobApply 在用户告知已提交后，在原工作台开启独立的后续对话，沿用岗位与简历信息，记录 OA、面试轮次和复盘。后续 Agent 将题目与经验汇总到题库和公司记录，投递过程仍保留在工作台中供回看。
 
 ![JobApply 进度视图示意](docs/images/dashboard-demo.png)
 
@@ -87,17 +85,11 @@ JobApply 将站点操作经验、公司记忆和通用教训分别保存。申�
 
 实现：[ProfileResolver](backend/src/main/java/jobapply/memory/ProfileResolver.java)、[MemoryWriter](backend/src/main/java/jobapply/memory/MemoryWriter.java)。
 
-### 本地 RAG 让不同工作台共享经验
+### 本地 RAG 检索跨岗位经验
 
-准备新申请或面试时，相关经验可能保存在另一个 Project 或 Session 下的岗位中。JobApply 为工作台提供 `search_experience`，从历史填写报告的字段内容、轮次记录、题库和公司复盘中检索相关片段，并返回文件出处、岗位等元数据。模型可以按公司、阶段或记录类型过滤，也可以跨公司查找相似问题。
+模型通过 `search_experience` 查找历史填写回答、面试题和复盘，并获得片段出处，供新申请和面试准备使用。JobApply 用本地 ONNX 模型生成向量，以 `SimpleVectorStore` 保存索引；Markdown 保留完整记录和归属关系，检索结果可以追溯原文。
 
-JobApply 使用本地 `multilingual-e5-small` ONNX 模型生成向量，通过 Spring AI `SimpleVectorStore` 将索引保存为本地文件。原始 Markdown 仍保存完整记录和所属关系，向量索引负责发现相关经验，两者共同支持从片段回到出处。
-
-嵌入模型首次使用时下载到 `storage/model/RAG/`，之后从本地加载。项目直接用 ONNX Runtime 推理，并在 Java 中完成池化，原因是封装后的嵌入实现还会通过 PyTorch 引擎下载额外运行库，无法将下载位置和进度统一纳入应用管理。模型不可用或索引重建期间，检索返回关键词匹配结果并标明原因。
-
-JobApply 在记录写入后增量更新索引，并在启动和检索时同步文件变化。投递段可以查找过去的开放式问题回答，后续段可以查找 OA 题目和面试复盘；检索时机由模型根据当前任务决定。
-
-实现：[ExperienceIndex](backend/src/main/java/jobapply/memory/ExperienceIndex.java)、[ExperienceSources](backend/src/main/java/jobapply/memory/ExperienceSources.java)、[ExperienceModel](backend/src/main/java/jobapply/memory/ExperienceModel.java)、[E5Embedding](backend/src/main/java/jobapply/memory/E5Embedding.java)。
+实现：[ExperienceIndex](backend/src/main/java/jobapply/memory/ExperienceIndex.java)、[ExperienceSources](backend/src/main/java/jobapply/memory/ExperienceSources.java)。
 
 ## 技术实现
 
