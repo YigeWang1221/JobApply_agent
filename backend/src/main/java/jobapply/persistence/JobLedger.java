@@ -508,6 +508,7 @@ public final class JobLedger {
                     }
                 }
                 FrontmatterFile.write(file, RoundReviews.render(current, reviewed, sessionId, review));
+                StorageWrites.changed(file);
                 Job next = current.withExtra(Map.of("rounds", rounds.stream().map(HiringRound::toMap).toList()));
                 jobs.update(next);
                 appendEvent(next, event(sessionId, Actor.USER, JobEvent.Type.REVIEW_SAVED, next.status(),

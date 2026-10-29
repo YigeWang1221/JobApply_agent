@@ -7,6 +7,11 @@ spring:
       max-file-size: 20MB
       max-request-size: 21MB
 
+# 经验检索（C022）建索引时 SimpleVectorStore 每个片段记一行 INFO，太吵
+logging:
+  level:
+    org.springframework.ai.vectorstore.SimpleVectorStore: WARN
+
 # 本地 HTTP 只监听本机（plan/master/architecture.md「api」）
 server:
   address: 127.0.0.1

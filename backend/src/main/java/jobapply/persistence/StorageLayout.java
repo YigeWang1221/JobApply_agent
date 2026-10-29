@@ -203,6 +203,16 @@ public record StorageLayout(Path root) {
         return cacheDir().resolve("playwright-mcp");
     }
 
+    /** 经验检索（C022）的向量索引 {@code cache/rag/}：删掉也能从原文件重建。 */
+    public Path ragIndexDir() {
+        return cacheDir().resolve("rag");
+    }
+
+    /** 经验检索的本地嵌入模型 {@code model/RAG/}（C022）：第一次用到时下载，不随 App 打包。 */
+    public Path ragModelDir() {
+        return root.resolve("model").resolve("RAG");
+    }
+
     public Path projectsDir() {
         return root.resolve("projects");
     }
