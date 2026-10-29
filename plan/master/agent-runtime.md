@@ -235,6 +235,13 @@ C004-B 做出来的是「Java 写死的流程，中间加了 LLM」：
 
 ---
 
+### 7.9 工作台的两段对话（用户确认，2026-10-28，C022）
+
+- 投递段：现有的申请循环（排简历、填表到提交前）。
+- 后续段：确认已投递后开的新一段对话，和投递段共用循环机制，但历史分开存。开场上下文是整理好的岗位材料，不是投递段的历史。工具有 `record_status`、`record_round`、`save_review`、读简历、读 JD、只读的浏览器工具（看邮箱和官网状态），不带填表工具。
+- 两段都有 `search_experience`（本地 RAG，见 [memory.md](memory.md)「经验检索」）。
+- Session 对话 Agent 只管找岗位、调研和候选池，不再带后续工具。
+
 ## 8. 运行时的结构规则（用户确认，2026-10-23）
 
 来源：C006 之后的四个问题和用户要求「从流程和结构上解决，不要打补丁」；参考 OpenMAIC、Deep Agents，出处见 [research-agent-design.md](../reference/research-agent-design.md)「运行时」，施工见 [C006-fix-runtime.md](../coding/C006-fix-runtime.md)。

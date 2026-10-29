@@ -1,5 +1,6 @@
 package jobapply.workflow;
 
+import jobapply.memory.ExperienceIndex;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -140,6 +141,7 @@ public final class ApplicationRunner implements AutoCloseable {
     /** 用户要求停下的 Job：每一步都查，用并发集合，不拿实例锁（C011 第 3 节）。 */
     private final Set<String> stopRequested = ConcurrentHashMap.newKeySet();
     private final RuntimeEvents events;
+    private final ExperienceIndex experience;
     /** 运行中（或排队时）用户插的话（C010）：循环下一次调模型之前取走；跑完还剩的写进对话并接着跑。 */
     private final Inbox inbox = new Inbox();
 
@@ -181,6 +183,13 @@ public final class ApplicationRunner implements AutoCloseable {
      */
     public ApplicationRunner(StorageLayout layout, Clock clock, BrowserSession browser, Supplier<ChatModel> mainModel,
                              HarnessProperties limits, RuntimeEvents events) {
+        this(layout, clock, browser, mainModel, limits, events, null);
+    }
+
+    /** @param experience 跨工作台经验检索（C022），投递段和后续段共用 */
+    public ApplicationRunner(StorageLayout layout, Clock clock, BrowserSession browser, Supplier<ChatModel> mainModel,
+                             HarnessProperties limits, RuntimeEvents events, ExperienceIndex experience) {
+        this.experience = experience;
         this.events = events;
         this.layout = layout;
         this.clock = clock;
@@ -215,6 +224,11 @@ public final class ApplicationRunner implements AutoCloseable {
     /** 事件日志：每个 Job 的申请线程现在在做什么、推送（C006-fix）。 */
     public RuntimeEvents events() {
         return events;
+    }
+
+    /** 跨工作台经验检索，后续段也用这一份（C022）。 */
+    public ExperienceIndex experience() {
+        return experience;
     }
 
     /** 一次运行结束时回报给谁（{@link SessionRunner} 创建时设置）。 */
@@ -892,7 +906,7 @@ public final class ApplicationRunner implements AutoCloseable {
         browser.retryOnNextUse();
         String jobId = run.job();
         // 每次运行再取模型（C006-fix-2 第 6 条）：改了模型设置，下一次运行就用新的
-        HarnessLoop loop = new HarnessLoop(mainModel.get(), browser, layout, clock, limits, toolCalls::perRun);
+        HarnessLoop loop = new HarnessLoop(mainModel.get(), browser, layout, clock, limits, toolCalls::perRun, experience);
         // 每轮存盘后发一次 changed：工作台侧栏的「进度」跟着申请状态刷新（C019）
         return loop.run(run, () -> stopRequested(jobId), progressed -> {
             if (!discarded.contains(jobId)) {

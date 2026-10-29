@@ -1,5 +1,6 @@
 package jobapply.config;
 
+import jobapply.memory.ExperienceIndex;
 import java.nio.file.Path;
 import java.time.Clock;
 import jobapply.persistence.EnvFile;
@@ -63,8 +64,9 @@ public class ApplicationConfiguration {
 
     @Bean(destroyMethod = "close")
     ApplicationRunner applicationRunner(StorageLayout layout, Clock clock, BrowserSession browser,
-                                        ModelRegistry models, HarnessProperties limits, RuntimeEvents events) {
-        return new ApplicationRunner(layout, clock, browser, models::main, limits, events);
+                                        ModelRegistry models, HarnessProperties limits, RuntimeEvents events,
+                                        ExperienceIndex experience) {
+        return new ApplicationRunner(layout, clock, browser, models::main, limits, events, experience);
     }
 
     @Bean

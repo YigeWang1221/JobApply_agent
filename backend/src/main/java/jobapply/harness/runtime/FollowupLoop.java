@@ -1,5 +1,6 @@
 package jobapply.harness.runtime;
 
+import jobapply.memory.ExperienceIndex;
 import static jobapply.harness.runtime.ToolArgs.parse;
 import static jobapply.harness.runtime.ToolArgs.text;
 
@@ -68,13 +69,15 @@ public final class FollowupLoop {
     private final MemoryWriter memory;
     private final MemoryNotes memoryNotes;
     private final IntSupplier toolCallsPerMessage;
+    private final ExperienceIndex experience;
 
     /**
      * @param ledgerEvents        台账每次写完时通知（事件日志的 {@code changed}）
      * @param toolCallsPerMessage 每条消息最多几次工具调用（0 = 不限），每步读一次
      */
     public FollowupLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock, WebFetch fetch,
-                        JobLedger.Listener ledgerEvents, IntSupplier toolCallsPerMessage) {
+                        JobLedger.Listener ledgerEvents, IntSupplier toolCallsPerMessage, ExperienceIndex experience) {
+        this.experience = experience;
         this.model = model;
         this.browser = browser;
         this.layout = layout;
@@ -259,7 +262,7 @@ public final class FollowupLoop {
         public Step<Void> handle(AgentRun.ToolCall call) {
             Job job = jobs.load(project, jobId);
             Step<Void> shared = WorkbenchTools.handle(new WorkbenchTools.Where(project, jobId,
-                    job.posting().company(), job.posting().title(), WorkbenchTools.Where.FOLLOWUP), call);
+                    job.posting().company(), job.posting().title(), WorkbenchTools.Where.FOLLOWUP), call, experience);
             if (shared != null) {
                 return shared;
             }

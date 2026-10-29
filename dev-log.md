@@ -1223,3 +1223,12 @@
     **退出码 0，Tests run: 2, Failures: 0, Errors: 0, Skipped: 0**。
   - 全量单元测试 `mvn -B clean test` 全部通过（退出码 0）。
 - 偏差：无。未提交 git。
+
+## 2026-10-28 · C022 工作台后续与 RAG
+
+- 指令：投递之后工作台接着开「后续」段（新的一段对话，界面上仍是同一个工作台），后续工具从 Session 搬进工作台；加入本地 RAG（ONNX，第一次用时下载到 `storage/model/RAG/`）；用 multi-agent 开发。
+- 结果：两个子代理各在自己的 worktree 里施工（A：RAG，B：后续段），合并进 C22 分支后，由主代理在 `WorkbenchTools` 接上 `search_experience`。四份 Master（tracking、memory、agent-runtime、ui）已回写。细节见 `plan/coding/C022-workspace-followup-and-rag.md`「施工记录」。
+- 验证：
+  - 合龙后，JDK 25 下 `mvn -B clean verify` 退出码 0，`npm run build` 退出码 0。
+  - 工作包 A 用一次性检查跑过真实模型下载和检索（检查代码未提交）。
+  - 真实模型下的后续段对话、真实 Chrome 只读查看、设置页在浏览器里的显示：未运行。

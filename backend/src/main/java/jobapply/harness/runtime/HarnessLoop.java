@@ -1,5 +1,6 @@
 package jobapply.harness.runtime;
 
+import jobapply.memory.ExperienceIndex;
 import static jobapply.harness.runtime.ToolArgs.parse;
 import static jobapply.harness.runtime.ToolArgs.text;
 
@@ -135,6 +136,7 @@ public final class HarnessLoop {
     /** 工作台内简历匹配与选定（C021）。 */
     private final ResumeMatch resumes;
     private volatile boolean seeded;
+    private final ExperienceIndex experience;
 
     public HarnessLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock,
                        HarnessProperties limits) {
@@ -144,6 +146,13 @@ public final class HarnessLoop {
     /** @param toolCallsPerRun 一次运行最多几次工具调用，每步读一次（设置页改了马上生效，C018）；为 null 时用 {@code limits} 的值 */
     public HarnessLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock,
                        HarnessProperties limits, IntSupplier toolCallsPerRun) {
+        this(model, browser, layout, clock, limits, toolCallsPerRun, null);
+    }
+
+    /** @param experience 跨工作台经验检索（C022）；为 null 时 {@code search_experience} 回报不可用 */
+    public HarnessLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock,
+                       HarnessProperties limits, IntSupplier toolCallsPerRun, ExperienceIndex experience) {
+        this.experience = experience;
         this.model = model;
         this.browser = browser;
         this.layout = layout;
@@ -481,7 +490,7 @@ public final class HarnessLoop {
         public Step<AgentRun> handle(AgentRun.ToolCall call) {
             String name = call.name();
             Step<AgentRun> shared = WorkbenchTools.handle(new WorkbenchTools.Where(run.project(), run.job(),
-                    run.company(), run.title(), WorkbenchTools.Where.FILL), call);
+                    run.company(), run.title(), WorkbenchTools.Where.FILL), call, experience);
             if (shared != null) {
                 return shared;
             }

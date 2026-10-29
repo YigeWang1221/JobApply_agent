@@ -171,7 +171,7 @@ public final class FollowupRunner implements AutoCloseable {
                 List<AgentRun.Turn> history = followups.readTurns(projectId, jobId).stream()
                         .map(SessionRepository.TimedTurn::turn).toList();
                 FollowupLoop loop = new FollowupLoop(mainModel.get(), browser, layout, clock, fetch, events::changed,
-                        applications.toolCallLimits()::perMessage);
+                        applications.toolCallLimits()::perMessage, applications.experience());
                 loop.run(projectId, jobId, session, history, () -> stopRequested(jobId),
                         turn -> followups.appendTurn(projectId, jobId, turn), events.followupObserver(jobId),
                         () -> inbox.take(jobId));
