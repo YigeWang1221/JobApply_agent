@@ -66,6 +66,7 @@
 | [C023](plan/coding/04-refinement/C023-ui-polish-resizable.md) | UI 增量：视觉打磨（侧栏、图标、按钮层级、chip、字号对比、对齐）；左右栏可拖拽伸缩并记住宽度；C 候选池先公司再地点、名字不完全一样时由模型归并；D 表格横向滚动、工作台对话样式与 Session 一致；E 工作台右栏进度与报告分层折叠 | A–E 已施工，等用户在浏览器里看（2026-10-31） |
 | [C024](plan/coding/04-refinement/C024-manual-outcome-reason.md) | 投递结果不再按 case 写死：工作台选「投递失败 / 不投了」+ 手动写原因，记进工作台和 Session，Dashboard 与台账显示，可撤销；模型可用同一工具记下 | 已施工，等用户在本机试（2026-10-31） |
 | [C024-fix](plan/coding/04-refinement/C024-fix-status-and-timeline.md) | 「结束」一词跨领域重复（投递段结束被显示成申请已结束）：状态按运行 / 申请 / 候选分清用词；Dashboard 的 Failures 放跳过 / 投递失败 / 不投了；时间线每份申请一条圆角长条、点开看详情 | 已施工，等用户在本机试（2026-10-31） |
+| [C025](plan/coding/04-refinement/C025-benchmark-cases.md) | 网申 Benchmark 评测、消融对比与真实轨迹 Badcase 分类学：基于本地 19 次真实大厂运行轨迹与 13 个离线夹具的双层评测、Pre/Post-C019 与 RAG 消融对比、四层 Badcase 归因表 | 计划已生成，等用户确认（2026-10-31） |
 
 ## 参考（不是施工步骤）
 
