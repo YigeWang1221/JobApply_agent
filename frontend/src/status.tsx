@@ -127,12 +127,20 @@ export function VerifiedChip({ verified }: { verified: JobView["verified"] }) {
   return <span className="chip">未核验</span>;
 }
 
-// 一个 Job 现在走到哪：候选状态，或者申请的阶段和 prep 状态
-export function JobState({ job }: { job: JobView }) {
+// 一个 Job 现在走到哪：候选状态，或者申请的阶段和 prep 状态。
+// compact（右栏列表，C023-A）：只显示一个 chip，申请线程还在动时显示它的状态，否则显示阶段；另一个放进 title
+export function JobState({ job, compact }: { job: JobView; compact?: boolean }) {
   if (job.leadStatus !== "converted") {
     return <LeadChip status={job.leadStatus} />;
   }
   const phase = phaseText(job);
+  if (compact) {
+    const app = job.application && job.application !== "done" ? job.application : null;
+    const both = app ? `${phase} · ${APPLICATION[app] ?? app}` : phase;
+    return app
+      ? <span className={`chip ${APPLICATION_CHIP[app] ?? ""}`} title={both}>{APPLICATION[app] ?? app}</span>
+      : <span className="chip" title={both}>{phase}</span>;
+  }
   return (
     <>
       <span className="chip">{phase}</span>

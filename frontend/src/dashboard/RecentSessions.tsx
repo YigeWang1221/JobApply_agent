@@ -20,7 +20,7 @@ export function RecentSessions({ sessions }: { sessions: SessionSummary[] }) {
                 <div className="t">
                   <div>
                     {s.title}
-                    {s.tags.map((tag) => <span key={tag} className={`tagc ${tag}`}>{tag}</span>)}
+                    {s.tags.map((tag) => <span key={tag} className={`chip tagc ${tag}`}>{tag}</span>)}
                   </div>
                   <small>{s.handoff || "还没有交接摘要"}</small>
                 </div>

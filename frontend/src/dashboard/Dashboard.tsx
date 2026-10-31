@@ -113,19 +113,20 @@ export function TabBody({ tab, jobs, showProject, sessions, reload, recent }: {
     <>
       <Kpis jobs={jobs} />
       {recent}
+      {/* 两列各自一叠（C023-A）：左边漏斗 + 每周节奏，右边接下来 / 待追踪 / 复盘，较短的一列不再留大块空白 */}
       <div className="grid2">
-        <Funnel jobs={jobs} />
+        <div className="stack">
+          <Funnel jobs={jobs} />
+          <Weekly jobs={jobs} />
+        </div>
         <div className="stack">
           <Upcoming jobs={jobs} showProject={showProject} />
           <FollowUps jobs={jobs} showProject={showProject} />
+          <Reviews jobs={jobs} />
         </div>
       </div>
       <Board jobs={jobs} showProject={showProject} />
       <Timeline jobs={jobs} />
-      <div className="grid2">
-        <Weekly jobs={jobs} />
-        <Reviews jobs={jobs} />
-      </div>
     </>
   );
 }

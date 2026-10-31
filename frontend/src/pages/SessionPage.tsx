@@ -9,6 +9,7 @@ import { useAttachments } from "../chat/useAttachments";
 import { useLiveUpdates } from "../chat/useLiveUpdates";
 import { go } from "../route";
 import { RenameTitle } from "../RenameTitle";
+import { ResizablePanel } from "../ResizeHandle";
 import { JobState, SubmitConfirm } from "../status";
 import { toast } from "../toast";
 
@@ -124,7 +125,7 @@ export default function SessionPage({ id, onChanged }: { id: string; onChanged?:
               onSave={async (title) => setView(await api.renameSession(id, title))} />
             <span className="muted small">
               {view.session.project}
-              {view.session.tags.map((tag) => <span key={tag} className={`tagc ${tag}`}>{tag}</span>)}
+              {view.session.tags.map((tag) => <span key={tag} className={`chip tagc ${tag}`}>{tag}</span>)}
               {sse.reconnecting && <span className="reconnecting" title="和后端的推送断开了，正在自动重连">重新连接中…</span>}
             </span>
           </div>
@@ -188,7 +189,7 @@ function JobsPanel({ jobs, session, onClose, onChanged }: {
   }
 
   return (
-    <aside className="jobsside" aria-label="这个 Session 涉及的岗位">
+    <ResizablePanel storageKey="jobapply.sessionPanel.width" label="这个 Session 涉及的岗位">
       <div className="ph">
         <h2>这个 Session 涉及的岗位</h2>
         <button className="iconbtn" aria-label="收起" title="收起" onClick={onClose}><Icon name="cross" size={14} /></button>
@@ -204,7 +205,7 @@ function JobsPanel({ jobs, session, onClose, onChanged }: {
                   <small>{job.city.join("、")}</small>
                 </div>
                 <div className="acts">
-                  <JobState job={job} />
+                  <JobState job={job} compact />
                   {job.application != null || job.leadStatus === "converted"
                     ? (
                       <button className="btn-xs" onClick={() => go({ kind: "job", id: job.id })}>打开工作台</button>
@@ -212,7 +213,7 @@ function JobsPanel({ jobs, session, onClose, onChanged }: {
                     : (
                       <>
                         {/* 计划要求保留「详情」入口：还没开始投递、或者这个岗位现在不能开始（没有链接等）时也能打开它的页面 */}
-                        <button className="linkbtn" onClick={() => go({ kind: "job", id: job.id })}>详情</button>
+                        <button className="btn-xs ghost" onClick={() => go({ kind: "job", id: job.id })}>详情</button>
                         {job.canStart && (
                           <button className="btn-xs primary" disabled={starting === job.id}
                             onClick={() => void startWorkspace(job)}>
@@ -226,7 +227,7 @@ function JobsPanel({ jobs, session, onClose, onChanged }: {
             ))}
           </div>
         )}
-    </aside>
+    </ResizablePanel>
   );
 }
 

@@ -1245,3 +1245,13 @@
 
 - 将 README 后续对话与 RAG 各缩为一段，删去实现枝节，使篇幅与其他能力相称。
 - 本地链接、围栏配对与 git diff --check 通过；应用测试和渲染未运行（纯文案）。
+
+
+## 2026-10-31 · C023 UI 视觉打磨与左右栏拖拽
+
+- 指令：按已确认的 C023 一次做完 A（视觉打磨）和 B（左右栏可拖拽）；用户决定：主按钮保持黑色、底部说明折成「?」、左右栏都能自由拉伸（只设小下限，上限按窗口推，主区至少 400px）。
+- 结果：只改 `frontend/`：`App.tsx`、`styles.css`、`pages/SessionPage.tsx`、`pages/JobPage.tsx`、`status.tsx`、`chat/icons.tsx`、`dashboard/Dashboard.tsx`、`dashboard/Weekly.tsx`、`dashboard/Board.tsx`、`dashboard/RecentSessions.tsx`，新增 `ResizeHandle.tsx`。没加依赖，没碰后端。细节见 `plan/coding/C023-ui-polish-resizable.md`「施工记录」。
+- 验证：
+  - `npm run build` 退出码 0。
+  - 无头 Chromium + 草稿目录 mock 接口（虚构数据，不进仓库）截图，用 CDP 鼠标 / 键盘事件拖动手柄：拖宽、拖到上下限、同页刷新后保留、工作台右栏单独记、双击复位、键盘调宽、窗口变窄重新夹住，量到的宽度都符合计划。
+  - 用户在真实浏览器 / macOS App 里看：未运行。

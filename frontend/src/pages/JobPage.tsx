@@ -14,6 +14,7 @@ import { MessageList, TranscriptTurns } from "../chat/MessageList";
 import { readDraft, writeDraft } from "../chat/draft";
 import { useAttachments } from "../chat/useAttachments";
 import { useLiveUpdates } from "../chat/useLiveUpdates";
+import { ResizablePanel } from "../ResizeHandle";
 import { go } from "../route";
 import {
   APPLICATION, JobState, phaseText, ROUND_CHIP, ROUND_RESULT, RoundProgress, SubmitConfirm, VerifiedChip,
@@ -228,20 +229,26 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
               {job.url && <a href={job.url} target="_blank" rel="noreferrer">岗位链接</a>}
               {job.officialUrl && <a href={job.officialUrl} target="_blank" rel="noreferrer">官方链接</a>}
               {sse.reconnecting && <span className="reconnecting" title="和后端的推送断开了，正在自动重连">重新连接中…</span>}
-              <button className="linkbtn" onClick={() => go({ kind: "project", id: job.project })}>回到 Project</button>
-              {job.discoveredIn && !discoveredDeleted && (
-                <button className="linkbtn" onClick={() => go({ kind: "session", id: job.discoveredIn! })}>发现它的 Session</button>
-              )}
-              {discoveredDeleted && <span title={`发现它的 Session（${job.discoveredIn}）已经删除，岗位留着`}>会话已删除</span>}
-              {job.phase !== "closed" && job.leadStatus !== "closed" && job.leadStatus !== "skipped" && (
-                <button className="linkbtn" title="岗位已下线 / 停止招聘"
-                  onClick={() => void call(() => api.postingClosed(job.id))}>岗位下线了</button>
-              )}
+              {/* 次要入口收进「更多」（C023-A）：头部只留一个实心主按钮 */}
+              <details className="moremenu">
+                <summary className="linkbtn ghost">更多</summary>
+                <div className="menu" onClick={(e) => e.currentTarget.closest("details")?.removeAttribute("open")}>
+                  <button className="ghost" onClick={() => go({ kind: "project", id: job.project })}>回到 Project</button>
+                  {job.discoveredIn && !discoveredDeleted && (
+                    <button className="ghost" onClick={() => go({ kind: "session", id: job.discoveredIn! })}>发现它的 Session</button>
+                  )}
+                  {discoveredDeleted && <span className="muted small" title={`发现它的 Session（${job.discoveredIn}）已经删除，岗位留着`}>会话已删除</span>}
+                  {job.phase !== "closed" && job.leadStatus !== "closed" && job.leadStatus !== "skipped" && (
+                    <button className="ghost" title="岗位已下线 / 停止招聘"
+                      onClick={() => void call(() => api.postingClosed(job.id))}>岗位下线了</button>
+                  )}
+                </div>
+              </details>
             </span>
           </div>
           <div className="row nowrap">
             <VerifiedChip verified={job.verified} />
-            <JobState job={job} />
+            <JobState job={job} compact />
             {!status && (
               <button className="primary" disabled={busy || !canStart}
                 title={!canStart ? "这个岗位现在不能开始申请" : undefined}
@@ -314,7 +321,7 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
         )}
       </div>
       {panelOpen && (
-        <aside className="jobsside" aria-label="现在要你做的事">
+        <ResizablePanel storageKey="jobapply.jobPanel.width" label="现在要你做的事">
           <div className="ph">
             <h2>{ready ? "停在提交前：请你审阅" : status?.status === "failed" ? "出错了" : "现在要你做的事"}</h2>
             <button className="iconbtn" aria-label="收起" title="收起" onClick={() => setPanelOpen(false)}>
@@ -351,7 +358,7 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
             </div>
           )}
           <Events events={events} />
-        </aside>
+        </ResizablePanel>
       )}
     </div>
   );
@@ -510,7 +517,7 @@ function ResumeRank({ choice }: { choice: ResumeChoice | null }) {
   if (!choice) {
     return null;
   }
-  const day = choice.at.slice(0, 16).replace("T", " ");
+  const day = shortTime(choice.at);
   return (
     <section className="sidesec">
       <strong className="small">简历排名</strong> <span className="muted small">{day}</span>
@@ -617,7 +624,7 @@ function Events({ events }: { events: JobEventView[] }) {
         <ul className="events">
           {events.map((event, index) => (
             <li key={index}>
-              <time>{event.at}</time>
+              <time dateTime={event.at}>{shortTime(event.at)}</time>
               {event.from ? `${event.from} → ` : ""}{event.to}
               <span className="muted small"> · {event.actor}{event.reason ? ` · ${event.reason}` : ""}</span>
             </li>
@@ -827,6 +834,16 @@ function SlotPicker({ slot, assets, attachments, value, onPick, onUpload }: {
 }
 
 // 409（线程正在运行、浏览器被别的 Job 占着）、400（例如回答了 C 级问题）都把后端的原话显示出来
+// 事件时间（C023-A）：本地时间 MM-DD HH:mm，不显示 ISO 串；解析不了就原样
+function shortTime(at: string): string {
+  const date = new Date(at);
+  if (Number.isNaN(date.getTime())) {
+    return at;
+  }
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${two(date.getMonth() + 1)}-${two(date.getDate())} ${two(date.getHours())}:${two(date.getMinutes())}`;
+}
+
 function describe(error: unknown): string {
   if (error instanceof ApiError) {
     return `${error.status}：${error.message}`;

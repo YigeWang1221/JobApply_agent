@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { api, errorText, type ProjectSummary, type SessionSummary, type WorkspaceSummary } from "./api";
 import BrowserBanner from "./BrowserBanner";
 import { DeleteConfirm, type DeleteTarget } from "./DeleteConfirm";
@@ -11,6 +11,7 @@ import ProjectPage from "./pages/ProjectPage";
 import SessionPage from "./pages/SessionPage";
 import Settings from "./pages/Settings";
 import { RenameInput } from "./RenameTitle";
+import { clampWidth, KEEP_MAIN, ResizeHandle, useStoredWidth, useWindowWidth } from "./ResizeHandle";
 import { go, href, useRoute, type Route } from "./route";
 import { toast, Toasts } from "./toast";
 
@@ -41,8 +42,22 @@ export default function App() {
     writeFlag(SIDEBAR_KEY, !collapsed);
   };
 
+  // 侧栏宽度（C023-B）：拖右边缘的手柄调；上限按窗口推，主区至少留 KEEP_MAIN，
+  // 对话页 / 工作台在宽屏还要给右栏留最小宽度
+  const [storedSide, commitSide] = useStoredWidth(SIDE_WIDTH_KEY, SIDE_DEFAULT);
+  const windowWidth = useWindowWidth();
+  const chat = route.kind === "session" || route.kind === "job";
+  const sideMax = (width: number) => width - KEEP_MAIN - (chat && width > 1100 ? PANEL_MIN_RESERVE : 0);
+  const sideWidth = clampWidth(storedSide, SIDE_MIN, sideMax(windowWidth));
+
   return (
-    <div className={`app${collapsed ? " collapsed" : ""}`}>
+    <div className={`app${collapsed ? " collapsed" : ""}`}
+      style={collapsed ? undefined : { "--side-w": `${sideWidth}px` } as CSSProperties}>
+      {!collapsed && (
+        <ResizeHandle edge="left" className="leftside" label="调整侧栏宽度" value={sideWidth} min={SIDE_MIN} max={() => sideMax(window.innerWidth)}
+          initial={SIDE_DEFAULT} target={() => document.querySelector<HTMLElement>(".app")}
+          measure={() => document.querySelector<HTMLElement>(".app > .side")} cssVar="--side-w" onCommit={commitSide} />
+      )}
       {collapsed
         ? <SidebarRail route={route} projects={projects} onExpand={toggle} onCreated={refresh} />
         : <Sidebar route={route} projects={projects} error={error} onCreated={refresh} onCollapse={toggle} />}
@@ -60,6 +75,11 @@ export default function App() {
 }
 
 const SIDEBAR_KEY = "jobapply.sidebar.collapsed";
+const SIDE_WIDTH_KEY = "jobapply.sidebar.width";
+const SIDE_DEFAULT = 248;
+const SIDE_MIN = 180;
+// 对话页拖宽侧栏时，右栏至少还剩这么宽（和 ResizablePanel 的下限一致）
+const PANEL_MIN_RESERVE = 240;
 
 // 「新对话」建在哪个 Project：当前看的 Project / 当前 Session / 当前工作台所在的 Project，否则第一个
 function projectFor(route: Route, projects: ProjectSummary[] | null): string | null {
@@ -229,10 +249,10 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
       </div>
       <NewChat route={route} projects={projects} onCreated={onCreated} />
       <button className="pbtn" aria-current={current({ kind: "global" })} onClick={() => go({ kind: "global" })}>
-        <span>⌂ 全局</span>
+        <span className="pico"><Icon name="home" size={15} />全局</span>
       </button>
       <div>
-        <h6>Projects</h6>
+        <h6 className="sidehead">Projects <SideHelp /></h6>
         {projects === null && !error && <p className="muted small">读取中…</p>}
         {error && <p className="error small">{error}</p>}
         {projects?.map((p) => (
@@ -242,13 +262,12 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
                   onSave={async (title) => { await api.renameProject(p.id, title); await onCreated(); }} />
               : (
                 <div className="siderow">
-                  <button className="pbtn" aria-current={current({ kind: "project", id: p.id })} title="双击改名"
+                  <button className="pbtn" aria-current={current({ kind: "project", id: p.id })} title={`${p.title}（${p.id}，双击改名）`}
                     onClick={() => go({ kind: "project", id: p.id })} onDoubleClick={() => setRenaming(`project:${p.id}`)}>
                     <span>{p.title}</span>
                     {(p.counts.dueChecks ?? 0) > 0 && (
                       <span className="duebadge" title={`${p.counts.dueChecks} 个申请该查看了`}>{p.counts.dueChecks}</span>
                     )}
-                    <small>{p.id}</small>
                   </button>
                   <button className="iconbtn renamebtn" title="改名" aria-label={`给 ${p.title} 改名`}
                     onClick={() => setRenaming(`project:${p.id}`)}><Icon name="pencil" size={13} /></button>
@@ -347,19 +366,32 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
         />
       )}
       <div className="bottom">
-        <p className="note">
-          Project = 一份资料版本 + 偏好，不代表岗位类别。Session 是一次对话，可以只调研、调研加投递，或者回来更新面试情况；岗位（Job）跨多个 Session。
-        </p>
         <button className="pbtn" aria-current={route.kind === "settings" && route.tab === "profile"}
           title="简历等原件、来源、事实与画像" onClick={() => go({ kind: "settings", tab: "profile" })}>
-          <span>▤ 资料与简历</span>
+          <span className="pico"><Icon name="file" size={15} />资料与简历</span>
         </button>
         <button className="pbtn" aria-current={route.kind === "settings" && route.tab === "models"}
           onClick={() => go({ kind: "settings", tab: "models" })}>
-          <span>⚙ 模型设置</span>
+          <span className="pico"><Icon name="gear" size={15} />模型设置</span>
         </button>
       </div>
     </aside>
+  );
+}
+
+// 侧栏「Projects」旁边的「?」（C023-A）：原来常驻在底部的说明，悬停 / 聚焦 / 点击时才显示
+function SideHelp() {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className={`sidehelp${open ? " open" : ""}`}>
+      <button type="button" className="iconbtn" aria-label="Project 和 Session 是什么" aria-expanded={open}
+        onClick={() => setOpen(!open)} onBlur={() => setOpen(false)}>
+        <Icon name="help" size={13} />
+      </button>
+      <span className="helppop" role="tooltip">
+        Project = 一份资料版本 + 偏好，不代表岗位类别。Session 是一次对话，可以只调研、调研加投递，或者回来更新面试情况；岗位（Job）跨多个 Session。
+      </span>
+    </span>
   );
 }
 

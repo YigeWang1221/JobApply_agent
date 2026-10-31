@@ -19,7 +19,7 @@ export function Board({ jobs, showProject }: { jobs: JobView[]; showProject?: bo
             return (
               <div key={phase} className="col">
                 <div className="colh"><b>{name}</b><span>{items.length}</span></div>
-                {items.length === 0 && <div className="empty">—</div>}
+                {items.length === 0 && <div className="empty colempty">暂无</div>}
                 {items.map((job) => (
                   <button key={job.id} className="bcard" onClick={() => go({ kind: "job", id: job.id })}>
                     <span className="co">{job.company}</span>
