@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""C011 冒烟观察脚本（只读）。清单见 plan/coding/C011-smoke-test.md。
+"""C011 冒烟观察脚本（只读）。清单见 plan/coding/03-features/C011-smoke-test.md。
 
 两个子命令：
 
@@ -13,8 +13,8 @@
 状态、计数、时间，以及插话里 SMOKE-xxx 这样的标记。只用 Python 标准库；不连 Chrome，不调 MCP。
 
 用法：
-  python3 plan/coding/c011_smoke_observe.py watch  --out REC.jsonl JOB1 JOB2 JOB3
-  python3 plan/coding/c011_smoke_observe.py report --rec REC.jsonl [--app-log APP.log] [--since ISO] JOB1 JOB2 JOB3
+  python3 plan/coding/03-features/c011_smoke_observe.py watch  --out REC.jsonl JOB1 JOB2 JOB3
+  python3 plan/coding/03-features/c011_smoke_observe.py report --rec REC.jsonl [--app-log APP.log] [--since ISO] JOB1 JOB2 JOB3
 """
 
 import argparse

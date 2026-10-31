@@ -38,19 +38,30 @@
 
 ## Coding Plan
 
+`coding/` 按开发阶段分四个子文件夹（2026-10-31 整理）；每份 C 计划的 `-fix`、拆分段和附带脚本与它放在同一个文件夹：
+
+| 文件夹 | 阶段 | 编号 |
+| --- | --- | --- |
+| `coding/01-foundation/` | 起步：开发流程、脚手架、Memory 与台账、Playwright MCP | C000–C003 |
+| `coding/02-core-agent/` | 核心 Agent：模型与资料导入、申请 Agent 循环、调研 Agent、应用界面、运行时修正（含作废的 C004-B / C004-C 历史稿） | C004–C006 |
+| `coding/03-features/` | 功能扩展：投递后、简历匹配、插话、并发 Worker、删除、Move forward、README、下拉框、macOS App、工具上限、申请状态 | C007–C019 |
+| `coding/04-refinement/` | 整体打磨：整体精炼、工作台闭环与侧栏、后续与经验检索、界面打磨 | C020– |
+
+新的 Coding Plan 放进当前阶段的文件夹；文件名一律 `C###-<做了什么>.md`。
+
 | 文件 | 对应 Master | 状态 |
 | --- | --- | --- |
-| [coding/C000-process.md](coding/C000-process.md) | 流程本身 | 完成 |
-| [coding/C001-scaffold.md](coding/C001-scaffold.md) | base、architecture | 完成 |
-| [coding/C002-memory-ledger.md](coding/C002-memory-ledger.md) | workflow 里程碑 1、memory、tracking | 完成 |
-| [coding/C003-playwright-mcp.md](coding/C003-playwright-mcp.md) | workflow 里程碑 2、memory | 完成 |
-| [coding/C004-harness-guard.md](coding/C004-harness-guard.md) | workflow 里程碑 3（总表） | 已拆分 |
-| [coding/C004-A-model-guard.md](coding/C004-A-model-guard.md) | workflow 里程碑 3、ui、memory | 完成 |
-| [coding/C004-A-1-profile-import.md](coding/C004-A-1-profile-import.md) | memory「资料导入与画像」、workflow 里程碑 3 的前置 | 施工完成，等手动检查 |
-| [coding/C004-A-2-profile-review.md](coding/C004-A-2-profile-review.md) | memory「资料导入与画像」、workflow 里程碑 3 的前置 | 施工完成，等手动检查 |
-| [coding/C004-B-harness-review.md](coding/C004-B-harness-review.md) | workflow 里程碑 3、memory | 已确认，待施工（在 C004-A-2 之后） |
-| [coding/C020-holistic-refinement.md](coding/C020-holistic-refinement.md) | agent-runtime、workflow、memory | 已施工，等用户试（JDK 25 `mvn -B clean verify`、无头 Chromium 5 项 DOM 验证、`npm run build` 全部通过，2026-10-28） |
-| [coding/C021-workspace-flow-and-sidebar.md](coding/C021-workspace-flow-and-sidebar.md) | agent-runtime、workflow、memory、ui | 已施工，等用户在本机试（A/B/C 三包合龙：JDK 25 `mvn -B clean verify` 660+1 全通过、`npm run build` 通过、`WorkspaceSummary` 契约核对一致，2026-10-28） |
+| [coding/01-foundation/C000-dev-process.md](coding/01-foundation/C000-dev-process.md) | 流程本身 | 完成 |
+| [coding/01-foundation/C001-scaffold.md](coding/01-foundation/C001-scaffold.md) | base、architecture | 完成 |
+| [coding/01-foundation/C002-memory-ledger.md](coding/01-foundation/C002-memory-ledger.md) | workflow 里程碑 1、memory、tracking | 完成 |
+| [coding/01-foundation/C003-playwright-mcp.md](coding/01-foundation/C003-playwright-mcp.md) | workflow 里程碑 2、memory | 完成 |
+| [coding/02-core-agent/C004-harness-guard.md](coding/02-core-agent/C004-harness-guard.md) | workflow 里程碑 3（总表） | 已拆分 |
+| [coding/02-core-agent/C004-A-model-guard.md](coding/02-core-agent/C004-A-model-guard.md) | workflow 里程碑 3、ui、memory | 完成 |
+| [coding/02-core-agent/C004-A-1-profile-import.md](coding/02-core-agent/C004-A-1-profile-import.md) | memory「资料导入与画像」、workflow 里程碑 3 的前置 | 施工完成，等手动检查 |
+| [coding/02-core-agent/C004-A-2-profile-review.md](coding/02-core-agent/C004-A-2-profile-review.md) | memory「资料导入与画像」、workflow 里程碑 3 的前置 | 施工完成，等手动检查 |
+| [coding/02-core-agent/C004-B-fixed-graph-harness.md](coding/02-core-agent/C004-B-fixed-graph-harness.md) | workflow 里程碑 3、memory | 已确认，待施工（在 C004-A-2 之后） |
+| [coding/04-refinement/C020-holistic-refinement.md](coding/04-refinement/C020-holistic-refinement.md) | agent-runtime、workflow、memory | 已施工，等用户试（JDK 25 `mvn -B clean verify`、无头 Chromium 5 项 DOM 验证、`npm run build` 全部通过，2026-10-28） |
+| [coding/04-refinement/C021-workspace-flow-and-sidebar.md](coding/04-refinement/C021-workspace-flow-and-sidebar.md) | agent-runtime、workflow、memory、ui | 已施工，等用户在本机试（A/B/C 三包合龙：JDK 25 `mvn -B clean verify` 660+1 全通过、`npm run build` 通过、`WorkspaceSummary` 契约核对一致，2026-10-28） |
 
 ## 参考（`reference/`）
 

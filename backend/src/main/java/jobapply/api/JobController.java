@@ -13,7 +13,6 @@ import jobapply.domain.Actor;
 import jobapply.domain.AgentRun;
 import jobapply.domain.Job;
 import jobapply.domain.JobEvent;
-import jobapply.domain.JobStatus;
 import jobapply.domain.LeadStatus;
 import jobapply.domain.Outcome;
 import jobapply.domain.PrepState;
@@ -55,7 +54,7 @@ public class JobController {
      * @param session     从这个页面发消息用哪个 Session：申请线程的、发现它的，都删了时用这个 Project 最新的一个；
      *                    一个都没有时为 null（C013）
      * @param deletedSessions 记录里引用、但已经删除的 Session（界面上显示「会话已删除」，C013）
-     * @param followup    工作台的后续段（C022）：离开 prep 以后才有；还在 prep 时为 null
+     * @param followup    工作台的后续段（C022）：投递过才有（C024，{@link FollowupRunner#open}）；没投递过时为 null
      */
     public record JobDetail(Views.JobView job, List<EventView> events, ApplicationStatus application,
                             List<Views.ChatMessage> steps, Views.Activity activity, String session,
@@ -70,11 +69,15 @@ public class JobController {
     public record SubmittedRequest(String note) {
     }
 
-    /** 还没提交（{@code giveUp=false}，暂停）或不投了（{@code giveUp=true}，以 not_submitted 结束）（C007）。 */
     public record PostingClosedRequest(String note) {
     }
 
+    /** 还没提交（{@code giveUp=false}，暂停）或不投了（{@code giveUp=true}，记为 gave_up，原因必填，C024）（C007）。 */
     public record NotSubmittedRequest(Boolean giveUp, String note) {
+    }
+
+    /** 投递失败 / 不投了（C024）：{@code kind} 是 {@code apply_failed} 或 {@code gave_up}，{@code reason} 必填。 */
+    public record OutcomeRequest(String kind, String reason) {
     }
 
     private final StorageLayout layout;
@@ -151,8 +154,9 @@ public class JobController {
     }
 
     /**
-     * 还没提交：暂停；不投了：以 {@code closed:not_submitted} 结束（C007）。用户说的事实优先（C006-fix 第 3 节）：
-     * 准备中的任何状态都接受，申请线程在跑时先请它停下（它结束时不改用户定下的状态）；已经是这样了时原样返回。
+     * 还没提交：暂停（C007）；不投了：和「更多 → 不投了」同一条路（{@link #outcome}，C024），原因必填。用户说的事实优先
+     * （C006-fix 第 3 节）：准备中的任何状态都接受，申请线程在跑时先请它停下（它结束时不改用户定下的状态）；已经是这样了时
+     * 原样返回。
      */
     @PostMapping(path = "/not-submitted", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Views.JobView notSubmitted(@PathVariable String id,
@@ -161,18 +165,54 @@ public class JobController {
         boolean giveUp = request != null && Boolean.TRUE.equals(request.giveUp());
         String note = request == null || request.note() == null || request.note().isBlank() ? null
                 : request.note().strip();
-        JobStatus now = job.status();
-        if (giveUp ? now.outcome() == Outcome.NOT_SUBMITTED : now.prepState() == PrepState.PAUSED) {
+        if (giveUp) {
+            return outcome(id, new OutcomeRequest(Outcome.GAVE_UP.value(), note));
+        }
+        if (job.status().prepState() == PrepState.PAUSED) {
             return view(job);
         }
         applications.statusIfAny(id).ifPresent(status -> applications.stop(id));
-        Transition transition = giveUp
-                ? new Transition.Close(Outcome.NOT_SUBMITTED, note == null ? "用户说不投了" : note)
-                : new Transition.ChangePrepState(PrepState.PAUSED, note == null ? "用户说还没提交" : note);
-        Job next = ledger.transition(job.project(), id, sessionOf(job), Actor.USER, transition);
-        if (giveUp) {
-            applications.closeTabs(id);
+        Job next = ledger.transition(job.project(), id, sessionOf(job), Actor.USER,
+                new Transition.ChangePrepState(PrepState.PAUSED, note == null ? "用户说还没提交" : note));
+        return view(next);
+    }
+
+    /**
+     * 投递失败 / 不投了（C024）：还没结束的任何阶段都接受（候选、准备中、已投递以后），原因必填。申请线程在跑时先请它停下、
+     * 关掉它的页；然后给这个 Job 的 Session 写一条系统通知（不唤醒模型）。已经是这个结果时原样返回。
+     */
+    @PostMapping(path = "/outcome", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Views.JobView outcome(@PathVariable String id, @RequestBody OutcomeRequest request) {
+        Job job = find(id);
+        String kind = request == null || request.kind() == null ? "" : request.kind().strip();
+        if (!kind.equals(Outcome.APPLY_FAILED.value()) && !kind.equals(Outcome.GAVE_UP.value())) {
+            throw new IllegalArgumentException("kind 只能是 apply_failed（投递失败）或 gave_up（不投了）");
         }
+        if (request.reason() == null || request.reason().isBlank()) {
+            throw new IllegalArgumentException("要写原因（手动写一句就行）");
+        }
+        Outcome outcome = Outcome.of(kind);
+        if (job.status().outcome() == outcome) {
+            return view(job);
+        }
+        applications.statusIfAny(id).ifPresent(status -> applications.stop(id));
+        String session = sessionOf(job);
+        Job next = ledger.recordOutcome(job.project(), id, session, outcome, request.reason());
+        applications.closeTabs(id);
+        applications.noteToSession(job.project(), session, id, JobLedger.outcomeNote(next));
+        return view(next);
+    }
+
+    /**
+     * 撤销「投递失败 / 不投了」（C024）：回到记之前的状态，记一条 {@code reopened}，Session 再写一条系统通知。别的结局不撤销。
+     */
+    @PostMapping("/reopen")
+    public Views.JobView reopen(@PathVariable String id) {
+        Job job = find(id);
+        Outcome was = job.status().outcome();
+        String session = sessionOf(job);
+        Job next = ledger.reopen(job.project(), id, session);
+        applications.noteToSession(job.project(), session, id, JobLedger.reopenNote(next, was));
         return view(next);
     }
 

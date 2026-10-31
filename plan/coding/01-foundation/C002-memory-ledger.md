@@ -1,6 +1,6 @@
 # C002 · Memory 与台账：storage 读写、继承解析、状态机、台账生成
 
-- 对应 Master：[workflow.md](../master/workflow.md)「里程碑」第 1 段；[memory.md](../master/memory.md)（storage 目录、继承与解析、Session 与 Job、事实条目格式、字段分级、Job 记录、存储格式）；[tracking.md](../master/tracking.md)（阶段与轮次、台账表格）
+- 对应 Master：[workflow.md](../../master/workflow.md)「里程碑」第 1 段；[memory.md](../../master/memory.md)（storage 目录、继承与解析、Session 与 Job、事实条目格式、字段分级、Job 记录、存储格式）；[tracking.md](../../master/tracking.md)（阶段与轮次、台账表格）
 - 状态：**完成**（用户已验收，2026-10-22）。日期：2026-10-22。
 
 本文件只写这一次施工做什么、怎么做、怎么验收。设计依据在上面三份 Master，不在这里重复。

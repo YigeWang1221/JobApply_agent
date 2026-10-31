@@ -1,6 +1,6 @@
 # C013 · 删除 Session / Project
 
-- 依据：用户（2026-10-24）「好像还是做不到 delete session/project。参考那两个 repo 在 subagent 上 design 然后执行」。参考结论见 [research-agent-design.md「删除会话 / 项目」](../reference/research-agent-design.md)。
+- 依据：用户（2026-10-24）「好像还是做不到 delete session/project。参考那两个 repo 在 subagent 上 design 然后执行」。参考结论见 [research-agent-design.md「删除会话 / 项目」](../../reference/research-agent-design.md)。
 - 现状：界面和接口都没有删除；Session、Project 只能改名。
 - 状态：已施工，等用户试（2026-10-24）。
 

@@ -31,4 +31,11 @@ public sealed interface Transition {
 
     record Close(Outcome outcome, String reason) implements Transition {
     }
+
+    /**
+     * 撤销用户记的「投递失败 / 不投了」（C024）：回到记之前的状态。{@code to} 是那时的状态标签
+     * （{@link JobStatus#label()}，存在 job.md 的 {@code reopen_to}）。
+     */
+    record Reopen(String to, String reason) implements Transition {
+    }
 }

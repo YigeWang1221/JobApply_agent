@@ -1,7 +1,7 @@
 # C006-fix · 运行时结构修正：事件日志、子 Agent 回报、用户事实优先、可重放的工具
 
-- 依据：用户转来的 4 个问题（2026-10-23，已逐条核实属实），以及用户的要求：「参考 OpenMAIC 和 Deep Agents，从流程和结构上解决，不要只打补丁」。参考来源见 [research-agent-design.md](../reference/research-agent-design.md)「运行时：事件流、重连、子 Agent 回报」（本次只读源码：OpenMAIC dff201b、deepagents 3e7d5fa、deep-agents-ui f6a4f34、@langchain/langgraph-sdk 1.12.7）。
-- master：[agent-runtime.md](../master/agent-runtime.md) 第 8 节「运行时的结构规则」（用户 2026-10-23 说开工，即确认；父 Session 不自动唤醒按默认）。
+- 依据：用户转来的 4 个问题（2026-10-23，已逐条核实属实），以及用户的要求：「参考 OpenMAIC 和 Deep Agents，从流程和结构上解决，不要只打补丁」。参考来源见 [research-agent-design.md](../../reference/research-agent-design.md)「运行时：事件流、重连、子 Agent 回报」（本次只读源码：OpenMAIC dff201b、deepagents 3e7d5fa、deep-agents-ui f6a4f34、@langchain/langgraph-sdk 1.12.7）。
+- master：[agent-runtime.md](../../master/agent-runtime.md) 第 8 节「运行时的结构规则」（用户 2026-10-23 说开工，即确认；父 Session 不自动唤醒按默认）。
 - 不做：多进程 / 多机（本机一个进程）；模型文字逐字流式；上下文压缩。
 
 ## 四个问题背后是同一类结构缺陷

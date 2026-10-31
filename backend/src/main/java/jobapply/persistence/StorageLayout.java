@@ -208,6 +208,11 @@ public record StorageLayout(Path root) {
         return cacheDir().resolve("rag");
     }
 
+    /** 候选池公司名 / 地点归并映射（C023-C）{@code cache/lead-groups.json}：删掉下次打开候选池时重新归并。 */
+    public Path leadGroups() {
+        return cacheDir().resolve("lead-groups.json");
+    }
+
     /** 经验检索的本地嵌入模型 {@code model/RAG/}（C022）：第一次用到时下载，不随 App 打包。 */
     public Path ragModelDir() {
         return root.resolve("model").resolve("RAG");

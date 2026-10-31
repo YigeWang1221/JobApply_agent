@@ -455,7 +455,15 @@ export interface JobView {
   resumeChoice?: ResumeChoice | null;
   // 招聘轮次（C014-A，job.md 的 rounds），按 seq 排好；result 已由服务器按今天算过 unknown（用户未同步）
   rounds: RoundView[];
+  // 结束的原因（用户写的原话）和时间（C024）；没结束时为 null
+  outcomeReason: string | null;
+  closedAt: string | null;
+  // 用户记的「投递失败 / 不投了」可以撤销（C024）
+  canReopen: boolean;
 }
+
+// 用户在工作台里记的两种结果（C024）
+export type OutcomeKind = "apply_failed" | "gave_up";
 
 export interface RoundView {
   seq: number;
@@ -646,6 +654,13 @@ export interface WorkerSettings {
 }
 
 // 经验检索（C022）：本地嵌入模型的状态和下载进度（0–1）
+// 候选池归并（C023-C）：原文公司名 / 地点 → 组名（全局缓存）；有名字没归并时 error 是原因，页面按原文分组并提示重试
+export interface LeadGroups {
+  companies: Record<string, string>;
+  cities: Record<string, string>;
+  error: string | null;
+}
+
 export interface RagStatus {
   state: "absent" | "downloading" | "ready" | "failed";
   progress: number;
@@ -710,6 +725,8 @@ export const api = {
   workerSettings: () => request<WorkerSettings>("GET", "/api/settings/workers"),
   saveWorkerSettings: (workers: number, perSite: number) =>
     request<WorkerSettings>("PUT", "/api/settings/workers", { workers, perSite }),
+  leadGroups: (companies: string[], cities: string[]) =>
+    request<LeadGroups>("POST", "/api/lead-groups", { companies, cities }),
   ragStatus: () => request<RagStatus>("GET", "/api/rag/status"),
   downloadRagModel: () => request<RagStatus>("POST", "/api/rag/download"),
   toolCallSettings: () => request<ToolCallSettings>("GET", "/api/settings/tool-calls"),
@@ -782,9 +799,14 @@ export const api = {
   // 岗位下线了：候选标成 closed，已转申请的以 posting_closed 结束
   postingClosed: (id: string, note?: string) =>
     request<JobView>("POST", `/api/jobs/${enc(id)}/posting-closed`, note ? { note } : {}),
-  // 还没提交（暂停）/ 不投了（giveUp，以 not_submitted 结束）（C007）
+  // 还没提交，先放着（C007）。「不投了」走 recordOutcome（C024）
   markNotSubmitted: (id: string, giveUp: boolean, note?: string) =>
     request<JobView>("POST", `/api/jobs/${enc(id)}/not-submitted`, note ? { giveUp, note } : { giveUp }),
+  // 投递失败 / 不投了（C024）：原因必填；任何还没结束的阶段都能记
+  recordOutcome: (id: string, kind: OutcomeKind, reason: string) =>
+    request<JobView>("POST", `/api/jobs/${enc(id)}/outcome`, { kind, reason }),
+  // 撤销「投递失败 / 不投了」，回到记之前的状态（C024）
+  reopen: (id: string) => request<JobView>("POST", `/api/jobs/${enc(id)}/reopen`),
 
   startApplication: (jobId: string, body: { project: string; session: string }) =>
     request<ApplicationStatus>("POST", jobPath(jobId), body),

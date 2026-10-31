@@ -1,6 +1,6 @@
 # C004-B · Harness 循环、skill、申请线程、关卡 B
 
-- 对应 Master：[workflow.md](../master/workflow.md)「里程碑」第 3 段；「主流程」（用户登录、身份核对、上传与解析、逐页填写、集中问答、接力、保存并回读、关卡 B）「提交保护」「登录状态」「预算与停止条件」「流程优化的安全边界」「遗漏检查」第 5、6 项；[memory.md](../master/memory.md)「字段分级」「继承与解析」「Job 记录」；[ui.md](../master/ui.md)「隐私说明」
+- 对应 Master：[workflow.md](../../master/workflow.md)「里程碑」第 3 段；「主流程」（用户登录、身份核对、上传与解析、逐页填写、集中问答、接力、保存并回读、关卡 B）「提交保护」「登录状态」「预算与停止条件」「流程优化的安全边界」「遗漏检查」第 5、6 项；[memory.md](../../master/memory.md)「字段分级」「继承与解析」「Job 记录」；[ui.md](../../master/ui.md)「隐私说明」
 - 总表：[C004](C004-harness-guard.md)（拆分方式、共用的事实、已定决定、回写 Master 清单）
 - 前置：[C004-A](C004-A-model-guard.md) 完成（模型、资料原件、MCP 参数、守卫）；[C004-A-1](C004-A-1-profile-import.md)、[C004-A-2](C004-A-2-profile-review.md) 完成（资料导入与画像，用户确认 2026-10-22 放在本段之前）。C004-A-1 把事实改成中英双语、给 `ProfileResolver` 加按语言取值，C004-A-2 把事实层写满；本段的来源层和填写报告要按这两段的结果对齐，施工前先核对一遍（已核对，2026-10-23，见「施工前核对」）。
 - 状态：**施工完成，等真实 LLM 测试、冒烟和手动检查**（2026-10-23）。「待确认」1–5 按建议（2026-10-22）；施工前核对的 9 项和可选项按建议（2026-10-23）；第 6 项等用户把真实 Project 的流程走完后再定。
@@ -341,9 +341,9 @@ finish → fill ⟲ ─┬→ [wait_input]     ─ answers                  → 
 - 测试：新增 `BrowserSessionConnectionTest`（两个 Job 和一次 `reconnected` 只用一条连接；连接失败后不再碰 MCP，用户重连时才建第二条；等用户同意超时算断开）；`PlaywrightMcpClientTest.serverExitingMidCallIsADisconnect` 改成「断开后要用户重连」。
 - 验证：`mvn -B clean verify` 退出码 0，surefire 718、failsafe 3。其间有一次 `ApplicationRunnerTest.unconfiguredMainModelIsShownAndTheUserCanRetryOrOverride` 在整套测试里失败（期望 waiting，实际 failed），单独跑和整类跑三次都通过，再跑整套也通过：记为偶发，断言里加了完整状态，下次出现时能看到原因。
 
-## 追加：改成 Agent 驱动（2026-10-23；已由 [agent-runtime.md](../master/agent-runtime.md) 取代，代码没有落地）
+## 追加：改成 Agent 驱动（2026-10-23；已由 [agent-runtime.md](../../master/agent-runtime.md) 取代，代码没有落地）
 
-用户指出：C004-B 写成了「LLM 驱动的定时任务脚本」：9 个固定等待点、单独的登录核对 Agent 和它的等待点、固定的打转规则、每个字段必填的 `fact` / `confidence` / `language`、系统按 40% 判断页面语言；而填写的提示词只有十几行，没有讲项目和经历条目、日期、下拉框这些情况怎么处理。按 `AGENTS.md`「Agent 开发原则」和 [research-agent-design.md](../reference/research-agent-design.md) 改：
+用户指出：C004-B 写成了「LLM 驱动的定时任务脚本」：9 个固定等待点、单独的登录核对 Agent 和它的等待点、固定的打转规则、每个字段必填的 `fact` / `confidence` / `language`、系统按 40% 判断页面语言；而填写的提示词只有十几行，没有讲项目和经历条目、日期、下拉框这些情况怎么处理。按 `AGENTS.md`「Agent 开发原则」和 [research-agent-design.md](../../reference/research-agent-design.md) 改：
 
 **图**
 ```text

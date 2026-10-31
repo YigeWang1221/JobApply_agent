@@ -1,7 +1,7 @@
 import type { JobView } from "../api";
-import { applications, submitted } from "./metrics";
+import { applications, markedOutcome, submitted } from "./metrics";
 
-// 9 格 KPI（示意页）：投递、公司、各阶段个数、待追踪、候选池待投（C005-fix 开场：项目状态看主页，不在对话里）
+// 10 格 KPI（示意页）：投递、公司、各阶段个数、待追踪、候选池待投（C005-fix 开场：项目状态看主页，不在对话里）
 export function Kpis({ jobs }: { jobs: JobView[] }) {
   const apps = applications(jobs);
   const sent = apps.filter(submitted);
@@ -19,6 +19,8 @@ export function Kpis({ jobs }: { jobs: JobView[] }) {
     ["Offer", count("offer"), false],
     ["待追踪", due, due > 0],
     ["候选池待投", leads, false],
+    // C024：投递失败和不投了放在一格，明细在「没投成 / 不投了」面板
+    ["没投成 / 不投了", apps.filter((j) => markedOutcome(j) !== null).length, false],
   ];
   return (
     <div className="kpis">

@@ -1,7 +1,9 @@
 import { localDay, type JobView } from "../api";
 import { addDays, applications, dayOf, md, weekStart } from "./metrics";
 
-const W = 960;
+// 宽度跟着周数走（每周 56），不再把 960 宽的图缩进窄列里、把坐标字缩到 7px（C023-A）
+const W_MIN = 360;
+const W_MAX = 960;
 const H = 180;
 const L = 28;
 const B = 26;
@@ -37,11 +39,12 @@ function Bars({ days }: { days: string[] }) {
   const counts = weeks.map((w) => days.filter((d) => weekStart(d) === w).length);
   const yMax = Math.ceil(Math.max(4, ...counts) / 2) * 2;
   const y = (v: number) => T + (1 - v / yMax) * (H - T - B);
+  const W = Math.min(W_MAX, Math.max(W_MIN, weeks.length * 56 + L + R));
   const band = (W - L - R) / weeks.length;
   const bw = Math.min(28, band / 2);
   return (
     <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="每周投递数"
-      style={{ width: "100%", minWidth: 360, height: "auto" }}>
+      style={{ width: "100%", maxWidth: W, minWidth: W_MIN, height: "auto" }}>
       {[0, yMax / 2, yMax].map((v) => (
         <g key={v}>
           <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} stroke={v === 0 ? "var(--axis)" : "var(--grid)"} strokeWidth={1} />

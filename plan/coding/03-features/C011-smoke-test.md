@@ -57,7 +57,7 @@ cd backend && mvn -B -q -DskipTests package \
 ```bash
 BASE=http://127.0.0.1:8080
 H='Content-Type: application/json'          # 所有 POST 都要带（LocalRequestGuard：写请求只收 JSON）
-OBS=plan/coding/c011_smoke_observe.py         # 在仓库根目录执行
+OBS=plan/coding/03-features/c011_smoke_observe.py         # 在仓库根目录执行
 curl -s $BASE/api/projects | python3 -c 'import json,sys; [print(p["id"]) for p in json.load(sys.stdin)["projects"]]'
 PROJECT=<上面列出的、用户指定的 Project id>
 ```
@@ -213,8 +213,8 @@ python3 $OBS report --rec "$SCRATCH/c011-rec.jsonl" --app-log "$SCRATCH/app.log"
 ## 观察脚本
 
 ```bash
-python3 plan/coding/c011_smoke_observe.py watch  --out REC.jsonl [--interval 1] [--duration 秒] JOB...
-python3 plan/coding/c011_smoke_observe.py report --rec REC.jsonl [--app-log APP.log] [--since ISO] [--storage DIR] JOB...
+python3 plan/coding/03-features/c011_smoke_observe.py watch  --out REC.jsonl [--interval 1] [--duration 秒] JOB...
+python3 plan/coding/03-features/c011_smoke_observe.py report --rec REC.jsonl [--app-log APP.log] [--since ISO] [--storage DIR] JOB...
 # 两个子命令前都可以加 --base http://127.0.0.1:8080
 ```
 

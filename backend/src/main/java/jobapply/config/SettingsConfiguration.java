@@ -2,6 +2,7 @@ package jobapply.config;
 
 import java.time.Clock;
 import jobapply.memory.AssetAnalyzer;
+import jobapply.memory.LeadGroups;
 import jobapply.persistence.AssetRegistry;
 import jobapply.persistence.EnvFile;
 import jobapply.persistence.ModelSettingsFile;
@@ -54,5 +55,11 @@ public class SettingsConfiguration {
     @Bean
     AssetAnalyzer assetAnalyzer(ModelRegistry registry) {
         return new AssetAnalyzer(registry::auxiliaryOrMain);
+    }
+
+    /** 候选池公司名 / 地点归并（C023-C）：辅助模型，没有就用主模型。 */
+    @Bean
+    LeadGroups leadGroups(StorageLayout layout, ModelRegistry registry) {
+        return new LeadGroups(layout.leadGroups(), registry::auxiliaryOrMain);
     }
 }

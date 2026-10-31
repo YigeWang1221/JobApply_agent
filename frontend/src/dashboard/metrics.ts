@@ -23,9 +23,21 @@ export function applications(jobs: JobView[]): JobView[] {
   return jobs.filter((j) => j.leadStatus === "converted");
 }
 
-// 真的投出去了：现在在投递以后的阶段（服务器的分组 applied），或者投递以后才结束
+// 真的投出去了：现在在投递以后的阶段（服务器的分组 applied），或者投递以后才结束。
+// 投递失败（C024）不算投递，即使之前记过投递；投递以后才「不投了」的照算（确实投出去过）
 export function submitted(job: JobView): boolean {
+  if (job.label === "closed:apply_failed") {
+    return false;
+  }
   return job.bucket === "applied" || (job.phase === "closed" && reached(job) > 0);
+}
+
+// 用户记的「投递失败 / 不投了」（C024）；旧记录里的 not_submitted 也算「不投了」
+export function markedOutcome(job: JobView): "apply_failed" | "gave_up" | null {
+  if (job.label === "closed:apply_failed") {
+    return "apply_failed";
+  }
+  return job.label === "closed:gave_up" || job.label === "closed:not_submitted" ? "gave_up" : null;
 }
 
 // 走到过的最远一层：当前阶段和事件日志里出现过的阶段取最大；接受 / 拒绝 Offer 算走到 Offer

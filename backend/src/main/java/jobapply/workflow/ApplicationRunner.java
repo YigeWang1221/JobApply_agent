@@ -35,7 +35,9 @@ import jobapply.domain.Ids;
 import jobapply.domain.Inbox;
 import jobapply.domain.Job;
 import jobapply.domain.LeadStatus;
+import jobapply.domain.JobStatus;
 import jobapply.domain.LiveRuns;
+import jobapply.domain.Phase;
 import jobapply.domain.PrepState;
 import jobapply.domain.Transition;
 import jobapply.harness.policies.BrowserToolPolicy;
@@ -234,6 +236,18 @@ public final class ApplicationRunner implements AutoCloseable {
     /** 一次运行结束时回报给谁（{@link SessionRunner} 创建时设置）。 */
     void reportTo(Reporter reporter) {
         this.reporter = reporter;
+    }
+
+    /**
+     * 往 Session 写一条系统通知（C024：工作台里记下 / 撤销「投递失败 / 不投了」）。和运行结束的回报同一条路：记进对话，
+     * 不唤醒模型。写不进只记日志，不影响已经记下的结果。
+     */
+    public void noteToSession(String projectId, String sessionId, String jobId, String text) {
+        try {
+            reporter.report(projectId, sessionId, jobId, text);
+        } catch (RuntimeException e) {
+            log.warn("Job {} 没有通知 Session {}：{}", jobId, sessionId, rootMessage(e));
+        }
     }
 
     /**
@@ -834,7 +848,7 @@ public final class ApplicationRunner implements AutoCloseable {
                 live.remove(jobId);
                 stopRequested.remove(jobId);
             }
-            // 用户在工作台里说了「投了」（mark_submitted，C022）：这一页也不用留了
+            // 用户在工作台里说了「投了」（mark_submitted，C022）或者「投不了 / 不投了」（record_outcome，C024）：这一页也不用留了
             release = releaseWhenDone.remove(jobId) | appliedNow(result);
             // 跑完时还没被看到的插话（最后一步正好到的、或者「打断并发送」）：接着跑，不回报（C010）
             again = !release && resumeWithInserted(result);
@@ -886,10 +900,11 @@ public final class ApplicationRunner implements AutoCloseable {
         }
     }
 
-    /** 这次运行里已经记为已投递了（申请 Agent 的 mark_submitted）。读不出时当作没有。 */
+    /** 这次运行里已经记为已投递了（申请 Agent 的 mark_submitted）或者结束了（record_outcome）。读不出时当作没有。 */
     private boolean appliedNow(AgentRun run) {
         try {
-            return JobLedger.alreadyApplied(jobs.load(run.project(), run.job()).status());
+            JobStatus status = jobs.load(run.project(), run.job()).status();
+            return JobLedger.alreadyApplied(status) || status.phase() == Phase.CLOSED;
         } catch (RuntimeException e) {
             return false;
         }
@@ -906,7 +921,8 @@ public final class ApplicationRunner implements AutoCloseable {
         browser.retryOnNextUse();
         String jobId = run.job();
         // 每次运行再取模型（C006-fix-2 第 6 条）：改了模型设置，下一次运行就用新的
-        HarnessLoop loop = new HarnessLoop(mainModel.get(), browser, layout, clock, limits, toolCalls::perRun, experience);
+        HarnessLoop loop = new HarnessLoop(mainModel.get(), browser, layout, clock, limits, toolCalls::perRun, experience,
+                this::noteToSession);
         // 每轮存盘后发一次 changed：工作台侧栏的「进度」跟着申请状态刷新（C019）
         return loop.run(run, () -> stopRequested(jobId), progressed -> {
             if (!discarded.contains(jobId)) {

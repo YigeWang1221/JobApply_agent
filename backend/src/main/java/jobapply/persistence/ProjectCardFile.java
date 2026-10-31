@@ -19,7 +19,7 @@ import jobapply.domain.ProjectCard.Text;
 
 /**
  * {@code base/projects/<slug>.md}：项目卡。frontmatter 是与语言无关的字段，正文是 {@code ## zh} / {@code ## en}
- * 两块小节（格式见 plan/coding/C004-A-1-profile-import.md「项目卡」）。未识别的 frontmatter 键原样保留；
+ * 两块小节（格式见 plan/coding/02-core-agent/C004-A-1-profile-import.md「项目卡」）。未识别的 frontmatter 键原样保留；
  * 正文里两个语言块以外的内容会被拒绝（项目卡只放这两块）。保存前检查小节对应、{@code {{fact:}}} 和论断引用。
  */
 public final class ProjectCardFile {

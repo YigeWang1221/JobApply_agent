@@ -10,6 +10,7 @@ import { Funnel } from "./Funnel";
 import { Kpis } from "./Kpis";
 import { LeadPool } from "./LeadPool";
 import { applications } from "./metrics";
+import { Outcomes } from "./Outcomes";
 import { Reviews } from "./Reviews";
 import { Timeline } from "./Timeline";
 import { Upcoming } from "./Upcoming";
@@ -56,10 +57,12 @@ export function TabBar({ tab, onChange }: { tab: Tab; onChange: (tab: Tab) => vo
  * @param sessions 范围内的 Session（新的在前）：显示「发现于哪个 Session」，开始申请时找最近的 Session
  * @param recent   Project 主页在 KPI 下面放的「最近的 Session」
  */
-export function TabBody({ tab, jobs, showProject, sessions, reload, recent }: {
+export function TabBody({ tab, jobs, showProject, projectTitle, sessions, reload, recent }: {
   tab: Tab;
   jobs: JobView[];
   showProject?: boolean;
+  // 全局页：候选池最外层按 Project 分组时显示的名字
+  projectTitle?: (id: string) => string | undefined;
   sessions: SessionSummary[];
   reload: () => Promise<void>;
   recent?: ReactNode;
@@ -86,10 +89,10 @@ export function TabBody({ tab, jobs, showProject, sessions, reload, recent }: {
       <div className="panel">
         <div className="ph">
           <h2>候选池</h2>
-          <span className="boardnote">调研出来的公司与岗位，按公司分组；岗位不必和 Project 名字的方向一致</span>
+          <span className="boardnote">{showProject ? "调研出来的岗位，先按 Project，再按公司、地点分组" : "调研出来的岗位，按公司、再按地点分组"}；公司名写法不同的由模型归成一家；岗位不必和 Project 名字的方向一致</span>
         </div>
         <LeadPool leads={jobs.filter((j) => j.leadStatus !== "converted")} applications={applications(jobs)}
-          showProject={showProject} sessionTitle={(id) => titles.get(id)}
+          showProject={showProject} projectTitle={projectTitle} sessionTitle={(id) => titles.get(id)}
           onClosed={postingClosed}
           onMark={(job, status, reason) => act(() => api.markLead(job.id, status, reason),
             `${job.company} · ${job.title}：${LEAD[status]}`)}
@@ -113,19 +116,22 @@ export function TabBody({ tab, jobs, showProject, sessions, reload, recent }: {
     <>
       <Kpis jobs={jobs} />
       {recent}
+      {/* 两列各自一叠（C023-A）：左边漏斗 + 每周节奏，右边接下来 / 待追踪 / 复盘，较短的一列不再留大块空白 */}
       <div className="grid2">
-        <Funnel jobs={jobs} />
+        <div className="stack">
+          <Funnel jobs={jobs} />
+          <Weekly jobs={jobs} />
+        </div>
         <div className="stack">
           <Upcoming jobs={jobs} showProject={showProject} />
           <FollowUps jobs={jobs} showProject={showProject} />
+          <Reviews jobs={jobs} />
         </div>
       </div>
+      <Outcomes jobs={jobs} showProject={showProject}
+        onReopen={(job) => void act(() => api.reopen(job.id), `${job.company} · ${job.title}：已撤销，回到之前的状态`)} />
       <Board jobs={jobs} showProject={showProject} />
       <Timeline jobs={jobs} />
-      <div className="grid2">
-        <Weekly jobs={jobs} />
-        <Reviews jobs={jobs} />
-      </div>
     </>
   );
 }

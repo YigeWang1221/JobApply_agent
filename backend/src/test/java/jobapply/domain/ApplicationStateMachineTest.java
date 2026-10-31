@@ -28,7 +28,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 class ApplicationStateMachineTest {
 
-    /** plan/coding/C002-memory-ledger.md「状态机」表的独立复述。 */
+    /** plan/coding/01-foundation/C002-memory-ledger.md「状态机」表的独立复述。 */
     private static final Map<PrepState, Set<PrepState>> EXPECTED = new EnumMap<>(PrepState.class);
 
     static {

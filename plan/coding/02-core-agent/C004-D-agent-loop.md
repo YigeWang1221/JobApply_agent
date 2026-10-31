@@ -1,6 +1,6 @@
 # C004-D · Agent 循环：替换固定图（agent-runtime.md 7.8 第 1 步）
 
-- 依据：[agent-runtime.md 第 7 节](../master/agent-runtime.md)（用户确认，2026-10-23）。
+- 依据：[agent-runtime.md 第 7 节](../../master/agent-runtime.md)（用户确认，2026-10-23）。
 - 目标：申请流程由一个 LLM 驱动的循环完成：系统打开岗位页，模型自己判断登录、填写、问用户，停在最终提交前。在夹具上用真实模型跑一遍。
 - 不做：上下文压缩、经验写回 skill、多个 Job 并行、资料原文引用（第 6 节）、完整界面。不写测试。
 

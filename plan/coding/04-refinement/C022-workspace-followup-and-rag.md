@@ -1,6 +1,6 @@
 # C022 · 工作台「后续」与跨工作台经验检索（RAG）
 
-- 对应 Master：[tracking.md](../master/tracking.md)（阶段、轮次、复盘、题库）、[memory.md](../master/memory.md)、[agent-runtime.md](../master/agent-runtime.md)、[ui.md](../master/ui.md)
+- 对应 Master：[tracking.md](../../master/tracking.md)（阶段、轮次、复盘、题库）、[memory.md](../../master/memory.md)、[agent-runtime.md](../../master/agent-runtime.md)、[ui.md](../../master/ui.md)
 - 依据：用户（2026-10-28）：
   1. 投递完成后工作台不结束，切到「后续」，继续聊 OA 题、面试题等；Session 里的后续入口全部搬进工作台，Session 只做找岗位和调研。
   2. 「后续」是一段新对话，界面上仍是同一个工作台，避免投递过程的内容影响后续。

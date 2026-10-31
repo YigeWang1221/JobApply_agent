@@ -107,6 +107,9 @@ public final class JobLedger {
                 Job current = jobs.load(projectId, jobId);
                 JobStatus nextStatus = ApplicationStateMachine.next(current.status(), transition, actor);
                 Job next = current.withStatus(nextStatus);
+                if (transition instanceof Transition.Close close) {
+                    next = next.withExtra(closedExtra(close.reason()));
+                }
                 JobEvent event = event(sessionId, actor, eventType(transition), current.status(), nextStatus,
                         reason(transition), evidence(transition));
 
@@ -289,6 +292,9 @@ public final class JobLedger {
             type = JobEvent.Type.PHASE_CHANGED;
         }
         Map<String, Object> times = new LinkedHashMap<>();
+        if (outcome != null) {
+            times.putAll(closedExtra(said));
+        }
         times.put("last_checked_at", Timestamps.now(clock));
         times.put("next_check_at", nextStatus.phase() == Phase.CLOSED ? null : LocalDate.now(clock)
                 .plusDays(nextCheckInDays != null ? nextCheckInDays : checkEveryDays(projectId)).toString());
@@ -299,6 +305,123 @@ public final class JobLedger {
         appendEvent(next, event);
         afterChange(projectId, sessionId, jobId);
         return next;
+    }
+
+    /**
+     * 用户记下「投递失败 / 不投了」（C024）：任何还没结束的阶段都可以（候选 new / shortlisted 先转为申请），原因必填，
+     * 写进 job.md 的 {@code outcome_reason}，{@code closed_at} 记时间，{@code reopen_to} 记下记之前的状态（撤销时回到它），
+     * 不再提醒查看。几步都先过状态机，再写文件。已经以同一个结果结束的原样返回（可重放）。
+     *
+     * @param outcome {@link Outcome#APPLY_FAILED} 或 {@link Outcome#GAVE_UP}
+     * @param reason  用户写的原因（原话）
+     */
+    public Job recordOutcome(String projectId, String jobId, String sessionId, Outcome outcome, String reason) {
+        try {
+            synchronized (StorageLock.WRITES) {
+                require(outcome, "outcome");
+                if (!outcome.userMarked()) {
+                    throw new IllegalArgumentException("这里只记 apply_failed（投递失败）或 gave_up（不投了）");
+                }
+                if (reason == null || reason.isBlank()) {
+                    throw new IllegalArgumentException("要写原因（手动写一句就行）");
+                }
+                requireProjectAndSession(projectId, sessionId);
+                Job current = jobs.load(projectId, jobId);
+                JobStatus status = current.status();
+                if (status.phase() == Phase.CLOSED && status.outcome() == outcome) {
+                    return current;
+                }
+                String said = reason.strip();
+                String before = status.label();
+                List<JobEvent> events = new ArrayList<>();
+                if (status.phase() == null) {
+                    JobStatus converted = ApplicationStateMachine.next(status, new Transition.Convert(), Actor.USER);
+                    events.add(event(sessionId, Actor.USER, JobEvent.Type.CONVERTED, status, converted, said, null));
+                    status = converted;
+                }
+                JobStatus closed = ApplicationStateMachine.next(status, new Transition.Close(outcome, said), Actor.USER);
+                events.add(event(sessionId, Actor.USER, JobEvent.Type.CLOSED, status, closed, said, null));
+                Map<String, Object> changes = new LinkedHashMap<>(closedExtra(said));
+                changes.put("reopen_to", before);
+                changes.put("next_check_at", null);
+                Job next = current.withStatus(closed).withExtra(changes);
+
+                jobs.update(next);
+                events.forEach(e -> appendEvent(next, e));
+                afterChange(projectId, sessionId, jobId);
+                return next;
+            }
+        } finally {
+            publish();
+        }
+    }
+
+    /**
+     * 撤销用户记的「投递失败 / 不投了」（C024）：回到 {@code reopen_to} 记下的状态，清掉 {@code outcome_reason}、
+     * {@code closed_at}、{@code reopen_to}；回到投递后的阶段时重新排下一次查看。记一条 {@code reopened} 事件。
+     */
+    public Job reopen(String projectId, String jobId, String sessionId) {
+        try {
+            synchronized (StorageLock.WRITES) {
+                requireProjectAndSession(projectId, sessionId);
+                Job current = jobs.load(projectId, jobId);
+                JobStatus status = current.status();
+                if (status.phase() != Phase.CLOSED || !status.outcome().userMarked()
+                        || current.extraString("reopen_to") == null) {
+                    throw new IllegalArgumentException("只有在工作台里记的「投递失败 / 不投了」能撤销，" + jobId + " 现在是 "
+                            + status.label());
+                }
+                String was = current.extraString("outcome_reason");
+                String said = "撤销「" + status.outcome().userLabel() + "」" + (was == null ? "" : "（原因：" + was + "）");
+                JobStatus reopened = ApplicationStateMachine.next(status,
+                        new Transition.Reopen(current.extraString("reopen_to"), said), Actor.USER);
+                Map<String, Object> changes = new LinkedHashMap<>();
+                changes.put("outcome_reason", null);
+                changes.put("closed_at", null);
+                changes.put("reopen_to", null);
+                if (alreadyApplied(reopened)) {
+                    changes.put("next_check_at", LocalDate.now(clock).plusDays(checkEveryDays(projectId)).toString());
+                }
+                Job next = current.withStatus(reopened).withExtra(changes);
+                JobEvent event = event(sessionId, Actor.USER, JobEvent.Type.REOPENED, status, reopened, said, null);
+
+                jobs.update(next);
+                appendEvent(next, event);
+                afterChange(projectId, sessionId, jobId);
+                return next;
+            }
+        } finally {
+            publish();
+        }
+    }
+
+    /** 能不能撤销（C024）：用户记的「投递失败 / 不投了」，并且记下了之前的状态。 */
+    public static boolean canReopen(Job job) {
+        Outcome outcome = job.status().outcome();
+        return outcome != null && outcome.userMarked() && job.extraString("reopen_to") != null;
+    }
+
+    /** 记下结果后写给 Session 的系统通知（C024）。 */
+    public static String outcomeNote(Job job) {
+        return name(job) + "：记为" + job.status().outcome().userLabel() + "。原因：" + job.extraString("outcome_reason")
+                + "（在工作台里可以撤销）";
+    }
+
+    /** 撤销后写给 Session 的系统通知（C024）。 */
+    public static String reopenNote(Job job, Outcome was) {
+        return name(job) + "：撤销了「" + was.userLabel() + "」，回到 " + job.status().label() + "。";
+    }
+
+    private static String name(Job job) {
+        return job.posting().company() + " · " + job.posting().title() + "（" + job.id() + "）";
+    }
+
+    /** 结束时写进 job.md 的原因和时间（C024：所有结束都写，原因为空时只写时间）。 */
+    private Map<String, Object> closedExtra(String reason) {
+        Map<String, Object> changes = new LinkedHashMap<>();
+        changes.put("outcome_reason", reason == null || reason.isBlank() ? null : reason.strip());
+        changes.put("closed_at", Timestamps.now(clock));
+        return changes;
     }
 
     /**
@@ -443,6 +566,9 @@ public final class JobLedger {
             }
         }
         Map<String, Object> changes = new LinkedHashMap<>();
+        if (phaseEvent != null && nextStatus.phase() == Phase.CLOSED) {
+            changes.putAll(closedExtra(phaseEvent.reason()));
+        }
         changes.put("rounds", rounds.stream().map(HiringRound::toMap).toList());
         HiringRound upcoming = rounds.stream()
                 .filter(r -> "pending".equals(r.result()) && HiringRound.day(r.scheduledAt()) != null
@@ -605,6 +731,7 @@ public final class JobLedger {
             case Transition.MarkApplied applied -> JobEvent.Type.PHASE_CHANGED;
             case Transition.ChangePhase change -> JobEvent.Type.PHASE_CHANGED;
             case Transition.Close close -> JobEvent.Type.CLOSED;
+            case Transition.Reopen reopen -> JobEvent.Type.REOPENED;
         };
     }
 
@@ -613,6 +740,7 @@ public final class JobLedger {
             case Transition.MarkLead mark -> mark.reason();
             case Transition.ChangePrepState change -> change.reason();
             case Transition.Close close -> close.reason();
+            case Transition.Reopen reopen -> reopen.reason();
             default -> null;
         };
     }

@@ -70,14 +70,19 @@ public final class FollowupLoop {
     private final MemoryNotes memoryNotes;
     private final IntSupplier toolCallsPerMessage;
     private final ExperienceIndex experience;
+    /** 记下「投递失败 / 不投了」时给 Session 的系统通知（C024）。 */
+    private final SessionNote sessionNote;
 
     /**
      * @param ledgerEvents        台账每次写完时通知（事件日志的 {@code changed}）
      * @param toolCallsPerMessage 每条消息最多几次工具调用（0 = 不限），每步读一次
+     * @param sessionNote         记下「投递失败 / 不投了」时给 Session 写系统通知（C024）
      */
     public FollowupLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock, WebFetch fetch,
-                        JobLedger.Listener ledgerEvents, IntSupplier toolCallsPerMessage, ExperienceIndex experience) {
+                        JobLedger.Listener ledgerEvents, IntSupplier toolCallsPerMessage, ExperienceIndex experience,
+                        SessionNote sessionNote) {
         this.experience = experience;
+        this.sessionNote = sessionNote == null ? SessionNote.NONE : sessionNote;
         this.model = model;
         this.browser = browser;
         this.layout = layout;
@@ -261,8 +266,9 @@ public final class FollowupLoop {
         @Override
         public Step<Void> handle(AgentRun.ToolCall call) {
             Job job = jobs.load(project, jobId);
-            Step<Void> shared = WorkbenchTools.handle(new WorkbenchTools.Where(project, jobId,
-                    job.posting().company(), job.posting().title(), WorkbenchTools.Where.FOLLOWUP), call, experience);
+            Step<Void> shared = WorkbenchTools.handle(new WorkbenchTools.Where(project, jobId, session,
+                    job.posting().company(), job.posting().title(), WorkbenchTools.Where.FOLLOWUP), call, experience,
+                    ledger, sessionNote);
             if (shared != null) {
                 return shared;
             }

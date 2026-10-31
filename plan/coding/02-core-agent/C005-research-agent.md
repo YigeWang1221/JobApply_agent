@@ -1,6 +1,6 @@
 # C005 · 对话 Agent：调研岗位、管理候选池、开始申请（workflow 里程碑第 4 段）
 
-- 依据：[agent-runtime.md 第 7 节](../master/agent-runtime.md)（循环、工具、提示词的做法）、[workflow.md「岗位搜索」「已确认：分层 Web 工具」](../master/workflow.md)、[ui.md「新建 Session」「候选池」](../master/ui.md)。界面见 [C005-ui.md](C005-ui.md)。
+- 依据：[agent-runtime.md 第 7 节](../../master/agent-runtime.md)（循环、工具、提示词的做法）、[workflow.md「岗位搜索」「已确认：分层 Web 工具」](../../master/workflow.md)、[ui.md「新建 Session」「候选池」](../../master/ui.md)。界面见 [C005-ui.md](C005-ui.md)。
 - 目标：Session 就是和一个 Agent 的对话。用户说「帮我找上海的后端校招」，Agent 自己搜索、读 JD、把合适的岗位放进候选池；用户说「投这两个」，Agent 把它们转为申请并交给申请 Agent（C004-D 的循环）。
 - 做法和申请 Agent 一样：一个循环（模型 → 工具 → 模型），提示词 + 工具 + skill，由模型决定做什么；代码只管工具本身和安全检查。
 - 不做：匹配评分和额度（第 5 段）、投递后追踪（第 6 段）、SearXNG 自建、上下文压缩。不写测试。

@@ -1,6 +1,6 @@
 # C017-fix · App 连不上 Chrome：不读 Chrome 资料夹里的端口文件
 
-- 对应：[C017](C017-macos-app.md)；[workflow.md](../master/workflow.md)「Chrome MCP」（连用户自己的 Chrome，不变）。
+- 对应：[C017](C017-macos-app.md)；[workflow.md](../../master/workflow.md)「Chrome MCP」（连用户自己的 Chrome，不变）。
 - 依据：用户在另一台 Mac（MacBook Air）上用打包的 App 测试（2026-10-27）：远程调试开着、Chrome 在 127.0.0.1:9222 监听，App 报「连不上 Chrome」，Chrome 没有弹出允许。
 - 状态：已施工，等用户在 Air 上试（2026-10-27）。
 

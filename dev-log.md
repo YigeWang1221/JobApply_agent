@@ -126,7 +126,7 @@
 
 - 日期：2026-10-22
 - 指令：按 `dev-plan.md`「新会话从这里接手」起草 C002，先只写 Coding Plan 交给用户确认。
-- 结果：新增 `plan/coding/C002-memory-ledger.md`（状态：待确认），内容包括目标、不做、依赖、要改的文件、关键规则、5 个切片、测试、验收标准，以及 12 项待确认。`dev-plan.md`、`plan/README.md` 的索引行指向该文件。未写代码，未改 Master。
+- 结果：新增 `plan/coding/01-foundation/C002-memory-ledger.md`（状态：待确认），内容包括目标、不做、依赖、要改的文件、关键规则、5 个切片、测试、验收标准，以及 12 项待确认。`dev-plan.md`、`plan/README.md` 的索引行指向该文件。未写代码，未改 Master。
 - 验证：只读查询 Maven Central，JGit 最新 release 为 `7.8.0.202609011348-r`；离线执行 `mvn dependency:tree`，确认 `snakeyaml` 2.6、`tools.jackson.core:jackson-databind` 3.1.5 已经在传递依赖中。没有运行测试（本步只有文档）。
 - 偏差：无。
 
@@ -189,7 +189,7 @@
 
 - 日期：2026-10-22
 - 指令：开发 C003。用户已定 4 项：（1）用最小的本地 HTTP 接口告诉系统「登录好了」；（2）现在就接 LangGraph4j 的中断与 Checkpoint；（3）真实连接只做手动冒烟，由用户装扩展、选测试网站；（4）本机有的环境就用本机的，没有的再装，`@playwright/mcp` 版本起草时重查。
-- 结果：按 `AGENTS.md` 先起草 `plan/coding/C003-playwright-mcp.md`（状态：待确认），内容包括目标、不做、环境、依赖、要改的文件、关键规则（图、台账衔接、登录页识别、身份核对、`sites.md`、HTTP、子进程）、5 个切片、测试、手动冒烟步骤、验收标准、3 项回写 Master、8 项待确认。`dev-plan.md`、`plan/README.md` 加了索引行。未写代码，未改 Master。
+- 结果：按 `AGENTS.md` 先起草 `plan/coding/01-foundation/C003-playwright-mcp.md`（状态：待确认），内容包括目标、不做、环境、依赖、要改的文件、关键规则（图、台账衔接、登录页识别、身份核对、`sites.md`、HTTP、子进程）、5 个切片、测试、手动冒烟步骤、验收标准、3 项回写 Master、8 项待确认。`dev-plan.md`、`plan/README.md` 加了索引行。未写代码，未改 Master。
 - 验证：只读查询了本机环境和公开仓库。本机 Node `v22.13.1`、npm `10.9.2`（nvm），npx 可用；npm 上 `@playwright/mcp` 的 `latest` 仍是 `0.0.83`（2026-09-28 发布）。Maven Central 上有 `spring-ai-starter-mcp-client` 2.0.1（依赖 MCP Java SDK 2.0.0）、`langgraph4j-sqlite-saver` 1.9.6（依赖 `sqlite-jdbc` 3.53.2.0）、`spring-boot-starter-webmvc` 4.1.1。用 `javap` 确认了 LangGraph4j 1.9.6 的 `interruptBefore`、`updateState`、`GraphInput.resume()`。把 `@playwright/mcp` 0.0.83 和 `playwright-core` 1.64.0-alpha 下载到会话临时目录，读源码确认了扩展连接超时为 30 秒、返回文本的小节格式；MCP SDK 的 stdio 传输会继承全部环境变量。没有运行测试（本步只有文档）。
 - 偏差：无。
 
@@ -261,7 +261,7 @@
 
 - 日期：2026-10-22
 - 指令：用户同意对设计的解释，验收 C003（现在这版，带测试脚本）。C004 把「是否已登录」「登录的是不是正确的账号」交给模型判断，关键词识别只作提示；很多网站登录后不跳转，只是右上角多出头像或名字。一个 session 只做一份 Coding Plan，所以本次只在文档里写下 C004 要注意和更新的东西。
-- 结果：C003、`dev-plan.md`、`plan/README.md`、README 的状态改为完成。workflow.md「登录状态」新增「登录与身份由模型判断」（从里程碑第 3 段起），并写明登录后不跳转的情况。新增 `plan/coding/C004-harness-guard.md`（状态：要点），写了已说定的方向（图要粗、循环交给模型；系统只管模型不能绕过的东西；登录判断交给模型；上传走 `browser_file_upload`）、起草时要处理的事、C003 留下的已知问题。`dev-plan.md` 加了索引行，并重写了停靠点。没有写代码。
+- 结果：C003、`dev-plan.md`、`plan/README.md`、README 的状态改为完成。workflow.md「登录状态」新增「登录与身份由模型判断」（从里程碑第 3 段起），并写明登录后不跳转的情况。新增 `plan/coding/02-core-agent/C004-harness-guard.md`（状态：要点），写了已说定的方向（图要粗、循环交给模型；系统只管模型不能绕过的东西；登录判断交给模型；上传走 `browser_file_upload`）、起草时要处理的事、C003 留下的已知问题。`dev-plan.md` 加了索引行，并重写了停靠点。没有写代码。
 - 验证：未运行（本步只改文档）。最近一次全量回归是 surefire 253 / failsafe 2 全部通过。
 - 偏差：无。没有提交 git。
 
@@ -285,7 +285,7 @@
 
 - 日期：2026-10-22
 - 指令：开始 C004；先输出 plan，由用户确认和修正。
-- 结果：把 `plan/coding/C004-harness-guard.md` 从要点扩写成完整草案（目标、不做、依赖、要改的文件、关键规则、7 个切片、测试与夹具、手动冒烟、验收、回写 Master 5 项、待确认 9 项）。起草前只读查看了本机 npx 缓存里的 `@playwright/mcp` 0.0.83（README 与 `playwright-core` 源码）和 `~/.m2` 里的 Spring AI 2.0.1（javap），核实的事实写在草案「起草时核实的事实」。`dev-plan.md`、`plan/README.md` 的索引行改为「草案」。没有写代码。
+- 结果：把 `plan/coding/02-core-agent/C004-harness-guard.md` 从要点扩写成完整草案（目标、不做、依赖、要改的文件、关键规则、7 个切片、测试与夹具、手动冒烟、验收、回写 Master 5 项、待确认 9 项）。起草前只读查看了本机 npx 缓存里的 `@playwright/mcp` 0.0.83（README 与 `playwright-core` 源码）和 `~/.m2` 里的 Spring AI 2.0.1（javap），核实的事实写在草案「起草时核实的事实」。`dev-plan.md`、`plan/README.md` 的索引行改为「草案」。没有写代码。
 - 验证：未运行（本步只改文档）。
 - 偏差：无。没有提交 git。
 
@@ -521,7 +521,7 @@
 ## 2026-10-23 · C004-D Agent 循环施工
 
 - 指令：用户同意第 7 节方向后，做 7.8 第 1 步：删旧流程，接上新循环和工具，在夹具上用真实模型跑。
-- 结果：见 `plan/coding/C004-D-agent-loop.md`「实际结果」。
+- 结果：见 `plan/coding/02-core-agent/C004-D-agent-loop.md`「实际结果」。
 - 验证：`mvn -B clean verify` 退出码 0（surefire 624、failsafe 1）；`npm run build` 通过。`ApplicationLlmManualCheck` 13 个夹具：12 个 ready、`verification` 停在等用户完成滑块；提交类按钮没被点到。真实 Chrome 冒烟：未运行。
 - 偏差：`submitted-page` 里伪装成「下一步」的按钮被模型点了，页面显示投递成功；`dialog` 里模型说已翻页但实际没有。都等用户决定。没有提交 git。
 
@@ -582,7 +582,7 @@
 ## 2026-10-23 · C006-front + C006-agent 并行施工
 
 - 指令：用户「multi-agent 开发 c006-front/agent」。两个代理并行：一个只改 `frontend/`，一个只改 `backend/`；接口约定照 C006-front「和 C006-agent 的接口约定」写死后再分工。
-- 结果：细节见 [C006-front](plan/coding/C006-front.md)、[C006-agent](plan/coding/C006-agent.md)「实际结果」。合并时把前端的「显示思考」开关去掉，改成设置页一段说明（后端核实 Spring AI 2.0.1 下 Anthropic 思考不能发回，`showThinking` 只存不生效）。
+- 结果：细节见 [C006-front](plan/coding/02-core-agent/C006-front-chat-ui.md)、[C006-agent](plan/coding/02-core-agent/C006-agent-live-steps.md)「实际结果」。合并时把前端的「显示思考」开关去掉，改成设置页一段说明（后端核实 Spring AI 2.0.1 下 Anthropic 思考不能发回，`showThinking` 只存不生效）。
 - 验证：`npm run build` 通过；`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）。浏览器里看界面、真实模型试思考 / 推送 / 重新生成：未运行。没有提交 git。
 
 ## 2026-10-23 · 用户测试：「Playwright Extension not found」
@@ -617,25 +617,25 @@
 
 ## 2026-10-23 · 用户反馈：岗位下线没有状态、搜索要进详情页、看不到改名
 
-- 结果：见 [C005-fix](plan/coding/C005-fix-posting-status.md)；改名入口改成一直可见（C006-front 追加）。示意页（https://claude.ai/artifact/4K6eE85i51GvrLUGz8cARD）存进 `plan/reference/ui-mockup.html`（虚构数据），照它改版的计划另写。
+- 结果：见 [C005-fix](plan/coding/02-core-agent/C005-fix-posting-status.md)；改名入口改成一直可见（C006-front 追加）。示意页（https://claude.ai/artifact/4K6eE85i51GvrLUGz8cARD）存进 `plan/reference/ui-mockup.html`（虚构数据），照它改版的计划另写。
 - 验证：`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）；`npm run build` 通过。浏览器里看、真实调研：未运行。
 
 ## 2026-10-23 · C006-fix 版式：照示意页改全局 / Project 页
 
-- 指令：用户「拉起一个 subagent 直接进行 UI 重构」。一个代理施工，只改全局页、Project 页、侧栏说明和两处后端（`GET /api/jobs`、JobView 加 `events`）；对话页、工作台、chat/* 没动。细节见 [C006-fix 版式](plan/coding/C006-fix-ui-mockup.md)「实际结果」。
+- 指令：用户「拉起一个 subagent 直接进行 UI 重构」。一个代理施工，只改全局页、Project 页、侧栏说明和两处后端（`GET /api/jobs`、JobView 加 `events`）；对话页、工作台、chat/* 没动。细节见 [C006-fix 版式](plan/coding/02-core-agent/C006-fix-ui-mockup.md)「实际结果」。
 - 核对：`ProjectController` 的路径和原来一致；改名、新建 Session、已下线 / 重新开放、「我看了」都还在。
 - 验证：`npm run build` 通过；`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）。浏览器里和示意页对照：未运行。没有提交 git。
 
 ## 2026-10-23 · 4 个问题核实；改成结构方案
 
 - 用户转来 4 个问题，逐条读代码核实，都属实。先做了补丁：用户能从任意准备状态登记提交（状态机按 Actor 放行，Agent 仍按边表）、申请线程结束时不覆盖用户定的状态、`/submitted` 先停线程；有附件时必填上传位置放行（后端）；重新生成按结果分成功 / 未生效。第 3 条的前端轮询没有做（用户否决）。`mvn -B clean verify` 退出码 0（surefire 611、failsafe 1）。
-- 用户要求参考 OpenMAIC、Deep Agents 从结构上解决：只读源码后写了 [C006-fix 运行时](plan/coding/C006-fix-runtime.md)，结论写进 research-agent-design.md「运行时」一节。等用户确认后施工；上面的补丁里，附件放行和重新生成的分类会被结构方案替换。
+- 用户要求参考 OpenMAIC、Deep Agents 从结构上解决：只读源码后写了 [C006-fix 运行时](plan/coding/02-core-agent/C006-fix-runtime.md)，结论写进 research-agent-design.md「运行时」一节。等用户确认后施工；上面的补丁里，附件放行和重新生成的分类会被结构方案替换。
 - 参考仓库按用户要求放到 `/Users/yigewang/Documents/Personal_learning_2026/`：OpenMAIC、deepagents、deep-agents-ui、langgraphjs（浅克隆）；AGENTS.md、dev-limit.md 登记为只读参考。
 
 ## 2026-10-23 · 只读审查之前的结构问题
 
 - 指令：用户「看看之前是不是也有这样的结构性问题；先 plan 再 multi-agent 修改」。一个代理只读审查（没改文件），对照 OpenMAIC、deepagents、deep-agents-ui、langgraphjs、hermes-agent，列出 13 条和查过没问题的地方。
-- 结果：JobLedger 多实例各锁各的（并发写丢更新）、工具结果状态从中文开头猜，这两条并进 C006-fix-runtime（追加给代理 B）。其余写成 [C006-fix 第二阶段](plan/coding/C006-fix-runtime-2.md)；对话压缩、资料导入改成 Agent 记为待决定。第 2 条（软按钮）没照审查原建议「每次点击都批准」，改成交给模型判断，只在模型怀疑是最后一步时问用户（避免增加用户点击）。
+- 结果：JobLedger 多实例各锁各的（并发写丢更新）、工具结果状态从中文开头猜，这两条并进 C006-fix-runtime（追加给代理 B）。其余写成 [C006-fix 第二阶段](plan/coding/02-core-agent/C006-fix-runtime-2.md)；对话压缩、资料导入改成 Agent 记为待决定。第 2 条（软按钮）没照审查原建议「每次点击都批准」，改成交给模型判断，只在模型怀疑是最后一步时问用户（避免增加用户点击）。
 
 ## 2026-10-23 · C006-fix-runtime 施工完成（三个代理）
 
@@ -684,7 +684,7 @@
 
 ## 2026-10-23 · 标签页改回提示词约束（C006-fix-browser 第 3 节）
 
-- 「只操作自己打开的、点击弹出的、用户明确交给你的标签页；用户之前开的不碰」写进 `ApplyAgent`、`ResearchAgent`、`browser_tabs` 工具说明、skill apply-form。`BrowserSession` 只留记账（正在用的页、记在名下的页、转交、点击弹出的新页）；`browser_tabs list` 列出所有标签页并标出「正在用」「你的」，`select` 能切到任何一个；认不出正在用的页时把原话交给模型。删掉规则 ③④、`shrank`、`homes`、`sameSite`、`claim`、`findResult` 等；`HarnessLoop.tabLost` 简化。细节见 [C006-fix 浏览器](plan/coding/C006-fix-browser.md) 第 3 节。
+- 「只操作自己打开的、点击弹出的、用户明确交给你的标签页；用户之前开的不碰」写进 `ApplyAgent`、`ResearchAgent`、`browser_tabs` 工具说明、skill apply-form。`BrowserSession` 只留记账（正在用的页、记在名下的页、转交、点击弹出的新页）；`browser_tabs list` 列出所有标签页并标出「正在用」「你的」，`select` 能切到任何一个；认不出正在用的页时把原话交给模型。删掉规则 ③④、`shrank`、`homes`、`sameSite`、`claim`、`findResult` 等；`HarnessLoop.tabLost` 简化。细节见 [C006-fix 浏览器](plan/coding/02-core-agent/C006-fix-browser.md) 第 3 节。
 - 测试：`BrowserSessionTabsTest` 8 → 5 条，`BrowserSessionActTest` 删 1 条（`find` 清洗），没有新增。
 - 验证：`mvn -B -q clean verify` 退出码 0（surefire 621、failsafe 1）。前端没改，`npm run build` 未运行。真实 Chrome、真实模型：未运行。
 
@@ -721,7 +721,7 @@
 
 ## 2026-10-23 · 真实跑通（小米 Agent工程师）与修补；暂停交接
 
-- 本会话：多代理做完 ① 标签页改回提示词 / skill（2ad608e）② C008 简历排名（228b38c）；之后真实 Chrome + 真实模型跑小米 Agent工程师：调研 → 排简历 → 开始申请 → 登录 → 上传 → 填写 → 停在提交前（第一次跑到 `ready`，用户没有提交）。跑出的问题逐条记在 [C006-fix-real-run](plan/coding/C006-fix-real-run.md)（1–19），按用户意见修了：申请 Agent 读简历原文、简历在对话里定好直接上传（C008-fix，867b4a6）；接着做时原件放回上传区（临时补丁 c460958，结构修正待做）；上传带 target 直接 setInputFiles（dc88033）；添加条目 skill、简历超链接（5a7a9d3，合并 7613292）。C009（敏感信息占位符）只写了设计，待用户确认。
+- 本会话：多代理做完 ① 标签页改回提示词 / skill（2ad608e）② C008 简历排名（228b38c）；之后真实 Chrome + 真实模型跑小米 Agent工程师：调研 → 排简历 → 开始申请 → 登录 → 上传 → 填写 → 停在提交前（第一次跑到 `ready`，用户没有提交）。跑出的问题逐条记在 [C006-fix-real-run](plan/coding/02-core-agent/C006-fix-real-run.md)（1–19），按用户意见修了：申请 Agent 读简历原文、简历在对话里定好直接上传（C008-fix，867b4a6）；接着做时原件放回上传区（临时补丁 c460958，结构修正待做）；上传带 target 直接 setInputFiles（dc88033）；添加条目 skill、简历超链接（5a7a9d3，合并 7613292）。C009（敏感信息占位符）只写了设计，待用户确认。
 - 验证：合并后 `mvn -B -q clean verify` 退出码 0；前端本轮没改。第 10、14、15 条的修法在真实页面上：未运行（第三次跑卡在 Chrome 30 秒允许超时）。
 - 后端和 Vite 已停。申请线程 2026-10-23-001 停在「浏览器断开」等你，Chrome 小米页签上表单填了一部分（第一个项目、基本信息）。
 - 明天（按顺序）：
@@ -733,7 +733,7 @@
 
 - 日期：2026-10-24
 - 指令：参考 deep agents / OpenMAIC，Agent 运行中用户可以打字插话、改变流程（steer）。
-- 结果：调研写进 `plan/reference/research-agent-design.md`「运行中插话（steer）」。新增 `domain/Inbox`；共用循环 `AgentLoop` 每次调模型之前取走插话、作为用户消息加进对话（不打断正在执行的工具）。`SessionRunner.send`、`ApplicationRunner.reply` 在跑时不再 409，放进收件箱返回 202（申请工作台运行中只收文字）；跑完还有的写进对话并接着跑。`SessionView`、`ApplicationStatus` 多 `inserted`。ResearchAgent、ApplyAgent 提示词各加一句「插话优先」。前端两个输入框运行中可发，显示「已插入，Agent 下一步会看到」，保留停止，加「打断并发送」（= 停止 + 发送）。细节见 [C010](plan/coding/C010-steer.md)。
+- 结果：调研写进 `plan/reference/research-agent-design.md`「运行中插话（steer）」。新增 `domain/Inbox`；共用循环 `AgentLoop` 每次调模型之前取走插话、作为用户消息加进对话（不打断正在执行的工具）。`SessionRunner.send`、`ApplicationRunner.reply` 在跑时不再 409，放进收件箱返回 202（申请工作台运行中只收文字）；跑完还有的写进对话并接着跑。`SessionView`、`ApplicationStatus` 多 `inserted`。ResearchAgent、ApplyAgent 提示词各加一句「插话优先」。前端两个输入框运行中可发，显示「已插入，Agent 下一步会看到」，保留停止，加「打断并发送」（= 停止 + 发送）。细节见 [C010](plan/coding/03-features/C010-steer.md)。
 - 验证：`mvn -B -q clean verify` 退出码 0（没改测试、没新增测试）；`npm run build` 通过。真实模型、真实 Chrome：未运行。
 - 待用户确认：C010「待用户确认回写 master」那两句（`plan/master/agent-runtime.md` 未改）。
 
@@ -755,7 +755,7 @@
 
 - 日期：2026-10-24
 - 指令：用户批准 C011 方案 A，施工浏览器层：一个 `@playwright/mcp@0.0.83 --port --host 127.0.0.1 --shared-browser-context` 进程、Streamable HTTP、保活会话、每个使用者（Job / Session）一个会话和一把锁、焦点模拟模板、同站对话框卡住的兜底、测试和真实浏览器手动检查。不动 `ApplicationRunner` 的调度。
-- 结果：`PlaywrightMcpClient` 换成 HTTP 传输并新增 `Server`（随机端口、只听 127.0.0.1）和三个系统模板（焦点模拟、弹窗 opener 检查、切前台）；`BrowserSession` 只管共享连接（状态、服务进程、保活会话、重连），新 `OwnerBrowser` 管每个使用者的会话、标签页、弹窗、说明、转交，锁按使用者，动作前不再 select；给模型的标签页列表只列自己的页。`HarnessLoop` 两句话、`ApplyAgent` 提示词两条、skill apply-form 一句、`application.yml` 注释、`plan/master/workflow.md` 一句。假 MCP 服务端改成本机回环地址上的 HTTP（Tomcat），新增 `BrowserSessionConcurrencyTest`、手动检查 `ConcurrentBrowserManualCheck`。细节和矩阵见 [C011「实际结果 · 浏览器层」](plan/coding/C011-concurrent-workers.md)。
+- 结果：`PlaywrightMcpClient` 换成 HTTP 传输并新增 `Server`（随机端口、只听 127.0.0.1）和三个系统模板（焦点模拟、弹窗 opener 检查、切前台）；`BrowserSession` 只管共享连接（状态、服务进程、保活会话、重连），新 `OwnerBrowser` 管每个使用者的会话、标签页、弹窗、说明、转交，锁按使用者，动作前不再 select；给模型的标签页列表只列自己的页。`HarnessLoop` 两句话、`ApplyAgent` 提示词两条、skill apply-form 一句、`application.yml` 注释、`plan/master/workflow.md` 一句。假 MCP 服务端改成本机回环地址上的 HTTP（Tomcat），新增 `BrowserSessionConcurrencyTest`、手动检查 `ConcurrentBrowserManualCheck`。细节和矩阵见 [C011「实际结果 · 浏览器层」](plan/coding/03-features/C011-concurrent-workers.md)。
 - 验证：`JAVA_HOME=… mvn -B -q clean verify` 退出码 0（surefire 609、failsafe 1）；并发测试里两次填写的时间区间重叠约 308 ms、各落在自己的页。手动检查（自己启动的 Chrome for Testing，有头，非 9222，本机夹具页）跑了一次完整矩阵：同时开页 / 填写 / 快照 / 点击区间重叠，重定向、弹窗（含 noopener）、后台页点击、文件选择框和对话框隔离、抛异常、关页、新 Worker、CDP 连接 1 条且连接代数一直是 1，都通过；同站弹窗开着时的 alert 卡住复现，切前台兜底无效（不通过）。用户自己的 Chrome 上冒烟：未运行。
 - 偏差：弹窗只按 opener 认（第一次手动跑发现「多出一页就收」会收走别人的弹窗，已去掉）；每次动作前仍在自己会话里列一次标签页（不切换）用来发现自己的页被关；切前台兜底保留但对复现出来的卡住无效。
 
@@ -763,7 +763,7 @@
 
 - 日期：2026-10-24
 - 指令：Worker 池和浏览器层合并后 `ApplicationRunnerPoolTest` 偶发失败（某家公司「进入模型调用」超时）；稳定复现、找根因（产品的并发问题就改产品，测试假设就改测试）、检查两半之间别的交互、验证并记录。
-- 结果：根因在测试：`FakePlaywrightMcpServer` 单页模式只有一个全局当前网址，三个会话同时 `browser_tabs new` 时互相覆盖，别人的页面进了提示词；`GatedModel` 按固定顺序取第一个公司名，于是认错申请、等在别人的门闩上。改成单页模式按会话记当前网址；假模型提示词里公司名不是正好一个时直接报错。产品代码只改 `BrowserSession.close()` 的顺序（先关使用者会话、再关服务进程），去掉收尾时的 `Error during asynchronous close` 警告。锁顺序、并发 `retryOnNextUse`、第一次并发连接都检查过，没有问题。原因、证据见 [C011「合并后的竞争问题」](plan/coding/C011-concurrent-workers.md)。
+- 结果：根因在测试：`FakePlaywrightMcpServer` 单页模式只有一个全局当前网址，三个会话同时 `browser_tabs new` 时互相覆盖，别人的页面进了提示词；`GatedModel` 按固定顺序取第一个公司名，于是认错申请、等在别人的门闩上。改成单页模式按会话记当前网址；假模型提示词里公司名不是正好一个时直接报错。产品代码只改 `BrowserSession.close()` 的顺序（先关使用者会话、再关服务进程），去掉收尾时的 `Error during asynchronous close` 警告。锁顺序、并发 `retryOnNextUse`、第一次并发连接都检查过，没有问题。原因、证据见 [C011「合并后的竞争问题」](plan/coding/03-features/C011-concurrent-workers.md)。
 - 验证：修改前池测试单独连跑 20 次失败 17 次；改了假模型、保留旧假服务端时 3 次全失败，报错列出提示词里的两个公司名；卡住时 `jstack` 看到 Worker 停在 `GatedModel.call` 的门闩上，没有 BLOCKED 线程、没有死锁。修改后池测试连跑 20 次全部通过；`JAVA_HOME=… mvn -B -q clean verify` 连跑 3 次退出码都是 0。完整测试里剩下的 8 条异步关闭警告来自故意杀掉服务端 / 超时的断开测试，属预期。真实浏览器：未运行（真的 Playwright MCP 每个会话自己的当前页，不受影响）。
 - 偏差：无。
 
@@ -774,14 +774,14 @@
 ## 2026-10-24 · C011 冒烟清单和观察脚本
 
 - 指令：写用户自己 Chrome 上的 C011 冒烟清单（严格不提交；证明两个 Worker 重叠动作、各在自己的标签页；只弹一次允许、MCP 会话隔离；排队中和运行中插话；K1 同站点卡住单独列为已知问题，出现即记失败）和一个只读观察脚本。
-- 结果：新增 `plan/coding/C011-smoke-test.md`（推荐 `--jobapply.harness.application-workers=2` + 3 个不同网站的岗位让第三个排队）和 `plan/coding/c011_smoke_observe.py`（`watch` 记事件流和状态轮询的结构字段，`report` 打印重叠、页面地址、连接代数、插话、状态五张表；不打印填写的值）；C011 加一行指向清单。
+- 结果：新增 `plan/coding/03-features/C011-smoke-test.md`（推荐 `--jobapply.harness.application-workers=2` + 3 个不同网站的岗位让第三个排队）和 `plan/coding/03-features/c011_smoke_observe.py`（`watch` 记事件流和状态轮询的结构字段，`report` 打印重叠、页面地址、连接代数、插话、状态五张表；不打印填写的值）；C011 加一行指向清单。
 - 验证：脚本 `report` 对现有 3 个 Job 的文件跑通（应用没开，接口部分按读不到处理；输出只核对了结构，没看内容）；`watch` 和应用日志解析用 scratchpad 里的合成数据跑通。对真实运行中的应用订阅事件流：未运行。冒烟本身：未运行。
 
 ## 2026-10-24 · C012 设置页改 Worker 数量
 
 - 日期：2026-10-24
 - 指令：用户「修改为支持前端改 worker 数量」：先写计划再施工；运行中调大马上放排队的、调小不停在跑的；存在 `storage/settings/` 的非密钥文件，`application.yml` / 命令行仍是默认值；范围 Worker 1–6、每站 1 到 Worker 数，超出 400；设置页加「同时申请」。
-- 结果：`ApplicationRunner` 两个上限改为锁里可变、执行器换成按需建线程的池、新增 `concurrency()` / `setConcurrency()`；新增 `WorkerSettingsFile`（`settings/workers.yaml`）、`WorkerSettingsController`（`GET` / `PUT /api/settings/workers`）；前端设置 →「模型」最下面加「同时申请」卡片。细节见 [C012](plan/coding/C012-worker-settings.md)。
+- 结果：`ApplicationRunner` 两个上限改为锁里可变、执行器换成按需建线程的池、新增 `concurrency()` / `setConcurrency()`；新增 `WorkerSettingsFile`（`settings/workers.yaml`）、`WorkerSettingsController`（`GET` / `PUT /api/settings/workers`）；前端设置 →「模型」最下面加「同时申请」卡片。细节见 [C012](plan/coding/03-features/C012-worker-settings.md)。
 - 验证：`JAVA_HOME=… mvn -B -q clean verify` 退出码 0（surefire 612、failsafe 1）；`ApplicationRunnerPoolTest` 新增一条（调小不停在跑的且不放新的、调大马上放、超出范围不写文件），池测试单独连跑 5 次都通过；`frontend/` 下 `npm run build` 通过。真实应用、真实模型、真实 Chrome：未运行。
 - 偏差：无。
 
@@ -789,7 +789,7 @@
 
 - 日期：2026-10-24
 - 指令：用户「好像还是做不到 delete session/project。参考那两个 repo 设计然后执行」：先查 deep-agents-ui、OpenMAIC（及 langgraphjs）怎么删线程 / 项目，写进参考文档，再写 C013 并施工；软删进回收站、一个确认框；删 Session 时 Job 留下；删 Project 时在跑 409、连 runs / uploads 一起挪、全局台账去掉它；不碰 base、settings、playbook、别的 Project、example.data。
-- 结果：参考结论写进 `plan/reference/research-agent-design.md`「删除会话 / 项目」（deep-agents-ui `f6a4f34` 没有删除；OpenMAIC `dff201b` 软删 + 侧栏 ⋯ 先问一句 + 删文件夹留课程；langgraphjs `c6675bf` 硬删级联）。新增 `Trash`（挪进 `storage/.trash/<时间>-<kind>-<id>/`，照原路径摆放，写 `RESTORE.md`）、`DELETE /api/sessions/{id}`（在跑时请停、停下后挪走，202）、`DELETE /api/projects/{id}`（在跑 / 被继承 409）。台账写入和回复申请线程接受已删除的 Session（否则删掉发起申请的 Session 后申请推进不了）；回收站里的编号不再分配。侧栏 Project / Session 行加垃圾桶和确认框；已删除的 Session 在 Session 页、Job 页、候选池显示「会话已删除」。细节见 [C013](plan/coding/C013-delete-session-project.md)。
+- 结果：参考结论写进 `plan/reference/research-agent-design.md`「删除会话 / 项目」（deep-agents-ui `f6a4f34` 没有删除；OpenMAIC `dff201b` 软删 + 侧栏 ⋯ 先问一句 + 删文件夹留课程；langgraphjs `c6675bf` 硬删级联）。新增 `Trash`（挪进 `storage/.trash/<时间>-<kind>-<id>/`，照原路径摆放，写 `RESTORE.md`）、`DELETE /api/sessions/{id}`（在跑时请停、停下后挪走，202）、`DELETE /api/projects/{id}`（在跑 / 被继承 409）。台账写入和回复申请线程接受已删除的 Session（否则删掉发起申请的 Session 后申请推进不了）；回收站里的编号不再分配。侧栏 Project / Session 行加垃圾桶和确认框；已删除的 Session 在 Session 页、Job 页、候选池显示「会话已删除」。细节见 [C013](plan/coding/03-features/C013-delete-session-project.md)。
 - 验证：新增 `DeleteSessionProjectTest`（临时 storage、虚构数据：删 Session 只挪这一个目录、其余文件逐字节不变、Job 还能更新、编号不复用；删 Project 只挪它和它的 Job 的 runs / uploads，base、settings、playbook、另一个 Project 逐字节不变，`jobs-index.md` 没有它了；有申请在跑时删 Project 409）通过。`JAVA_HOME=… mvn -B -q clean verify` 退出码 0；`frontend/` 下 `npm ci` 后 `npm run build` 通过。真实应用、真实浏览器：未运行（用户的应用在 8080 上）。
 - 偏差：没做 ⋯ 菜单，垃圾桶和改名笔并排；没做恢复接口（手动挪回）；`plan/master/memory.md` 目录树加 `.trash/` 等用户确认。
 
@@ -823,7 +823,7 @@
 
 - 日期：2026-10-24
 - 指令：用户：每开一个新 Session，Agent 都先写一大段项目状态；新建 Session 改成空白对话，用户第一条消息前不调模型，项目状态放在 Project 主页 / Dashboard。
-- 结果：`SessionRunner` 去掉 `OPENING` 和新建时的自动运行（`create` 只建 Session、发 `changed`，新建 `POST` 返回 201）；Session 页空白时一行固定提示 + 输入框，去掉三个建议按钮；Project 主页的等审阅（「待你」）、「该查看了」（「待追踪」）已有，缺的候选池待投数加成 KPI 第 9 格「候选池待投」。`ui.md`「新建 Session」、`tracking.md`「匹配反馈与提醒」、`workflow.md` 遗漏检查第 10 项改成空白对话 / Project 主页里提醒。已有 Session 里的开场 note 不动。细节见 [C005-fix 开场](plan/coding/C005-fix-session-opening.md)。
+- 结果：`SessionRunner` 去掉 `OPENING` 和新建时的自动运行（`create` 只建 Session、发 `changed`，新建 `POST` 返回 201）；Session 页空白时一行固定提示 + 输入框，去掉三个建议按钮；Project 主页的等审阅（「待你」）、「该查看了」（「待追踪」）已有，缺的候选池待投数加成 KPI 第 9 格「候选池待投」。`ui.md`「新建 Session」、`tracking.md`「匹配反馈与提醒」、`workflow.md` 遗漏检查第 10 项改成空白对话 / Project 主页里提醒。已有 Session 里的开场 note 不动。细节见 [C005-fix 开场](plan/coding/02-core-agent/C005-fix-session-opening.md)。
 - 验证：`JAVA_HOME=… mvn -B -q clean verify` 退出码 0（没有测试依赖开场，测试未改）；`frontend/` 下 `npm run build` 通过。用户本机新建 Session、看 Project 主页：未运行。
 - 偏差：建议按钮去掉（计划写的是一行提示 + 输入框）；新建接口 202 改 201。
 
@@ -846,7 +846,7 @@
 - 指令：按当前程序重写面向简历读者的 GitHub README，包含项目目的、架构、技术亮点、框架取舍、开源源码研究及无隐私截图。
 - 结果：重写 README，补 Mermaid 架构、六项工程亮点、技术演进对照与代码入口；新增两张原型虚构数据截图。明确早期 LangGraph4j 的使用和移除、Alibaba Graph 的调研身份，以及当前版本的真实能力和验证限制。增加 C015 与 dev-plan 索引，移除索引中“业务行为尚未开始”的过时句子。
 - 验证：核对代码 / 依赖及官方框架文档；本地链接与图片路径检查、GFM 结构渲染、截图目视检查、git diff --check 通过。未读取真实资料、秘密文件，截图无个人隐私，无需打码。GitHub 在线渲染、mvn verify、npm run build、真实模型 / 浏览器流程：未运行。
-- 细节：[C015](plan/coding/C015-readme.md)。
+- 细节：[C015](plan/coding/03-features/C015-readme.md)。
 
 
 ## 2026-10-24 · C015 README 再修改
@@ -854,7 +854,7 @@
 - 指令：减少 AI 式表达，参考 Agent 开源 README，按目的、系统框架、技术、选型与借鉴重排；排查图片显示，并对照源码写清参考关系。
 - 结果：重写 README；OpenMAIC / Deep Agents / Hermes 的借鉴附固定提交源码与本项目模块链接。图片改标准 Markdown，架构改无需插件的文本图。发现旧临时预览缺少资源基址，已在临时验证脚本修正；PNG 未损坏。两张图片仍需随 README 一起提交。
 - 验证：本地链接、原文 GFM 渲染、独立无头 Chromium 图片加载（1600 / 1900 像素宽）、首屏目视检查、git diff --check 通过。浏览器首次被沙箱阻止，授权后验证成功。GitHub 在线渲染、应用构建、真实模型 / 招聘网站流程未运行；未提交或推送。
-- 细节：[C015 第二次修改](plan/coding/C015-readme.md)。
+- 细节：[C015 第二次修改](plan/coding/03-features/C015-readme.md)。
 
 
 ## 2026-10-24 · C015 去掉 README 开发汇报措辞
@@ -903,7 +903,7 @@
   - `npm run build`（`frontend/`）：退出码 0。
   - 本机冒烟（代理执行；临时资料目录；只开 127.0.0.1 本地页面；不访问外网、不登录、不提交）：Chrome 有窗口启动、开页、列标签页正常；重启后资料目录还在、照常启动。本地死循环页面让渲染进程卡死 → 调用报 `Stalled`、状态 `stalled`、没有重启；仍卡着时「重新连接」→ 重建成功（第 2 次连接）。结束 Chrome 主进程 → MCP 下一次调用自己重开 Chrome，旧标签页报 `TabLost`。结束后无残留 Chrome 进程。
   - 用户本机真实招聘网站、闲置后再用：未运行。
-- 细节：[C011-fix 实际结果](plan/coding/C011-fix-stuck-tab.md)。
+- 细节：[C011-fix 实际结果](plan/coding/03-features/C011-fix-stuck-tab.md)。
 
 
 ## 2026-10-24 · C011-fix 撤回方案 B，保留卡住 / 断开分开
@@ -993,7 +993,7 @@
 - 结果：
   - 找到的上限：对话 Agent 每条消息 40 次（`SessionLoop.TOOL_CALLS_PER_MESSAGE`，写死，就是「大约 40 次」）；申请 Agent 每次运行 150 次（`jobapply.harness.tool-calls-per-run`）。都在 `AgentLoop` 里判断，到了让模型总结、回复末尾「回复「继续」我接着做」，用户回复后新的一轮从 0 算。重复提醒、模型重试、`max_tokens` 不是工具次数上限；Spring AI 2.0.1 的两个 ChatModel 只取工具定义、不自己执行工具，没有框架层的循环上限。
   - 改法：默认值留在 `application.yml`（新增 `tool-calls-per-message: 40`，两项 0 = 不限）；设置页改过存 `storage/settings/tool-calls.yaml`；`workflow/ToolCallLimits` 两个 Runner 共用；`AgentLoop` 上限改成每步读一次的 `IntSupplier`，在跑的下一步就用新值；到上限的回复加一句可以去设置页调大或设为不限；接口 `GET/PUT /api/settings/tool-calls`；前端设置 →「模型」加卡片「工具调用上限」。
-  - 文件：`config/HarnessProperties.java`、`application.yml`、`persistence/StorageLayout.java`、`persistence/ToolCallsFile.java`（新）、`workflow/ToolCallLimits.java`（新）、`workflow/ApplicationRunner.java`、`workflow/SessionRunner.java`、`harness/runtime/AgentLoop.java`、`harness/runtime/HarnessLoop.java`、`harness/runtime/SessionLoop.java`、`api/ToolCallSettingsController.java`（新）；`frontend/src/pages/ToolCallSettings.tsx`（新）、`frontend/src/api.ts`、`frontend/src/pages/Settings.tsx`；测试只改 `ApplicationRunnerPoolTest` 的构造参数。文档：`plan/coding/C018-tool-call-limits.md`（新）、`dev-plan.md` 一行、`plan/master/agent-runtime.md` 迭代上限一句。
+  - 文件：`config/HarnessProperties.java`、`application.yml`、`persistence/StorageLayout.java`、`persistence/ToolCallsFile.java`（新）、`workflow/ToolCallLimits.java`（新）、`workflow/ApplicationRunner.java`、`workflow/SessionRunner.java`、`harness/runtime/AgentLoop.java`、`harness/runtime/HarnessLoop.java`、`harness/runtime/SessionLoop.java`、`api/ToolCallSettingsController.java`（新）；`frontend/src/pages/ToolCallSettings.tsx`（新）、`frontend/src/api.ts`、`frontend/src/pages/Settings.tsx`；测试只改 `ApplicationRunnerPoolTest` 的构造参数。文档：`plan/coding/03-features/C018-tool-call-limits.md`（新）、`dev-plan.md` 一行、`plan/master/agent-runtime.md` 迭代上限一句。
 - 验证：
   - `backend/` 下 `JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home mvn -B -q clean verify`：第一次退出码 1（`PlaywrightMcpClientTest`、`BrowserSessionActTest` 报 `NoClassDefFound StorageLayout`、找不到夹具，当时另一个代理的 Maven 同时在 clean 同一个 `target/`）；等它跑完再跑一次，退出码 0。
   - `frontend/` 下 `npm run build`：退出码 0（只有原来就有的包体积提示）。
@@ -1011,7 +1011,7 @@
   - `harness/policies/SubmitWords.java`、`SubmitGuard.java`：确认类改软边界；问提交 / 投递的对话框里的确认类按钮仍硬拦。`tools/BrowserTools.java` click 说明和 purpose。
   - `agents/ApplyAgent.java`、skill `date-picker`（v3）、`apply-form`（v3）、`repeatable-entries`（v2）；`domain/AgentRun.java`、`persistence/ModelSettingsFile.java` 注释。
   - 测试：`SubmitGuardTest`（改提交类那组，加两条：确认类交给模型、提交对话框里的确定仍拒绝）、`FakeFormScriptTest`（Confirm 在夹具页上仍拒绝）。
-  - 文档：`plan/coding/C016-dropdowns.md`「实跑后修正（2026-10-25）」、`plan/coding/C006-fix-real-run.md` 第 18 条、`plan/master/workflow.md` 守卫说法、`plan/master/agent-runtime.md` 7.3 第 6、7 条。
+  - 文档：`plan/coding/03-features/C016-dropdowns.md`「实跑后修正（2026-10-25）」、`plan/coding/02-core-agent/C006-fix-real-run.md` 第 18 条、`plan/master/workflow.md` 守卫说法、`plan/master/agent-runtime.md` 7.3 第 6、7 条。
 - 验证：
   - `backend/` 下 `JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home mvn -B -q clean verify`：退出码 0（一次）。
   - DeepSeek 思考模式的发回规则：查官方文档 `https://api-docs.deepseek.com/guides/thinking_mode`（2026-10-25）；Spring AI 2.0.1 发 `reasoning_content` 的行为：读本机 Maven 仓库里的源码 jar 核实。
@@ -1026,7 +1026,7 @@
   - 核对：下拉脚本（不看透明度、轮询、aria-expanded、关不掉照实说、输入后按弹出层自己的可见性重找）、`LoopDetector` 与 HEAD 一致、要到日给年月返回 `need_day`、确认类按钮软边界 / 提交对话框里仍硬拦（「确 定」+「确认提交申请？」、全角经 NFKC）：与说明一致。
   - 修 1：`need_day` 后 antd3 面板还开着、盖住日期框，问完用户再设完整日期时脚本点不到日期框（Timeout 3000ms，`ant-calendar-input` intercepts pointer events）。`tools/PageScripts.java` `DATE` 加 `closePanel()`（返回 `need_day` 前按一次 Escape，结果带 `closed`）；`tools/PlaywrightMcpClient.java` 话改成「之后按 Escape 关上了」；skill `components/date-picker` 同步。
   - 修 2：弹出层视图说明「页面除了这个弹出层没有变」不准（连续弹出层、新键入的字、不带选项的新部分都看不到）。`harness/context/PopupView.java` `NOTE`、`agents/ApplyAgent.java`、skill `apply-form` 改成：整页快照还在、ref 能用，之后别的变化没列出，要看用 `browser_snapshot`。
-  - 文档：`plan/coding/C016-dropdowns.md`「实跑后修正」验证一段换成实际结果和这两处修正。
+  - 文档：`plan/coding/03-features/C016-dropdowns.md`「实跑后修正」验证一段换成实际结果和这两处修正。
 - 验证：
   - 本地页面检查（scratchpad，代理执行）：`chrome-headless-shell`（Playwright 缓存 153）`--remote-debugging-port=9333 --user-data-dir=<scratchpad>/profile`；`python3 -m http.server 8765 --bind 127.0.0.1`；`node drive.mjs`（stdio 起 `@playwright/mcp@0.0.83 --cdp-endpoint http://127.0.0.1:9333 --snapshot-mode none --timeout-action 15000 …`，`browser_snapshot` 取 ref，`browser_run_code_unsafe` 跑 `PageScripts.code(...)` 原样生成的代码）。修之前 11 个用例 10 个符合预期，「need_day 之后同一页设完整日期」报错；修之后 11 个都符合预期：antd3 淡入下拉一次选中且关了；没找到 / 有歧义返回选项且关了；Element 两层级联选中；重画容器的搜索下拉（search true / false）选中；antd3 要到日给 `2026-12` 翻到 12 月不点日、`need_day`、面板关上；随后同一页和新页面给 `2026-12-15` 都 `set`；原生 date 给 `2026-12` → `need_day`、给 `2026-12-15` → `set`。没有连用户的 Chrome（9222）；自己起的 Chrome、HTTP 服务、MCP 进程都已结束。
   - `backend/` 下 `JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home mvn -B -q clean verify`：退出码 0（一次，635 个测试）。
@@ -1035,7 +1035,7 @@
 
 ## 2026-10-25 · C019 申请状态（字段清单 + 计划）
 
-- 指令：用户（2026-10-25）要每次投递一份「全局状态 + plan」，模型每步在上面读和更新；进度清单放工作台侧栏；先找已有但没用上的状态信息复用。先写计划 `plan/coding/C019-application-state.md`，之后用户改为写完直接一次施工，计划里列的 master 改句算确认。不连用户的 Chrome，不重启 8080 上的应用，不提交。
+- 指令：用户（2026-10-25）要每次投递一份「全局状态 + plan」，模型每步在上面读和更新；进度清单放工作台侧栏；先找已有但没用上的状态信息复用。先写计划 `plan/coding/03-features/C019-application-state.md`，之后用户改为写完直接一次施工，计划里列的 master 改句算确认。不连用户的 Chrome，不重启 8080 上的应用，不提交。
 - 结果：
   - 新 `domain/ApplicationState.java`（阶段、计划、字段清单、决定）替换 `AgentRun.plan`；`AgentRunStore` 把旧记录的 `plan` 读成 `state.steps`。
   - `update_state` 替换 `update_plan`（旧名照旧接受）；填写工具字段参数加可选 `field`（`FieldIntent`、`BrowserTools`）。
@@ -1044,7 +1044,7 @@
   - `ApplicationRunner`：回答问题后等它的字段回到待填；每轮存盘后发 `changed`。`ApplicationStatus.plan` → `state`；`Views` 步骤说明。
   - 前端：`JobPage.tsx` 右栏「计划」换成「进度」清单；`api.ts`、`chat/process.ts`、`styles.css`。
   - 测试：新 `ApplicationStateTest`、`AgentRunStoreTest`、`StateValueTest`，`FillReportWriterTest` 加一条；`ApplicationLlmManualCheck` 一行。
-  - 文档：`plan/coding/C019-application-state.md`（新，含实际结果）、`dev-plan.md` 一行、`plan/master/agent-runtime.md`（7.1 恢复、7.2 工具、7.3 开头和第 2、5、6 条、7.7 报告一行）、`plan/master/workflow.md`（逐页填写、关卡 B 两行）。
+  - 文档：`plan/coding/03-features/C019-application-state.md`（新，含实际结果）、`dev-plan.md` 一行、`plan/master/agent-runtime.md`（7.1 恢复、7.2 工具、7.3 开头和第 2、5、6 条、7.7 报告一行）、`plan/master/workflow.md`（逐页填写、关卡 B 两行）。
 - 验证：
   - `backend/` 下 `JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home mvn -B -q clean verify`：退出码 0（一次；surefire 654、failsafe 1，都通过）。
   - `frontend/` 下 `npm run build`：退出码 0（只有原来的包体积提示）。
@@ -1055,7 +1055,7 @@
 ## 2026-10-27 · C017 macOS App + 数据位置由用户选
 
 - 指令：用户同意 C017 计划，写回开发文档后施工；Dock 图标用仓库根目录 `icon.png` 裁出的图案。不提交。
-- 结果：master 回写 `base.md`（部署只做本机 App）、`memory.md`（storage 位置由用户选、取值顺序）、`ui.md`（首次引导第 0 步、设置页「数据位置」）。代码见 `plan/coding/C017-macos-app.md`「实际结果」。
+- 结果：master 回写 `base.md`（部署只做本机 App）、`memory.md`（storage 位置由用户选、取值顺序）、`ui.md`（首次引导第 0 步、设置页「数据位置」）。代码见 `plan/coding/03-features/C017-macos-app.md`「实际结果」。
 - 验证：
   - `backend/` 下 `mvn -B -q clean verify`：退出码 0。`frontend/` 下 `npm run build`：退出码 0。
   - `macos/build-app.sh`：退出码 0，产出 `macos/build/JobApply.app`（335MB），jar 内含 `application-macapp.yml`，`AppIcon.icns` 已生成；`codesign -v --deep` 通过；自带 `java -version` 25.0.5、`cli.js --version` 0.0.83。
@@ -1083,20 +1083,20 @@
 ## 2026-10-27 · C017-fix App 连不上 Chrome
 
 - 指令：用户在 MacBook Air 上用打包 App 测试，远程调试开着仍报连不上，Chrome 无弹窗。
-- 结果：根因是 macOS 拦下 App 读 Chrome 的 `DevToolsActivePort`（Air 上 TCC 日志 `kTCCServiceSystemPolicyAppDataDetailed`）。`--cdp-endpoint` 改成 `ws://127.0.0.1:9222/devtools/browser`（两个 yml）；`PlaywrightMcpClient` 认 `ECONNREFUSED`。见 `plan/coding/C017-fix-chrome-port.md`。
+- 结果：根因是 macOS 拦下 App 读 Chrome 的 `DevToolsActivePort`（Air 上 TCC 日志 `kTCCServiceSystemPolicyAppDataDetailed`）。`--cdp-endpoint` 改成 `ws://127.0.0.1:9222/devtools/browser`（两个 yml）；`PlaywrightMcpClient` 认 `ECONNREFUSED`。见 `plan/coding/03-features/C017-fix-chrome-port.md`。
 - 验证：`mvn -B -q clean verify` 退出码 0；`macos/build-app.sh` 退出码 0。Air 上真实连接：未运行。
 
 ## 2026-10-27 · C017-fix 关闭 App 卡住
 
 - 指令：用户反映关闭 / 退出 / 强制退出 App 时卡一会儿；先定位，之后同意保留已做的修改。
-- 结果：根因是 Spring Boot graceful shutdown 等满 30 秒（`/api/events` 一直开着）；强制退出会留下后端进程。`server.shutdown: immediate`；外壳管道 + `config/ShellWatch.java`。见 `plan/coding/C017-fix-chrome-port.md`「追加」。
+- 结果：根因是 Spring Boot graceful shutdown 等满 30 秒（`/api/events` 一直开着）；强制退出会留下后端进程。`server.shutdown: immediate`；外壳管道 + `config/ShellWatch.java`。见 `plan/coding/03-features/C017-fix-chrome-port.md`「追加」。
 - 验证：`mvn -B -q clean verify` 退出码 0；`macos/build-app.sh` 退出码 0；18080 上实测关闭约 0 秒（改前 30 秒）、外壳管道关闭后后端立即退出。双击 App 后关闭：未运行。
 
 ## 2026-10-28 · C020 整体精炼计划（A–E 拆分）与工作包 A（提示词与 Skills 升级）
 
-- 指令：把 C020 完整设计写入 `plan/coding/C020-holistic-refinement.md`（拆分为 A–E 五个工作包，同步更新 `plan/master/` 和 `dev-plan.md`），本步只由 Gemini 4 执行工作包 A（系统提示词、Skills 正文设计与升级），工作包 B–E（`PageScripts`、`PlaywrightMcpClient`、`MemoryNotes`、`FillContext`、`SessionLoop`、`HarnessLoop`、`ApplicationRunner`、`UploadArea`、`ResearchTools`、`JobPage.tsx`）留给其他编码代理施工后回来统一验收。
+- 指令：把 C020 完整设计写入 `plan/coding/04-refinement/C020-holistic-refinement.md`（拆分为 A–E 五个工作包，同步更新 `plan/master/` 和 `dev-plan.md`），本步只由 Gemini 4 执行工作包 A（系统提示词、Skills 正文设计与升级），工作包 B–E（`PageScripts`、`PlaywrightMcpClient`、`MemoryNotes`、`FillContext`、`SessionLoop`、`HarnessLoop`、`ApplicationRunner`、`UploadArea`、`ResearchTools`、`JobPage.tsx`）留给其他编码代理施工后回来统一验收。
 - 结果：
-  - 计划与文档：新建 `plan/coding/C020-holistic-refinement.md`（明确 A–E 五个工作包的边界、文件与步骤）；更新 `plan/master/agent-runtime.md` §7.3（扁平资料客观上下级归属由模型按常识补全、快捷工具诚实返回下一层选项或面板内容、上下文含 `companies/<company>.md` 与 `review/lessons.md`）、`plan/master/workflow.md`（恢复状态表）、`dev-plan.md` 与 `plan/README.md` 索引。
+  - 计划与文档：新建 `plan/coding/04-refinement/C020-holistic-refinement.md`（明确 A–E 五个工作包的边界、文件与步骤）；更新 `plan/master/agent-runtime.md` §7.3（扁平资料客观上下级归属由模型按常识补全、快捷工具诚实返回下一层选项或面板内容、上下文含 `companies/<company>.md` 与 `review/lessons.md`）、`plan/master/workflow.md`（恢复状态表）、`dev-plan.md` 与 `plan/README.md` 索引。
   - 工作包 A（系统提示词与 7 个预置 Skill 升级）：
     - `backend/src/main/java/jobapply/agents/ApplyAgent.java`：`METHOD` 增加「资料与表单的映射（扁平资料 → 层级与分类推理，客观归属自己按常识补全，主观意愿或未知更细层级才用 `ask_user`）」与「批量填写与快捷工具（未完或未找到时按返回选项/面板调整或分步点完）」；精简 `SITUATIONS` 中与组件 skill 重复的细碎操作，保留所有核心边界并指向对应 skill。
     - `backend/src/main/java/jobapply/agents/ResearchAgent.java`：`SITUATIONS` 的「标签页」与 `browser_tabs`（`list` / `select`）对齐。
@@ -1148,7 +1148,7 @@
   - `HarnessLoop` 实现工作台两阶段懒打开浏览器（`shouldDeferBrowser` + `ensurePage`）：启动时若未选定简历先不打开 Chrome 页面，让模型在工作台内调 `read_jd`、`list_resumes`、`read_resume` 输出排名表与修改建议并 `ask_user`；用户确认后调 `choose_resume` 当场将简历 `stage` 为当前工作台「文件 1」，随后首次调用浏览器工具时自动打开岗位页填表；
   - `ApplicationRunner.start` 按是否已有 `resume_choice` 生成两阶段或直接填表的开场提示词；`SessionLoop.startApplication` 去掉未排简历的拦截阻断；
   - `ApplyAgent`、`ResearchAgent`、`ResearchTools` 与 `apply-form/SKILL.md`（v4 → v5）全面对齐工作台两阶段闭环；
-  - 新建 `plan/coding/C021-workspace-flow-and-sidebar.md`，并更新侧边栏 Plan 文件 `/Users/yigewang/.cursor/plans/c021_工作台内闭环投递与三级侧栏_1b03f3ef.plan.md`，标明工作包 A 已完成，给出工作包 B（后端 `Views.java`）与工作包 C（前端 `frontend/`）的精确并行施工契约。
+  - 新建 `plan/coding/04-refinement/C021-workspace-flow-and-sidebar.md`，并更新侧边栏 Plan 文件 `/Users/yigewang/.cursor/plans/c021_工作台内闭环投递与三级侧栏_1b03f3ef.plan.md`，标明工作包 A 已完成，给出工作包 B（后端 `Views.java`）与工作包 C（前端 `frontend/`）的精确并行施工契约。
 - 验证：
   - 在 `backend/` 下使用 JDK 25（`JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home`）执行 `mvn -B clean test`（带 `JOBAPPLY_APP_CONFIG=/tmp/jobapply-nonexistent-app.yaml`）：**退出码 0，Tests run: 655, Failures: 0, Errors: 0, Skipped: 0**。
   - 工作包 B、工作包 C 及真实浏览器端到端冒烟：**未运行**（待工作包 B、C 并行施工后合龙验证）。
@@ -1227,7 +1227,7 @@
 ## 2026-10-28 · C022 工作台后续与 RAG
 
 - 指令：投递之后工作台接着开「后续」段（新的一段对话，界面上仍是同一个工作台），后续工具从 Session 搬进工作台；加入本地 RAG（ONNX，第一次用时下载到 `storage/model/RAG/`）；用 multi-agent 开发。
-- 结果：两个子代理各在自己的 worktree 里施工（A：RAG，B：后续段），合并进 C22 分支后，由主代理在 `WorkbenchTools` 接上 `search_experience`。四份 Master（tracking、memory、agent-runtime、ui）已回写。细节见 `plan/coding/C022-workspace-followup-and-rag.md`「施工记录」。
+- 结果：两个子代理各在自己的 worktree 里施工（A：RAG，B：后续段），合并进 C22 分支后，由主代理在 `WorkbenchTools` 接上 `search_experience`。四份 Master（tracking、memory、agent-runtime、ui）已回写。细节见 `plan/coding/04-refinement/C022-workspace-followup-and-rag.md`「施工记录」。
 - 验证：
   - 合龙后，JDK 25 下 `mvn -B clean verify` 退出码 0，`npm run build` 退出码 0。
   - 工作包 A 用一次性检查跑过真实模型下载和检索（检查代码未提交）。
@@ -1245,3 +1245,53 @@
 
 - 将 README 后续对话与 RAG 各缩为一段，删去实现枝节，使篇幅与其他能力相称。
 - 本地链接、围栏配对与 git diff --check 通过；应用测试和渲染未运行（纯文案）。
+
+
+## 2026-10-31 · C023 UI 视觉打磨与左右栏拖拽
+
+- 指令：按已确认的 C023 一次做完 A（视觉打磨）和 B（左右栏可拖拽）；用户决定：主按钮保持黑色、底部说明折成「?」、左右栏都能自由拉伸（只设小下限，上限按窗口推，主区至少 400px）。
+- 结果：只改 `frontend/`：`App.tsx`、`styles.css`、`pages/SessionPage.tsx`、`pages/JobPage.tsx`、`status.tsx`、`chat/icons.tsx`、`dashboard/Dashboard.tsx`、`dashboard/Weekly.tsx`、`dashboard/Board.tsx`、`dashboard/RecentSessions.tsx`，新增 `ResizeHandle.tsx`。没加依赖，没碰后端。细节见 `plan/coding/04-refinement/C023-ui-polish-resizable.md`「施工记录」。
+- 验证：
+  - `npm run build` 退出码 0。
+  - 无头 Chromium + 草稿目录 mock 接口（虚构数据，不进仓库）截图，用 CDP 鼠标 / 键盘事件拖动手柄：拖宽、拖到上下限、同页刷新后保留、工作台右栏单独记、双击复位、键盘调宽、窗口变窄重新夹住，量到的宽度都符合计划。
+  - 用户在真实浏览器 / macOS App 里看：未运行。
+
+
+## 2026-10-31 · C023-C 候选池先公司再地点、模型归并公司名
+
+- 指令：用户「按照建议开发」：待定 1–3 取建议（集团 / 事业群 / 工作室并成一家、行内留原文；打开候选池时懒触发；不做编辑界面，映射在 `cache/lead-groups.json` 可删重建）；待定 4 已确认（分组只在 Project 内，全局页 Project → 公司 → 地点）。三处 Master 改动用户确认。
+- 结果：后端新增 `memory/LeadGroups.java`、`api/LeadGroupController.java`（`POST /api/lead-groups`），改 `StorageLayout`、`SettingsConfiguration`；前端改 `api.ts`、`dashboard/LeadPool.tsx`、`dashboard/Dashboard.tsx`、`pages/Global.tsx`、`styles.css`。Master：`ui.md` 候选池第 1 条与辅助模型用途、`memory.md` 的 `cache/`。细节见 `plan/coding/04-refinement/C023-ui-polish-resizable.md`「施工记录（C）」。
+- 验证：
+  - `backend/` 里 JDK 25 `mvn -B clean verify`（`JOBAPPLY_APP_CONFIG=/tmp/jobapply-nonexistent-app.yaml`）退出码 0（单元 662 + 场景 1）。
+  - `frontend/` 里 `npm run build` 退出码 0。
+  - 无头 Chromium + 草稿目录 mock（虚构数据、mock 的归并接口，含失败情形）截图：Project 分层、公司组、地点小节、失败提示和「重试」都按计划显示。
+  - 真实模型归并、用户在浏览器里看：未运行。
+
+
+## 2026-10-31 · C023-D 表格横向滚动、工作台对话样式与 Session 一致
+
+- 指令：用户要 ChatGPT / Claude 那样的 Markdown 表格（列有合理最小宽度、放不下时在自己的外框里横向滚动），以及工作台对话和 Session 一个样子（现在像微信气泡）。
+- 结果：只改 `frontend/src/styles.css`（`.mdtable`、`.md table / th / td`、`.askblock`），不改 JSX、不加依赖、不碰后端。原因：`.md` 的 `overflow-wrap: anywhere` 让表格列最小宽度变成一个字，所以表格从不滚动、被挤成一字一行；工作台本来就和 Session 共用 `MessageList` 等组件，像微信是因为几乎每轮的 `ask_user` 提问都是填色黄框，和右边的用户气泡交替。细节见 `plan/coding/04-refinement/C023-ui-polish-resizable.md`「D」。
+- 验证：
+  - `frontend/` 里 `npm run build` 退出码 0。
+  - 无头 Chromium + 草稿目录 mock（虚构消息，不进仓库）前后对照 20 张（Session、工作台投递段、后续段；默认栏宽和拖宽后约 460px 消息列；浅色、深色）：9 列表之后在外框里横向滚动（796px 内容 / 458–678px 外框），每列至少 84px；窄表不拉满；提问不再是填色框。
+  - 用户在浏览器里看：未运行。
+
+## 2026-10-31 · plan/coding 按开发阶段分文件夹
+
+- 指令：用户「把本地的 coding 下的 plan 根据开发进度节点分级到 3-4 个文件夹内，命名根据 Cxx+<具体开发实现内容> 改名（如有需要）」。
+- 结果：`git mv` 把 `plan/coding/` 分进 `01-foundation/`（C000–C003）、`02-core-agent/`（C004–C006，含各 fix 和 C004-B / C004-C 历史稿）、`03-features/`（C007–C019，含 `c011_smoke_observe.py`）、`04-refinement/`（C020–C023）。改名 6 份：`C000-process` → `C000-dev-process`、`C004-B-harness-review` → `C004-B-fixed-graph-harness`、`C004-C-agent-rework` → `C004-C-agent-rework-draft`、`C006-agent` → `C006-agent-live-steps`、`C006-front` → `C006-front-chat-ui`、`C014-move-forward` → `C014-interviews-memory-cover-letter`。仓库内所有引用（`dev-plan.md`、`dev-log.md` 的路径、`plan/README.md`、`plan/master/*`、各 Coding Plan 的相对链接、后端 / appbuild 注释里的路径）改到新位置；计划正文没改。`plan/README.md` 加文件夹说明，`dev-plan.md` 加一行。
+- 验证：草稿目录脚本检查全部 Markdown 相对链接：整理前 0 条断链，整理后 0 条；`grep` 不再有指向 `plan/coding/C0..` 旧位置的路径（只剩 dev-log 里一条早已不存在的历史文件名 `C005-profile-import.md`，原样保留）。未提交。
+
+## 2026-10-31 · C023-E 工作台右栏：进度与报告分层折叠
+
+- 指令：用户「现在是 plan/report 的形式，能不能拆分层次折叠的方式处理」（右栏「进度」和填写报告）。
+- 改动：`frontend/src/pages/JobPage.tsx`（新增 `Fold` / `FieldMark` / `FieldNote` / `splitReport` / `countItems`；右栏各块用同一折叠头；进度分「当前阶段 / 计划 / 字段（按区域第二层）/ 决定和站点规律」；报告按 `## ` 拆成第二层折叠）、`frontend/src/styles.css`（折叠、步骤点、字段行样式；`pre.report` 不折行、横向滚动；删 `.sidesec`、`.progress p`、`ul.checklist`）。计划 `plan/coding/04-refinement/C023-ui-polish-resizable.md` 加 E 节和施工记录；`dev-plan.md` C023 行改为 A–E。不碰后端。
+- 验证：`frontend/` 里 `npm run build` 退出码 0。无头 Chromium + 草稿目录 mock（虚构数据）前后截图：右栏 340 / 540px、浅 / 深、全部展开、原文模式；原文 `pre` 在 340 栏 `scrollWidth` 1064 > `clientWidth` 305（横向滚动）。用户在浏览器里看：未运行。未提交。
+
+## 2026-10-31 · C024 投递失败 / 不投了 + 手动写原因
+
+- 指令：用户确认 C024 的 7 个问题（两种分开存、任何未结束阶段都能记、都能撤销、原因必填、是不是失败由用户决定、Session 不加工具只留记录、Dashboard 两种放一起），要求一次建完，含 `FollowupRunner.open` 的小 bug。
+- 结果：结局加 `apply_failed`、`gave_up`；`job.md` 加 `outcome_reason`、`closed_at`、`reopen_to`；事件加 `reopened`。`JobLedger.recordOutcome` / `reopen`；`POST /api/jobs/{id}/outcome`、`POST /api/jobs/{id}/reopen`，`/not-submitted` 的不投了改走同一条路；记下 / 撤销都往 Session 写一条系统通知（`ApplicationRunner.noteToSession`，不唤醒模型）。工作台两段加 `record_outcome`（`WorkbenchTools`，新 `harness/runtime/SessionNote`），`ApplyAgent`、`FollowupAgent` 提示词各一段。`FollowupRunner.open` 改为投递过才有后续段。台账 `applications.md` 加「结束原因」，csv 加 `outcome_reason`、`closed_at`。前端：原因框 `OutcomeDialog`（工作台「更多」两项、停在提交前的「不投了…」共用）、工作台结束行（结局 + 原因 + 时间 + 撤销）、Dashboard KPI「没投成 / 不投了」和新面板 `Outcomes.tsx`、申请总表 / 看板显示原因，「投递」不含 `apply_failed`。Master 回写：`tracking.md`、`memory.md`、`workflow.md`、`ui.md`、`agent-runtime.md`。计划 `plan/coding/04-refinement/C024-manual-outcome-reason.md` 标已确认并写施工记录；`dev-plan.md` C024 行改状态。已有测试 `ViewsWorkspacesTest` 跟着 `JobView` 改参数。
+- 验证：`backend/` 里 `JAVA_HOME=…openjdk@25… JOBAPPLY_APP_CONFIG=/tmp/jobapply-nonexistent-app.yaml mvn -B clean verify` 退出码 0（Tests run: 662 + IT 1，Failures 0、Errors 0）；`frontend/` 里 `npm run build` 退出码 0。一次性台账测试（跑完已删）：候选记投递失败 → 撤销回 `lead:new`；投递后不投了 → 后续段仍在 → 撤销回 `applied`、重排查看；空原因被拒。草稿目录 mock（虚构数据）+ 无头 Chromium 截图 12 张（`shots-c024/`）。没启动连真实 storage 的 Spring，没调真实模型，没碰用户的 Chrome。真实模型调用 `record_outcome`：未运行。用户本机试：未运行。未提交。
+- 偏差：计划原建议的「不投了按阶段映射到 skipped / not_submitted / withdrawn」按用户决定改为单独的 `gave_up`；`not_submitted` 只留给旧记录（界面上也算「不投了」，但没有 `reopen_to` 不能撤销）。所有结束（不只是这两种）都写 `outcome_reason`、`closed_at`。工作台投递段锁定提示顺手改用中文阶段名。

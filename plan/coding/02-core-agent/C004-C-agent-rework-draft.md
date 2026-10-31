@@ -1,7 +1,7 @@
 # C004-C · 按 Agent 方式重做：填写循环、资料层、界面（草案，待用户确认）
 
-- 状态：**作废**（2026-10-23）：核心还是 Java 的图驱动流程，没有真正参考三个项目的源码，界面排在最后。由 [agent-runtime.md](../master/agent-runtime.md) 取代；这里的内容只作参考。
-- 起因：用户在 C004-B 冒烟时指出四个问题（见「问题」）。参考：[research-agent-design.md](../reference/research-agent-design.md)（Claude Agent SDK、Building Effective Agents、Browser Use、Deep Agents、Hermes、OpenMAIC）；`AGENTS.md`「Agent 开发原则」。
+- 状态：**作废**（2026-10-23）：核心还是 Java 的图驱动流程，没有真正参考三个项目的源码，界面排在最后。由 [agent-runtime.md](../../master/agent-runtime.md) 取代；这里的内容只作参考。
+- 起因：用户在 C004-B 冒烟时指出四个问题（见「问题」）。参考：[research-agent-design.md](../../reference/research-agent-design.md)（Claude Agent SDK、Building Effective Agents、Browser Use、Deep Agents、Hermes、OpenMAIC）；`AGENTS.md`「Agent 开发原则」。
 - 会改的 Master：workflow.md（主流程、里程碑第 3 段）、memory.md（资料导入与画像、事实条目格式）、ui.md（界面结构的落地顺序）、architecture.md（模块）。每一处改动在下面标出，确认后再回写。
 
 ## 问题（用户指出，2026-10-23）

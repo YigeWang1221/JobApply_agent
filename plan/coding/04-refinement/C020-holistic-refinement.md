@@ -1,6 +1,6 @@
 # C020 · 整体精炼：常识推理引导、控件诚实观测、Memory 闭环与工作台体验
 
-- 对应 Master：[agent-runtime.md](../master/agent-runtime.md) §7.2–7.4、[workflow.md](../master/workflow.md) 主流程与故障恢复、[memory.md](../master/memory.md)
+- 对应 Master：[agent-runtime.md](../../master/agent-runtime.md) §7.2–7.4、[workflow.md](../../master/workflow.md) 主流程与故障恢复、[memory.md](../../master/memory.md)
 - 依据：用户（2026-10-28）对整套系统的复盘：
   1. 提示词与 skill 里残留重复啰嗦或已作废的旧规则（如「确认过的按钮记进站点记录」「上传先请用户选文件」「选不中时没有字面一致就问用户」），且缺少「扁平资料 → 层级/大类客观归属由模型按常识补全」的清晰引导；
   2. 下拉/级联（`PageScripts.SELECT`）与日期（`PageScripts.DATE`）在虚拟滚动、选了一半还有下一列、多列滚轮式日期面板、纯箭头翻页日历上缺少真实鼠标滚轮与诚实状态返回；

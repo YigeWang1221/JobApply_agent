@@ -44,6 +44,9 @@ export function AppsTable({ jobs, showProject, onPostingClosed }: {
                     <td className="num">{md(job.appliedAt)}</td>
                     <td>
                       {phaseText(job)}{" "}
+                      {job.phase === "closed" && job.outcomeReason && (
+                        <span className="endreason" title={job.outcomeReason}>· {job.outcomeReason}</span>
+                      )}{" "}
                       {job.due && <span className="chip wait">该查看了</span>}{" "}
                       <ApplicationChip status={job.application} />
                     </td>

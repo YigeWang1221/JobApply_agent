@@ -1,4 +1,4 @@
-# 只在 macOS App 里生效（--spring.profiles.active=macapp，plan/coding/C017-macos-app.md 第 2 节）。
+# 只在 macOS App 里生效（--spring.profiles.active=macapp，plan/coding/03-features/C017-macos-app.md 第 2 节）。
 # JOBAPPLY_RESOURCES 由 Swift 外壳传入，是 JobApply.app/Contents/Resources
 server:
   # 端口固定 8088（本机 8080 被 Docker 占着）；开发版仍是 8080，两边能同时跑，别让它们用同一份 storage

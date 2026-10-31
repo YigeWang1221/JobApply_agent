@@ -1,13 +1,13 @@
 # C004-A-1 · 资料导入（一）：事实格式、按语言取值、来源扫描
 
-- 对应 Master：[memory.md](../master/memory.md)「资料导入与画像」「事实条目格式」「字段分级」「继承与解析」；[workflow.md](../master/workflow.md)「里程碑」第 3 段的前置
+- 对应 Master：[memory.md](../../master/memory.md)「资料导入与画像」「事实条目格式」「字段分级」「继承与解析」；[workflow.md](../../master/workflow.md)「里程碑」第 3 段的前置
 - 前置：[C004-A](C004-A-model-guard.md)（原件登记、「资料」页、C 级词表）。
-- 后续：[C004-A-2](C004-A-2-profile-review.md)（整理、确认、画像），然后 [C004-B](C004-B-harness-review.md)。
+- 后续：[C004-A-2](C004-A-2-profile-review.md)（整理、确认、画像），然后 [C004-B](C004-B-fixed-graph-harness.md)。
 - 状态：**施工完成，等用户找人审核代码和手动检查**（2026-10-22）。用户确认（2026-10-22）：「同意拆分，其他的也同意」。见文末「实际结果」「偏差」。
 
 ## 本次规则修订（用户指令，2026-10-22）
 
-按 [base.md](../master/base.md)「求职表达与包装」执行；以下内容已同步修改。本次仅调整文档，尚未施工的规则与测试以本版为准。
+按 [base.md](../../master/base.md)「求职表达与包装」执行；以下内容已同步修改。本次仅调整文档，尚未施工的规则与测试以本版为准。
 
 ## 目标
 
