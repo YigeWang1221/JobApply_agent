@@ -1295,3 +1295,16 @@
 - 结果：结局加 `apply_failed`、`gave_up`；`job.md` 加 `outcome_reason`、`closed_at`、`reopen_to`；事件加 `reopened`。`JobLedger.recordOutcome` / `reopen`；`POST /api/jobs/{id}/outcome`、`POST /api/jobs/{id}/reopen`，`/not-submitted` 的不投了改走同一条路；记下 / 撤销都往 Session 写一条系统通知（`ApplicationRunner.noteToSession`，不唤醒模型）。工作台两段加 `record_outcome`（`WorkbenchTools`，新 `harness/runtime/SessionNote`），`ApplyAgent`、`FollowupAgent` 提示词各一段。`FollowupRunner.open` 改为投递过才有后续段。台账 `applications.md` 加「结束原因」，csv 加 `outcome_reason`、`closed_at`。前端：原因框 `OutcomeDialog`（工作台「更多」两项、停在提交前的「不投了…」共用）、工作台结束行（结局 + 原因 + 时间 + 撤销）、Dashboard KPI「没投成 / 不投了」和新面板 `Outcomes.tsx`、申请总表 / 看板显示原因，「投递」不含 `apply_failed`。Master 回写：`tracking.md`、`memory.md`、`workflow.md`、`ui.md`、`agent-runtime.md`。计划 `plan/coding/04-refinement/C024-manual-outcome-reason.md` 标已确认并写施工记录；`dev-plan.md` C024 行改状态。已有测试 `ViewsWorkspacesTest` 跟着 `JobView` 改参数。
 - 验证：`backend/` 里 `JAVA_HOME=…openjdk@25… JOBAPPLY_APP_CONFIG=/tmp/jobapply-nonexistent-app.yaml mvn -B clean verify` 退出码 0（Tests run: 662 + IT 1，Failures 0、Errors 0）；`frontend/` 里 `npm run build` 退出码 0。一次性台账测试（跑完已删）：候选记投递失败 → 撤销回 `lead:new`；投递后不投了 → 后续段仍在 → 撤销回 `applied`、重排查看；空原因被拒。草稿目录 mock（虚构数据）+ 无头 Chromium 截图 12 张（`shots-c024/`）。没启动连真实 storage 的 Spring，没调真实模型，没碰用户的 Chrome。真实模型调用 `record_outcome`：未运行。用户本机试：未运行。未提交。
 - 偏差：计划原建议的「不投了按阶段映射到 skipped / not_submitted / withdrawn」按用户决定改为单独的 `gave_up`；`not_submitted` 只留给旧记录（界面上也算「不投了」，但没有 `reopen_to` 不能撤销）。所有结束（不只是这两种）都写 `outcome_reason`、`closed_at`。工作台投递段锁定提示顺手改用中文阶段名。
+
+## 2026-10-31 · C024-fix 状态用词分领域、Failures、时间线一份一条
+
+- 指令：用户确认 C024-fix 计划并给出 5 个问题的答案（Q4：候选跳过与投递失败 / 不投了合成一个「Failures」；Q5：已投递卡片仍写「已投递」；时间线改为每份申请一条圆角长条、点开看详情；其余按计划建议），要求一次建完、不提交。
+- 结果：
+  - 后端：`FollowupRunner.statusOf(Job)`；`Views.JobView`、`WorkspaceSummary` 加 `followup`（`ProjectController`、`JobController` 传入）；Dashboard 事件另带 `lead:skipped`；`AgentRun.DONE` / `ApplicationStatus` 注释写清是投递段结束；`HarnessLoop` finish 结果改「这轮填写结束，交给用户审阅。」；`ViewsWorkspacesTest` 跟着构造参数改。
+  - 前端：`status.tsx`（字、`labelText`、`runChip` / `RunChip` 替换 `ApplicationChip`、`DROPPED_OUTCOMES`、`FOLLOWUP`）、`metrics.ts`（`lane`、`skippedAt`）、`Board.tsx`（一行卡片、>6 折起、不含 dropped）、`Failures.tsx`（替换 `Outcomes.tsx`，放看板下面，三类合一）、`Timeline.tsx`（重写）、`AppsTable.tsx`（RunChip、dropped 最后一组）、`Weekly.tsx`（`submitted`）、`FollowUps.tsx`、`LeadPool.tsx`（不投→跳过）、`Dashboard.tsx`（候选池不列跳过、「Failures n」入口、`onTab`）、`Global.tsx`、`ProjectPage.tsx`、`App.tsx`（侧栏点 + 中文悬停）、`JobPage.tsx`（`done` 时右栏状态行）、`api.ts`、`styles.css`。
+  - Master 回写：`tracking.md`（「三个领域的状态」、看板 / 时间线 / 每周节奏 / Failures）、`ui.md`、`agent-runtime.md` 7.1、`memory.md`（skipped 的说法）。计划标已确认并写施工记录；`dev-plan.md` C024-fix 行改状态。
+- 验证：
+  - `backend/` 里 `JAVA_HOME=…openjdk@25… JOBAPPLY_APP_CONFIG=/tmp/jobapply-nonexistent-app.yaml mvn -B clean verify`：第一次退出码 1（`DeleteSessionProjectTest` 1 个失败，有申请在跑时删 Project 的快照比较，时序相关、未碰相关代码）；原样重跑退出码 0（Tests run: 662 + IT 1，Failures 0、Errors 0）。
+  - `frontend/` 里 `npm run build` 退出码 0。
+  - 草稿目录 mock（虚构数据：已投递 + done、你在提交 + done、后续段在跑、投递后投递失败、不投了、旧 not_submitted、3 个跳过的候选、被拒、岗位下线、20 多天的事件、简历选择、多轮）+ 无头 Chromium 截图 22 张（`shots-c024fix/`，浅 / 深）：看板已投递卡片无「已结束」，准备中卡片不再两个同义 chip；投递失败 / 不投了 / 跳过只在 Failures 和总表最后一组；时间线一份一条、展开有详情；侧栏后续段在跑闪蓝、Failures 红点、正常结束灰点，悬停是中文。
+  - 没启动连真实 storage 的 Spring，没调真实模型，没碰用户的 Chrome；mock 和无头浏览器已停。用户本机试：未运行。未提交。

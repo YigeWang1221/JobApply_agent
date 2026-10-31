@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import {
   api, ApiError, awaitingSubmit, errorText, type ApplicationQuestion, type ApplicationState, type ApplicationStatus,
   type Asset, type BrowserTab, type FileSlot,
-  type JobDetail, type JobEventView, type OutcomeKind, type ReplyBody, type ResumeChoice, type RoundView,
+  type JobDetail, type JobEventView, type JobView, type OutcomeKind, type ReplyBody, type ResumeChoice, type RoundView,
   type SentAttachment, type StateField,
 } from "../api";
 import { Markdown } from "../chat/Markdown";
@@ -360,7 +360,7 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
               <Icon name="cross" size={14} />
             </button>
           </div>
-          <StatusNote status={status} />
+          <StatusNote status={status} job={job} />
           {awaitingSubmit(job) && !running && <SubmitConfirm job={job} onDone={load} />}
           {/* 下面每块同一种折叠头（C023-E）：要你现在做的默认展开，做完的、参考性的默认折起 */}
           {questions.length > 0 && (
@@ -424,13 +424,18 @@ function FillSegment({ steps, job }: { steps: JobDetail["steps"]; job: JobDetail
   );
 }
 
-function StatusNote({ status }: { status: ApplicationStatus | null }) {
+function StatusNote({ status, job }: { status: ApplicationStatus | null; job: JobView }) {
   if (!status) {
     return <p className="muted small">还没有申请。点上面的「开始申请」，Agent 先在工作台里匹配简历并给出修改建议，你确认后再打开岗位页填表。</p>;
   }
+  // done 是投递段结束（申请 Agent 不再接着填），不是申请结束：一并写出申请现在的阶段（C024-fix）
   return (
     <>
-      <p className="muted small">状态：{APPLICATION[status.status] ?? status.status}</p>
+      <p className="muted small">
+        {status.status === "done"
+          ? `投递段已结束 · 申请现在是「${phaseText(job)}」`
+          : `状态：${APPLICATION[status.status] ?? status.status}`}
+      </p>
       {status.status === "running" && <p className="muted small">Agent 正在做。它要你做什么时，这里会显示。</p>}
       {status.message && <p className="message">{status.message}</p>}
       {status.error && <p className="error">出错：{status.error}</p>}

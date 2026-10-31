@@ -404,6 +404,17 @@ a {
   opacity: 1;
 }
 
+/* C024-fix：正常结束灰点、投递失败 / 不投了（Failures）红点 */
+.side-ws-dot.closed {
+  background: var(--axis);
+  opacity: 1;
+}
+
+.side-ws-dot.dropped {
+  background: var(--crit);
+  opacity: 1;
+}
+
 .side .newproject {
   display: flex;
   flex-direction: column;
@@ -2810,9 +2821,9 @@ input.rename.side-rename {
 
 .board {
   display: grid;
-  grid-template-columns: repeat(7, minmax(168px, 1fr));
+  grid-template-columns: repeat(7, minmax(132px, 1fr));
   gap: 10px;
-  min-width: 1200px;
+  min-width: 960px;
 }
 
 .col {
@@ -3448,7 +3459,7 @@ body.resizing * {
 
 .outcomes li {
   display: grid;
-  grid-template-columns: auto minmax(0, 1.2fr) minmax(0, 2fr) auto auto;
+  grid-template-columns: 5em minmax(0, 1.2fr) minmax(0, 2fr) 3.5em 9em;
   align-items: center;
   gap: 10px;
   padding: 8px 0;
@@ -3475,6 +3486,12 @@ body.resizing * {
 .outcomes .acts {
   display: flex;
   gap: 10px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.outcomes li > .chip {
+  justify-self: start;
 }
 
 .endreason {
@@ -3495,5 +3512,189 @@ body.resizing * {
   .outcomes .reason {
     grid-column: 1 / -1;
     white-space: normal;
+  }
+}
+
+/* C024-fix：看板卡片压成一行，一列多了折起 */
+button.bcard.line {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+.bcard.line .nm {
+  flex: 1 1 7em;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bcard.line .nm b {
+  font-weight: 600;
+}
+
+.bcard.line .st {
+  flex: none;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.colmore,
+.morebtn {
+  align-self: flex-start;
+  font-size: var(--fs-xs);
+  margin-top: 4px;
+}
+
+.failurelink {
+  font-size: var(--fs-xs);
+}
+
+/* C024-fix：时间线，一份申请一条圆角长条，点开看详情 */
+.tlist {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tbar {
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--ink-2);
+  border-radius: 10px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+
+.tbar.good {
+  border-left-color: var(--good);
+}
+
+.tbar.crit {
+  border-left-color: var(--crit);
+}
+
+.tbar.ended {
+  border-left-color: var(--axis);
+}
+
+button.tbar-h {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 15em 13em;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 14px 5px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  font-size: var(--fs-sm);
+}
+
+button.tbar-h:hover:not(:disabled) {
+  background: var(--accent-wash);
+}
+
+.tbar-h .nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tbar-h .nm b {
+  font-weight: 600;
+}
+
+.tbar-h .steps {
+  flex: none;
+  display: inline-flex;
+  gap: 2px;
+}
+
+.tbar-h .steps i {
+  width: 14px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--grid);
+}
+
+.tbar-h .steps i.on {
+  background: var(--ink-2);
+}
+
+.tbar.good .steps i.on {
+  background: var(--good);
+}
+
+.tbar-h .stage {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tbar-h .dates {
+  text-align: right;
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.tbar-d {
+  padding: 4px 16px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  font-size: var(--fs-sm);
+}
+
+.tbar-d dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 6px 0 8px;
+}
+
+.tbar-d dt {
+  color: var(--muted);
+}
+
+.tbar-d dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tsteps {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+}
+
+@media (max-width: 760px) {
+  .tbar-h .steps,
+  .tbar-h .dates .muted {
+    display: none;
+  }
+
+  button.tbar-h {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .tbar-h .dates {
+    grid-column: 1 / -1;
+    text-align: left;
   }
 }

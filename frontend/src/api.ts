@@ -460,6 +460,8 @@ export interface JobView {
   closedAt: string | null;
   // 用户记的「投递失败 / 不投了」可以撤销（C024）
   canReopen: boolean;
+  // 后续段（C022）的运行状态：running / idle / interrupted；没投递过（没有后续段）或后端没带时为 null（C024-fix）
+  followup?: "running" | "idle" | "interrupted" | null;
 }
 
 // 用户在工作台里记的两种结果（C024）
@@ -498,10 +500,11 @@ export interface ResumeChoice {
 // closed 跳过 / 下线 / 已结束
 export type JobBucket = "lead" | "preparing" | "waiting" | "ready" | "applied" | "closed";
 
-// to 是变化后的标签：applied、screening…、prep:selected、closed:rejected
+// to 是变化后的标签：applied、screening…、prep:selected、closed:rejected；
+// lead_status_changed 只有候选「跳过」那一条（to 是 lead:skipped，C024-fix：Failures 显示日期）
 export interface PhaseEvent {
   at: string;
-  type: "converted" | "phase_changed" | "closed";
+  type: "converted" | "phase_changed" | "closed" | "lead_status_changed";
   to: string;
 }
 
@@ -523,7 +526,10 @@ export interface WorkspaceSummary {
   // 申请线程状态：running / queued / waiting_user / ready / failed / interrupted / done；还没有线程时为 null
   application: string | null;
   bucket: JobBucket;
+  // 阶段机器值（applied、prep:needs_input、closed:apply_failed）；给人看时用 status.tsx 的 labelText
   label: string;
+  // 后续段的运行状态（C024-fix）；没有后续段时为 null
+  followup?: "running" | "idle" | "interrupted" | null;
 }
 
 export interface SessionSummary {

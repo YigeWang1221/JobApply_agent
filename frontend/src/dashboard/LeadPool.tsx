@@ -11,7 +11,7 @@ const uniq = (names: string[]) => [...new Set(names.filter((n) => n && n.trim())
 
 // 候选池：调研出来、还没转为申请的岗位，按公司组折叠，公司内有 ≥2 个地点时再按地点分小节（C023-C）。
 // 全局页最外面再按 Project 分一层；分组永远在一个 Project 内。公司组和地点组由后端用模型归并（原文 → 组名），
-// 没归并的名字按原文分组。想投 / 不投（填原因）/ 已下线 / 重新开放 / 开始申请
+// 没归并的名字按原文分组。想投 / 跳过（填原因，跳过的挪到 Dashboard 的 Failures，C024-fix）/ 已下线 / 重新开放 / 开始申请
 export function LeadPool({ leads, applications, showProject, projectTitle, sessionTitle, onMark, onClosed, onStart }: {
   leads: JobView[];
   applications: JobView[];
@@ -22,7 +22,7 @@ export function LeadPool({ leads, applications, showProject, projectTitle, sessi
   onClosed: (job: JobView) => Promise<boolean>;
   onStart: (job: JobView) => void;
 }) {
-  // 正在填「不投」原因的那个岗位
+  // 正在填「跳过」原因的那个岗位
   const [skipping, setSkipping] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   // 展开着的 Project（p:<id>）和公司组（c:<project>:<组名>）；默认都收起
@@ -76,7 +76,7 @@ export function LeadPool({ leads, applications, showProject, projectTitle, sessi
   const unmapped = companyNames.filter((n) => !(n in groups.companies)).length
     + cityNames.filter((n) => !(n in groups.cities)).length;
 
-  // 一个 Project 内的公司组：想投 + 新发现多的公司排前面，不投的沉到下面
+  // 一个 Project 内的公司组：想投 + 新发现多的公司排前面，已下线多的沉到下面
   const companiesIn = (rows: JobView[]) => {
     const names = [...new Set(rows.map(coOf))];
     const weight = (co: string) => rows.filter((j) => coOf(j) === co && active(j)).length;
@@ -116,7 +116,7 @@ export function LeadPool({ leads, applications, showProject, projectTitle, sessi
               from ? `发现于「${from}」` : null,
               job.resumeChoice?.file ? `拟用简历：${job.resumeChoice.file}` : null].filter(Boolean).join(" · ")}
             {job.officialUrl && <> · <a href={job.officialUrl} target="_blank" rel="noreferrer">官方链接</a></>}
-            {job.skipReason && ` · 不投：${job.skipReason}`}
+            {job.skipReason && ` · 跳过：${job.skipReason}`}
             {job.note && ` · ${job.note}`}
           </small>
         </div>
@@ -129,7 +129,7 @@ export function LeadPool({ leads, applications, showProject, projectTitle, sessi
           {job.leadStatus === "shortlisted" && <button className="linkbtn" onClick={() => void onMark(job, "new")}>取消想投</button>}
           {(job.leadStatus === "new" || job.leadStatus === "shortlisted") && (
             <>
-              <button className="linkbtn" onClick={() => { setSkipping(job.id); setReason(""); }}>不投</button>
+              <button className="linkbtn" title="跳过这个岗位（写原因），它会挪到 Dashboard 的 Failures" onClick={() => { setSkipping(job.id); setReason(""); }}>跳过</button>
               <button className="linkbtn" title="岗位已下线 / 停止招聘" onClick={() => void onClosed(job)}>已下线</button>
               <button className="linkbtn" onClick={() => onStart(job)}>开始申请</button>
             </>
@@ -145,7 +145,7 @@ export function LeadPool({ leads, applications, showProject, projectTitle, sessi
               void onMark(job, "skipped", reason.trim()).then((ok) => ok && setSkipping(null));
             }
           }}>
-            <input autoFocus value={reason} placeholder="不投的原因，例如：要求博士"
+            <input autoFocus value={reason} placeholder="跳过的原因，例如：要求博士"
               onChange={(e) => setReason(e.target.value)}
               onKeyDown={(e) => e.key === "Escape" && setSkipping(null)} />
             <button className="primary" type="submit" disabled={!reason.trim()}>确定</button>

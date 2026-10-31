@@ -1,10 +1,15 @@
 import type { JobView } from "../api";
 import { go } from "../route";
-import { ApplicationChip, PHASE, phaseText, RoundProgress } from "../status";
-import { applications, md } from "./metrics";
+import { PHASE, phaseText, RoundProgress, RunChip } from "../status";
+import { applications, lane, md } from "./metrics";
 
-// 申请总表按阶段分组的顺序（示意页：在做的在上，结束的在最下）
-const ORDER = ["prep", "interview", "assessment", "screening", "applied", "offer", "closed"];
+// 申请总表按阶段分组的顺序（示意页：在做的在上，结束的在下）；最后一组是 Failures 里的投递失败 / 不投了（C024-fix）
+const ORDER = ["prep", "interview", "assessment", "screening", "applied", "offer", "closed", "dropped"];
+const GROUP: Record<string, string> = { ...PHASE, dropped: "Failures · 投递失败 / 不投了" };
+
+function groupOf(job: JobView): string {
+  return lane(job) === "dropped" ? "dropped" : job.phase ?? "";
+}
 
 // 申请总表：每个转为申请的岗位一行
 export function AppsTable({ jobs, showProject, onPostingClosed }: {
@@ -25,12 +30,12 @@ export function AppsTable({ jobs, showProject, onPostingClosed }: {
         <thead><tr>{cols.map((c, i) => <th key={i}>{c}</th>)}</tr></thead>
         <tbody>
           {ORDER.map((phase) => {
-            const rows = apps.filter((j) => (j.phase ?? "") === phase);
+            const rows = apps.filter((j) => groupOf(j) === phase);
             if (rows.length === 0) {
               return null;
             }
             return [
-              <tr key={`g-${phase}`} className="grp"><td colSpan={cols.length}>{PHASE[phase]} · {rows.length}</td></tr>,
+              <tr key={`g-${phase}`} className="grp"><td colSpan={cols.length}>{GROUP[phase]} · {rows.length}</td></tr>,
               ...rows.map((job) => {
                 n++;
                 return (
@@ -48,7 +53,7 @@ export function AppsTable({ jobs, showProject, onPostingClosed }: {
                         <span className="endreason" title={job.outcomeReason}>· {job.outcomeReason}</span>
                       )}{" "}
                       {job.due && <span className="chip wait">该查看了</span>}{" "}
-                      <ApplicationChip status={job.application} />
+                      <RunChip job={job} />
                     </td>
                     <td><RoundProgress rounds={job.rounds ?? []} /></td>
                     <td className="num">{md(job.lastCheckedAt)}</td>

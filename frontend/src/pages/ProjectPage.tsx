@@ -60,7 +60,7 @@ export default function ProjectPage({ id, onChanged }: { id: string; onChanged: 
       </div>
       {error && <p className="error">{error}</p>}
       {project && (
-        <TabBody tab={tab} jobs={jobs} sessions={project.sessions} reload={load}
+        <TabBody tab={tab} onTab={setTab} jobs={jobs} sessions={project.sessions} reload={load}
           recent={<RecentSessions sessions={project.sessions} />} />
       )}
     </>

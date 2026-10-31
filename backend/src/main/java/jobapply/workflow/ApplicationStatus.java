@@ -9,7 +9,8 @@ import jobapply.persistence.AssetRegistry;
  * 申请线程对外的状态（HTTP 接口原样返回，键是 camelCase）。没有内容的项为 null 或空列表。
  *
  * @param status       {@code queued | running | waiting_user | ready | failed | interrupted | done}：排队和在跑只看内存；
- *                     {@code done} 是用户已经定下了（已提交、结束了），不能再回复；
+ *                     {@code done} 是用户已经定下了（已提交、在提交、结束了），
+ *                     <b>投递段</b>的申请线程结束、不能再回复——不是申请结束（申请的阶段看 Job 的 phase，C024-fix）；
  *                     {@code interrupted} 是应用重启前还在跑的（{@code error} 写着，回复后接着做）
  * @param message      给用户看的话：要用户做什么、做完怎么回复（{@code waiting_user}、{@code ready} 时有）
  * @param questions    要用户回答的问题（只有页面原文和选项）；{@code fieldClass} 为 C 的只能在浏览器里亲自填

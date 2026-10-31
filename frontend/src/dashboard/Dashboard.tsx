@@ -5,12 +5,12 @@ import { LEAD } from "../status";
 import { toast } from "../toast";
 import { AppsTable } from "./AppsTable";
 import { Board } from "./Board";
+import { Failures, failureCount } from "./Failures";
 import { FollowUps } from "./FollowUps";
 import { Funnel } from "./Funnel";
 import { Kpis } from "./Kpis";
 import { LeadPool } from "./LeadPool";
 import { applications } from "./metrics";
-import { Outcomes } from "./Outcomes";
 import { Reviews } from "./Reviews";
 import { Timeline } from "./Timeline";
 import { Upcoming } from "./Upcoming";
@@ -56,9 +56,11 @@ export function TabBar({ tab, onChange }: { tab: Tab; onChange: (tab: Tab) => vo
 /**
  * @param sessions 范围内的 Session（新的在前）：显示「发现于哪个 Session」，开始申请时找最近的 Session
  * @param recent   Project 主页在 KPI 下面放的「最近的 Session」
+ * @param onTab    换页签（候选池里「Failures n」跳回 Dashboard 用）
  */
-export function TabBody({ tab, jobs, showProject, projectTitle, sessions, reload, recent }: {
+export function TabBody({ tab, jobs, showProject, projectTitle, sessions, reload, recent, onTab }: {
   tab: Tab;
+  onTab?: (tab: Tab) => void;
   jobs: JobView[];
   showProject?: boolean;
   // 全局页：候选池最外层按 Project 分组时显示的名字
@@ -85,13 +87,24 @@ export function TabBody({ tab, jobs, showProject, projectTitle, sessions, reload
 
   if (tab === "leads") {
     const titles = new Map(sessions.map((s) => [s.id, s.title]));
+    // 跳过的候选不在这里列，和投递失败 / 不投了一起在 Dashboard 的 Failures（C024-fix）
+    const skipped = jobs.filter((j) => j.leadStatus === "skipped").length;
+    const failures = failureCount(jobs);
     return (
       <div className="panel">
         <div className="ph">
           <h2>候选池</h2>
           <span className="boardnote">{showProject ? "调研出来的岗位，先按 Project，再按公司、地点分组" : "调研出来的岗位，按公司、再按地点分组"}；公司名写法不同的由模型归成一家；岗位不必和 Project 名字的方向一致</span>
+          {failures > 0 && (
+            <button className="linkbtn failurelink" title={`跳过的 ${skipped} 个和投递失败 / 不投了都在 Dashboard 的 Failures`}
+              onClick={() => {
+                onTab?.("dash");
+                window.setTimeout(() => document.getElementById("failures")?.scrollIntoView({ block: "start" }), 100);
+              }}>Failures {failures}</button>
+          )}
         </div>
-        <LeadPool leads={jobs.filter((j) => j.leadStatus !== "converted")} applications={applications(jobs)}
+        <LeadPool leads={jobs.filter((j) => j.leadStatus !== "converted" && j.leadStatus !== "skipped")}
+          applications={applications(jobs)}
           showProject={showProject} projectTitle={projectTitle} sessionTitle={(id) => titles.get(id)}
           onClosed={postingClosed}
           onMark={(job, status, reason) => act(() => api.markLead(job.id, status, reason),
@@ -128,9 +141,10 @@ export function TabBody({ tab, jobs, showProject, projectTitle, sessions, reload
           <Reviews jobs={jobs} />
         </div>
       </div>
-      <Outcomes jobs={jobs} showProject={showProject}
-        onReopen={(job) => void act(() => api.reopen(job.id), `${job.company} · ${job.title}：已撤销，回到之前的状态`)} />
+      {/* 看板下面是 Failures（C024-fix）：跳过的候选、投递失败、不投了；看板「已结束」列和时间线不再有它们 */}
       <Board jobs={jobs} showProject={showProject} />
+      <Failures jobs={jobs} showProject={showProject}
+        onReopen={(job) => void act(() => api.reopen(job.id), `${job.company} · ${job.title}：已撤销，回到之前的状态`)} />
       <Timeline jobs={jobs} />
     </>
   );

@@ -1210,7 +1210,7 @@ public final class HarnessLoop {
                     ? SubmitWords.SUBMITTED_NOTICE + "请在 Chrome 里核对投递状态和填写报告。"
                     : "请在 Chrome 里核对页面和填写报告，最终提交由你自己点。要修改时直接回复要改什么。";
             String message = (summary == null ? "能填的都填好了。" : summary) + "\n\n" + tail;
-            return ended(call, "已结束，交给用户审阅。", current -> current.ready(message, submitted));
+            return ended(call, "这轮填写结束，交给用户审阅。", current -> current.ready(message, submitted));
         }
 
         // ---- 报告 ----

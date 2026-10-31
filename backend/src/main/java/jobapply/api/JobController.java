@@ -100,7 +100,7 @@ public class JobController {
 
     /** 这个 Job 的视图；「该查看了」按服务器今天的日期算。 */
     private Views.JobView view(Job job) {
-        return Views.job(job, applications, LocalDate.now(clock));
+        return Views.job(job, applications, null, LocalDate.now(clock), followups.statusOf(job));
     }
 
     @GetMapping

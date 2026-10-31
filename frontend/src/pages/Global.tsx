@@ -39,7 +39,7 @@ export default function Global({ projects }: { projects: ProjectSummary[] | null
       )}
       {jobs === null
         ? !error && <p className="muted">读取中…</p>
-        : <TabBody tab={tab} jobs={jobs} showProject sessions={sessions} reload={load}
+        : <TabBody tab={tab} onTab={setTab} jobs={jobs} showProject sessions={sessions} reload={load}
           projectTitle={(id) => projects?.find((p) => p.id === id)?.title} />}
     </>
   );

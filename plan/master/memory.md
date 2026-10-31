@@ -145,7 +145,7 @@ status: active | archived
 
   关闭应用、隔天再打开，都能从暂停点继续，这取代了旧流程里手写的「明日继续」文件。
 - 对话原文完整保存在 `transcript.jsonl`。给模型的上下文可以压缩，但原文不压缩。
-- **候选池**：调研产出的岗位写成 `jobs/<job-id>/job.md`，`lead_status` 取值为 `new`（新发现）/ `shortlisted`（你标记想投）/ `skipped`（不投，注明原因）/ `converted`（已转为申请）。生成的 `tracker/leads.md` 按公司分组，同一家公司的多个岗位排在一起，同时生成 `tracker/leads.csv`。
+- **候选池**：调研产出的岗位写成 `jobs/<job-id>/job.md`，`lead_status` 取值为 `new`（新发现）/ `shortlisted`（你标记想投）/ `skipped`（跳过，注明原因；界面上和投递失败 / 不投了一起在 Dashboard 的 Failures，C024-fix）/ `converted`（已转为申请）。生成的 `tracker/leads.md` 按公司分组，同一家公司的多个岗位排在一起，同时生成 `tracker/leads.csv`。
 - **转为申请**：你在对话里说「投澜川的这两个」，或者在候选池里勾选，对应的 Job 就从候选转为申请（`phase: prep`）。转换前先查 `jobs-index.md` 和 `companies/<company>.md`：别的 Project 是否已经投过这个岗位，这家公司的额度还剩多少（未核实就写未核实）。命中时提示你，由你决定是否继续。
 - **Session 结束时的交接摘要**写进 `session.md`，下次开新 Session 时 Agent 先读它。
 

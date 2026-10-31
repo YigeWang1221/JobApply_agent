@@ -127,7 +127,19 @@ public final class FollowupRunner implements AutoCloseable {
     }
 
     public synchronized Status status(String jobId) {
-        Job job = job(jobId);
+        return status(job(jobId));
+    }
+
+    /**
+     * 列表里每个 Job 的后续段运行状态（C024-fix：侧栏的点、看板的 chip 用），不再按 id 找一遍 Job。
+     * 没有后续段（{@link #open} 为 false）时为 null。
+     */
+    public synchronized String statusOf(Job job) {
+        return open(job) ? status(job).status() : null;
+    }
+
+    private Status status(Job job) {
+        String jobId = job.id();
         if (running.contains(jobId)) {
             return new Status(SessionRunner.Status.RUNNING, null);
         }

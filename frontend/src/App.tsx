@@ -11,6 +11,7 @@ import ProjectPage from "./pages/ProjectPage";
 import SessionPage from "./pages/SessionPage";
 import Settings from "./pages/Settings";
 import { RenameInput } from "./RenameTitle";
+import { DROPPED_OUTCOMES, labelText } from "./status";
 import { clampWidth, KEEP_MAIN, ResizeHandle, useStoredWidth, useWindowWidth } from "./ResizeHandle";
 import { go, href, useRoute, type Route } from "./route";
 import { toast, Toasts } from "./toast";
@@ -161,12 +162,14 @@ function SidebarRail({ route, projects, onExpand, onCreated }: {
   );
 }
 
-// 工作台状态圆点（C021）：在跑 / 排队 → running；等你、失败、中断 → waiting；停在提交前 → ready；已投递 → applied
+// 工作台状态圆点（C021，C024-fix）：投递段或后续段在跑 / 排队 → running（闪）；等你、出错、中断 → waiting；
+// 填好了 → ready；已投递 → applied；正常结束 → closed（灰）；投递失败 / 不投了（Failures）→ dropped（红）
 function wsDotClass(w: WorkspaceSummary): string {
-  if (w.application === "running" || w.application === "queued") {
+  if (w.application === "running" || w.application === "queued" || w.followup === "running") {
     return "running";
   }
-  if (w.application === "waiting_user" || w.application === "failed" || w.application === "interrupted") {
+  if (w.application === "waiting_user" || w.application === "failed" || w.application === "interrupted"
+    || w.followup === "interrupted") {
     return "waiting";
   }
   if (w.application === "ready") {
@@ -175,7 +178,16 @@ function wsDotClass(w: WorkspaceSummary): string {
   if (w.bucket === "applied") {
     return "applied";
   }
+  if (w.label.startsWith("closed:")) {
+    return DROPPED_OUTCOMES.has(w.label.slice("closed:".length)) ? "dropped" : "closed";
+  }
   return "";
+}
+
+// 侧栏悬停：阶段的中文，后续段在跑时带一句
+function wsTitle(w: WorkspaceSummary): string {
+  const state = [labelText(w.label), w.followup === "running" ? "后续 Agent 正在做" : null].filter(Boolean).join(" · ");
+  return `${w.company} · ${w.title}（${state}）`;
 }
 
 // Session 按今天 / 昨天 / 更早分组（按创建时间）
@@ -326,7 +338,7 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
                                 <button
                                   className={"side-workspace" + (route.kind === "job" && route.id === w.id ? " active" : "")}
                                   onClick={() => go({ kind: "job", id: w.id })}
-                                  title={`${w.company} · ${w.title}（${w.label}）`}>
+                                  title={wsTitle(w)}>
                                   <span className={"side-ws-dot " + wsDotClass(w)} aria-hidden="true" />
                                   <span className="side-ws-text">{w.company} · {w.title}</span>
                                 </button>
