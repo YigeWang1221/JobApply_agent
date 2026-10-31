@@ -1308,3 +1308,17 @@
   - `frontend/` 里 `npm run build` 退出码 0。
   - 草稿目录 mock（虚构数据：已投递 + done、你在提交 + done、后续段在跑、投递后投递失败、不投了、旧 not_submitted、3 个跳过的候选、被拒、岗位下线、20 多天的事件、简历选择、多轮）+ 无头 Chromium 截图 22 张（`shots-c024fix/`，浅 / 深）：看板已投递卡片无「已结束」，准备中卡片不再两个同义 chip；投递失败 / 不投了 / 跳过只在 Failures 和总表最后一组；时间线一份一条、展开有详情；侧栏后续段在跑闪蓝、Failures 红点、正常结束灰点，悬停是中文。
   - 没启动连真实 storage 的 Spring，没调真实模型，没碰用户的 Chrome；mock 和无头浏览器已停。用户本机试：未运行。未提交。
+
+## 2026-10-31 · 打包 App 显示旧界面（C024-fix 第 12 节）
+
+- 现象：重新打包（14:46）后 App 里 Dashboard 仍是 C023 之前的样子。
+- 查到：打包里的 `web/`（`index-OiAtFJ6m.js`）是新的；jar 不含 `static/`；无其它 App 副本；外壳端口被占时报错不复用。起打包后端在 18088 curl：`/` 返回新 `index.html`，只带 `Last-Modified`、无 `Cache-Control`。判断是 WKWebView 启发式缓存了旧 `index.html`（本机 `~/Library/Caches/local.jobapply`、`~/Library/Logs/JobApply` 都不存在，用户运行 App 的那台机器 / 账号未直接查看）。
+- 改：`application-macapp.yml`、`application-desktop.yml` 加 `spring.web.resources.cache.cachecontrol.no-cache: true`；`appbuild/macos/JobApply/main.swift` 新增 `loadUI()`，用 `.reloadIgnoringLocalCacheData` 加载界面（启动、「重新加载」）。`appbuild/` 被 `.gitignore` 忽略。
+- 验证：`appbuild/macos/build.sh` 退出码 0（14:56，App + DMG）；起新包后端（18088，跑完已停）：`/` 与 `/assets/*.js` 都带 `Cache-Control: no-cache`，`/` 引用 `index-OiAtFJ6m.js`，JS 里有 Failures。在 App 窗口里实际打开：未运行。未提交。
+
+## 2026-10-31 · C024-fix 旧记录显示核对（真实 storage）
+
+- 指令：用户问 C024-fix 会不会让以前的记录在全局页 / 看板上显示错或被当成失败。
+- 做法：storage 复制到草稿目录（排除密钥文件）；HEAD 后端在草稿目录单独构建、起在 18080（`--jobapply.storage.root` 指向副本），Vite 在 5199（临时配置，用完已删）；内置浏览器看全局 / Project Dashboard、申请总表、候选池、侧栏、7 个工作台、3 个 Session，对照 `GET /api/jobs`、`GET /api/projects/2026-season3`。
+- 结果：38 个 Job 全部解析，后端日志无解析错误；19 个申请：看板准备中 5、已投递 11、已结束 2（岗位下线），Failures 2（旧 `not_submitted` 1、跳过候选 1），候选池 18，没有漏掉或重复的。已投递处处只写「已投递」，没有「已结束」；岗位下线不进 Failures；时间线 11、每周 6 + 5、待追踪 8 都对。没有后续段运行记录。读完后副本与原 storage 无差异。没发现要修的错位，未改代码。
+- 验证：`frontend/` 里 `npx tsc --noEmit` 退出码 0；没改代码，`mvn -B clean verify`、`npm run build`：未运行（另一路在用 `backend/target`）。服务器已停。未提交。

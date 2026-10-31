@@ -8,6 +8,11 @@ spring:
   web:
     resources:
       static-locations: file:${JOBAPPLY_RESOURCES:${jobapply.desktop.resources:./resources}}/web/
+      # 每次都向后端确认（Cache-Control: no-cache，没变就回 304）；否则 WKWebView 按 Last-Modified 猜着缓存，
+      # 装了新版还显示旧的 index.html 和旧界面（C024-fix 第 12 节）
+      cache:
+        cachecontrol:
+          no-cache: true
 
 jobapply:
   api:

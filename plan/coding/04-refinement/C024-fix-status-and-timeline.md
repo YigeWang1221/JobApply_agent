@@ -154,3 +154,20 @@ Dashboard 的分区在 `metrics.ts` 一个函数里算（前端只读 `phase`、
 - `styles.css`：一行卡片、折叠按钮、时间线长条和详情、两个新点色；看板列宽从 168 降到 132（卡片变窄后不用横向滚）。
 
 验证：见 `dev-log.md` 同日条目。真实模型、真实 Chrome：未运行（这一步不需要）。
+
+## 12. 打包后的 App 显示旧界面（2026-10-31）
+
+- 现象：用 `appbuild/macos/build.sh` 重新打包后打开 App，Dashboard 还是旧样子（卡片多行带「已结束」、空列是「—」、没有 Failures），连 C023 的「暂无」都没有。
+- 查过：`Contents/Resources/web` 是新的（`index-OiAtFJ6m.js` 里有 Failures）；jar 里没有 `static/`；没有别的 App 副本；端口被占时外壳直接报错，不会连旧后端。直接起打包里的后端（另一个端口）curl：`/` 回的是新 `index.html`，但响应只有 `Last-Modified`、没有 `Cache-Control`。
+- 根因：没有 `Cache-Control` 时 WKWebView 按 `Last-Modified` 猜一段新鲜期，期内直接用磁盘缓存里的旧 `index.html`，旧的 `index.html` 引用旧的带哈希 JS（缓存里也有），于是整套旧界面原样出现，新后端连请求都收不到。
+- 改：
+  - `application-macapp.yml`、`application-desktop.yml`：`spring.web.resources.cache.cachecontrol.no-cache: true`，静态文件每次向后端确认（没变回 304）。
+  - `appbuild/macos/JobApply/main.swift`：`loadUI()` 用 `.reloadIgnoringLocalCacheData` 加载界面（启动和「重新加载」都走它），装新版后第一次打开也不吃旧缓存。
+- 用户要做：退出旧 App，用新打的 App / DMG 打开（外壳改了，必须是新包）。
+
+## 13. 用真实 storage 核对旧记录的显示（2026-10-31）
+
+- 问题（用户）：这次改动会不会让以前的记录在全局页 / 看板上显示错、或被当成失败。
+- 做法：storage 复制到草稿目录（不含密钥文件），用 HEAD 的后端（另一个端口）+ Vite 开发服务器读它，内置浏览器打开全局 Dashboard、Project Dashboard、申请总表、候选池、侧栏、7 个工作台、3 个 Session，并和 `GET /api/jobs` 逐条对照。服务器读完后草稿目录与原 storage 无差异（后端没写任何文件）。
+- 结果：38 个 Job 全部解析（18 新发现、1 跳过、19 已转申请），每个都落在且只落在一个位置：看板 18（准备中 5、已投递 11、已结束 2 = 两个岗位下线）、Failures 2（1 个旧 `not_submitted`「不投了」、1 个跳过的候选）、候选池 18；侧栏 19 个工作台点色和悬停都对（已投递绿、等你回答 / 审阅、岗位下线灰、不投了红）。已投递卡片、总表、Session 岗位卡都没有「已结束」；`posting_closed` 留在「已结束」不进 Failures；时间线 11 条正是 11 份已投递；每周节奏 6 + 5 = 11；待追踪 8 条与 `due` 一致。存储里还没有任何后续段运行（没有 `followup/`），11 份已投递的 `followup` 都是 `idle`，不挂 chip，正确。
+- 不是错、没改的两处小事：旧 `not_submitted` 那条在 Failures 显示「（没写原因）」，原因只写在事件里（系统写的「用户说不投了」），旧记录没有 `outcome_reason` / `closed_at`；工作台头部 endnote 仍写「已结束 · 不投了」（第 2 节定为不改），与 chip「不投了」字面不同。要不要改等用户定。
