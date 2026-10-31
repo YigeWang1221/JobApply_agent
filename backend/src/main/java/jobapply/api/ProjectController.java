@@ -12,6 +12,7 @@ import jobapply.persistence.StorageInitializer;
 import jobapply.persistence.StorageLayout;
 import jobapply.workflow.ApplicationException;
 import jobapply.workflow.ApplicationRunner;
+import jobapply.workflow.FollowupRunner;
 import jobapply.workflow.SessionRunner;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -60,9 +61,10 @@ public class ProjectController {
     private final JobLedger ledger;
     private final ApplicationRunner applications;
     private final SessionRunner sessionRunner;
+    private final FollowupRunner followups;
 
     public ProjectController(StorageLayout layout, Clock clock, ApplicationRunner applications,
-                             SessionRunner sessionRunner) {
+                             SessionRunner sessionRunner, FollowupRunner followups) {
         this.layout = layout;
         this.clock = clock;
         this.projects = new ProjectRepository(layout, clock);
@@ -71,6 +73,7 @@ public class ProjectController {
         this.ledger = new JobLedger(layout, clock);
         this.applications = applications;
         this.sessionRunner = sessionRunner;
+        this.followups = followups;
     }
 
     @GetMapping("/api/projects")
@@ -136,14 +139,16 @@ public class ProjectController {
 
     private List<Views.JobView> jobViews(String id) {
         LocalDate today = LocalDate.now(clock);
-        return jobs.list(id).stream().map(job -> Views.job(job, applications, today)).toList();
+        // 侧栏的点要看后续段在不在跑（C024-fix）
+        return jobs.list(id).stream().map(job -> Views.job(job, applications, null, today, followups.statusOf(job)))
+                .toList();
     }
 
     /** 带阶段变化的 JobView（时间线、漏斗用；C006-fix-ui）。 */
     private List<Views.JobView> jobsWithEvents(String id) {
         LocalDate today = LocalDate.now(clock);
         return jobs.list(id).stream()
-                .map(job -> Views.job(job, applications, ledger.events(id, job.id()), today))
+                .map(job -> Views.job(job, applications, ledger.events(id, job.id()), today, followups.statusOf(job)))
                 .toList();
     }
 

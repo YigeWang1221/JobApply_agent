@@ -3,24 +3,33 @@ import { createPortal } from "react-dom";
 import { api, errorText, type JobView, type OutcomeKind, type RoundView } from "./api";
 import { toast } from "./toast";
 
-// 状态的中文说法和小标签，几个页面共用
+// 状态的中文说法和小标签，几个页面共用。三个领域各管各的（C024-fix，tracking.md「三个领域的状态」）：
+// 运行状态（一个 Agent 循环在不在跑）只是附加的小 chip；主文字永远来自申请生命周期（phase / prep_state / outcome）；
+// 候选状态只在候选池
 
 export const LEAD: Record<string, string> = {
   new: "新发现",
   shortlisted: "想投",
-  skipped: "不投",
+  skipped: "跳过",
   closed: "已下线",
   converted: "已转申请",
 };
 
+// 投递段申请线程的运行状态。done 是「投递段结束、申请 Agent 不再接着做」，不是申请结束（C024-fix）
 export const APPLICATION: Record<string, string> = {
   queued: "排队中",
   running: "Agent 正在做",
   waiting_user: "等你",
-  ready: "停在提交前",
-  failed: "失败",
-  interrupted: "中断",
-  done: "已结束",
+  ready: "填好了",
+  failed: "出错了",
+  interrupted: "中断了",
+  done: "投递段已结束",
+};
+
+// 后续段（C022）的运行状态：idle 不显示
+export const FOLLOWUP: Record<string, string> = {
+  running: "后续 Agent 正在做",
+  interrupted: "后续段中断了",
 };
 
 export const PREP: Record<string, string> = {
@@ -29,7 +38,7 @@ export const PREP: Record<string, string> = {
   needs_input: "等你回答",
   needs_login: "等你登录",
   handoff_user: "交给你",
-  failed: "失败",
+  failed: "出错了",
   awaiting_review: "等你审阅",
   user_submitting: "你在提交",
   verification_pending: "待核实投递",
@@ -53,7 +62,7 @@ export const OUTCOME: Record<string, string> = {
   accepted: "接受 Offer",
   declined: "拒绝 Offer",
   ghosted: "长期无回应",
-  not_submitted: "最终未投",
+  not_submitted: "不投了",
   posting_closed: "岗位下线",
   apply_failed: "投递失败",
   gave_up: "不投了",
@@ -148,16 +157,40 @@ export function OutcomeDialog({ job, kind, onClose, onDone }: {
   );
 }
 
-// 阶段的说法：prep 显示子状态，closed 带上结局（label 形如 closed:posting_closed）
+// 用户记的「没投成」（C024）：投递失败、不投了，旧记录的 not_submitted 也算不投了。它们不是「已结束」的正常结局
+export const DROPPED_OUTCOMES = new Set(["apply_failed", "gave_up", "not_submitted"]);
+
+// 阶段机器值（applied、prep:needs_input、closed:rejected、lead:skipped）→ 给人看的字（侧栏悬停、兜底）
+export function labelText(label: string | null | undefined): string {
+  if (!label) {
+    return "";
+  }
+  const [head, tail] = label.split(":");
+  if (tail === undefined) {
+    return PHASE[head] ?? label;
+  }
+  if (head === "prep") {
+    return PREP[tail] ?? tail;
+  }
+  if (head === "lead") {
+    return LEAD[tail] ?? tail;
+  }
+  if (head === "closed") {
+    const name = OUTCOME[tail] ?? tail;
+    return DROPPED_OUTCOMES.has(tail) ? name : `已结束 · ${name}`;
+  }
+  return label;
+}
+
+// 阶段的说法：prep 显示子状态，closed 带上结局；投递失败 / 不投了直接写结局（不叫「已结束」）
 export function phaseText(job: JobView): string {
   if (job.phase === "prep" && job.prepState) {
     return PREP[job.prepState] ?? job.prepState;
   }
   if (job.phase === "closed") {
-    const outcome = job.label?.split(":")[1];
-    return outcome ? `已结束 · ${OUTCOME[outcome] ?? outcome}` : PHASE.closed;
+    return job.label?.startsWith("closed:") ? labelText(job.label) : PHASE.closed;
   }
-  return PHASE[job.phase ?? ""] ?? job.label;
+  return PHASE[job.phase ?? ""] ?? labelText(job.label);
 }
 
 const APPLICATION_CHIP: Record<string, string> = {
@@ -202,11 +235,30 @@ export function LeadChip({ status }: { status: string }) {
   return <span className={`chip ${kind}`}>{LEAD[status] ?? status}</span>;
 }
 
-export function ApplicationChip({ status }: { status: string | null }) {
-  if (!status) {
-    return null;
+// 卡片、表格、Session 岗位卡上要不要挂运行状态的小 chip（C024-fix）：只在「在跑或要你做事」时挂；
+// done（投递段结束）和 ready（和「等你审阅」重复）永远不挂；和 prep 子状态说的是同一件事时也不挂。
+// 投递段没事时看后续段：在跑 / 中断了
+const RUN_ON_CARD = new Set(["queued", "running", "waiting_user", "failed", "interrupted"]);
+const SAME_AS_PREP: Record<string, string[]> = {
+  waiting_user: ["needs_input", "needs_login", "handoff_user"],
+  failed: ["failed"],
+};
+
+export function runChip(job: Pick<JobView, "application" | "prepState" | "followup">): { text: string; kind: string } | null {
+  const app = job.application;
+  if (app && RUN_ON_CARD.has(app) && !(SAME_AS_PREP[app] ?? []).includes(job.prepState ?? "")) {
+    return { text: APPLICATION[app] ?? app, kind: APPLICATION_CHIP[app] ?? "" };
   }
-  return <span className={`chip ${APPLICATION_CHIP[status] ?? ""}`}>{APPLICATION[status] ?? status}</span>;
+  const followup = job.followup;
+  if (followup && FOLLOWUP[followup]) {
+    return { text: FOLLOWUP[followup], kind: followup === "running" ? "rev" : "wait" };
+  }
+  return null;
+}
+
+export function RunChip({ job }: { job: Pick<JobView, "application" | "prepState" | "followup"> }) {
+  const run = runChip(job);
+  return run ? <span className={`chip ${run.kind}`}>{run.text}</span> : null;
 }
 
 export function VerifiedChip({ verified }: { verified: JobView["verified"] }) {
@@ -236,7 +288,7 @@ export function JobState({ job, compact }: { job: JobView; compact?: boolean }) 
   return (
     <>
       <span className="chip">{phase}</span>
-      <ApplicationChip status={job.application} />
+      <RunChip job={job} />
     </>
   );
 }

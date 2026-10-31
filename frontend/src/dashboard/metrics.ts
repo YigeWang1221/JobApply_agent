@@ -4,7 +4,7 @@ import { localDay, type JobView } from "../api";
 
 export const DAY_MS = 24 * 3600 * 1000;
 
-// 看板的列（阶段固定枚举）
+// 看板的列（阶段固定枚举）；「已结束」只放正常结局，投递失败 / 不投了在 Failures（C024-fix）
 export const BOARD_PHASES: [string, string][] = [
   ["prep", "准备中"],
   ["applied", "已投递"],
@@ -38,6 +38,23 @@ export function markedOutcome(job: JobView): "apply_failed" | "gave_up" | null {
     return "apply_failed";
   }
   return job.label === "closed:gave_up" || job.label === "closed:not_submitted" ? "gave_up" : null;
+}
+
+// Dashboard 的分区（C024-fix）：flow 在走（prep…offer）；ended 正常结局（被拒、撤回、Offer 接受 / 拒绝、无回应、岗位下线）；
+// dropped 用户记的没投成（投递失败、不投了、旧 not_submitted）。看板、时间线只吃 flow + ended，Failures 只吃 dropped
+export type Lane = "flow" | "ended" | "dropped";
+
+export function lane(job: JobView): Lane {
+  if (markedOutcome(job) !== null) {
+    return "dropped";
+  }
+  return job.phase === "closed" ? "ended" : "flow";
+}
+
+// 候选「跳过」是哪天记的：最后一条 lead:skipped 事件（列表带事件时才有）
+export function skippedAt(job: JobView): string | null {
+  const marks = (job.events ?? []).filter((e) => e.to === "lead:skipped");
+  return marks.length ? marks[marks.length - 1].at : null;
 }
 
 // 走到过的最远一层：当前阶段和事件日志里出现过的阶段取最大；接受 / 拒绝 Offer 算走到 Offer

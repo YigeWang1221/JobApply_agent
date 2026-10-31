@@ -66,7 +66,7 @@ final class Views {
                    String application, String appliedAt, String lastCheckedAt, String nextCheckAt,
                    boolean pageLooksSubmitted, List<PhaseEvent> events, boolean due, String bucket,
                    boolean canStart, Map<?, ?> resumeChoice, List<RoundView> rounds, String outcomeReason,
-                   String closedAt, boolean canReopen) {
+                   String closedAt, boolean canReopen, String followup) {
     }
 
     /**
@@ -95,14 +95,24 @@ final class Views {
     private static final Set<JobEvent.Type> PHASE_EVENTS = EnumSet.of(JobEvent.Type.CONVERTED,
             JobEvent.Type.PHASE_CHANGED, JobEvent.Type.CLOSED);
 
+    /** 候选阶段的「不投」（C024-fix）：Dashboard 的 Failures 显示它是哪天记的。 */
+    private static final String SKIPPED_LEAD = "lead:skipped";
+
+    private static boolean dashboardEvent(JobEvent e) {
+        return PHASE_EVENTS.contains(e.type())
+                || e.type() == JobEvent.Type.LEAD_STATUS_CHANGED && SKIPPED_LEAD.equals(e.to());
+    }
+
     /**
      * 左侧栏三级列表里的一项（C021）：这个 Session 下已经打开的工作台。
      *
      * @param application 申请线程的状态（{@code running} / {@code ready} / …）；没有申请线程时为 null
      * @param bucket      {@link JobBucket} 的分组（{@code preparing} / {@code waiting} / {@code ready} / …）
-     * @param label       用户看到的阶段名称
+     * @param label       阶段的机器值（{@code applied}、{@code prep:needs_input}、{@code closed:apply_failed}），前端转成中文
+     * @param followup    后续段的运行状态（{@code running} / {@code idle} / {@code interrupted}，C024-fix）；没有后续段时为 null
      */
-    record WorkspaceSummary(String id, String company, String title, String application, String bucket, String label) {
+    record WorkspaceSummary(String id, String company, String title, String application, String bucket, String label,
+                            String followup) {
     }
 
     /**
@@ -186,13 +196,17 @@ final class Views {
      * 可以开始申请线程：还没有申请线程、状态允许（{@link jobapply.domain.JobStatus#canStartApplication}）、有岗位链接。
      */
     static JobView job(Job job, ApplicationRunner applications, LocalDate today) {
-        return job(job, applications, null, today);
+        return job(job, applications, null, today, null);
     }
 
-    /** 带阶段变化的 JobView（Project 主页、全局页的列表用）；{@code history} 是这个 Job 的全部事件。 */
-    static JobView job(Job job, ApplicationRunner applications, List<JobEvent> history, LocalDate today) {
+    /**
+     * 带阶段变化的 JobView（Project 主页、全局页的列表用）；{@code history} 是这个 Job 的全部事件（另带候选「不投」那一条）。
+     * {@code followup} 是后续段的运行状态（C024-fix，{@link jobapply.workflow.FollowupRunner#statusOf}），不知道时为 null。
+     */
+    static JobView job(Job job, ApplicationRunner applications, List<JobEvent> history, LocalDate today,
+                       String followup) {
         List<PhaseEvent> events = history == null ? null : history.stream()
-                .filter(e -> PHASE_EVENTS.contains(e.type()))
+                .filter(Views::dashboardEvent)
                 .map(e -> new PhaseEvent(e.at(), e.type().value(), e.to()))
                 .toList();
         Optional<ApplicationStatus> status = applications.statusIfAny(job.id());
@@ -219,7 +233,7 @@ final class Views {
                 // C024：结束的原因（用户写的原话）、时间，能不能撤销（用户记的投递失败 / 不投了）
                 job.status().phase() == Phase.CLOSED ? job.extraString("outcome_reason") : null,
                 job.status().phase() == Phase.CLOSED ? job.extraString("closed_at") : null,
-                JobLedger.canReopen(job));
+                JobLedger.canReopen(job), followup);
     }
 
     /**
@@ -300,7 +314,7 @@ final class Views {
                     .findFirst()
                     .orElse(sessions.getFirst());
             grouped.get(owner.id()).add(new WorkspaceSummary(job.id(), job.company(), job.title(),
-                    job.application(), job.bucket(), job.label()));
+                    job.application(), job.bucket(), job.label(), job.followup()));
         }
         return grouped;
     }

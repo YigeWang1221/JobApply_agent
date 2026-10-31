@@ -1,7 +1,7 @@
 import { localDay, type JobView } from "../api";
 import { writeDraft } from "../chat/draft";
 import { go } from "../route";
-import { PHASE } from "../status";
+import { labelText, PHASE } from "../status";
 import { applications, dayOf, daysBetween, md } from "./metrics";
 
 // 待追踪（C007「该查看了」）：已投递、到了下次查看日子的申请。「我看了」打开它的工作台，后续段的第一句已经填好（C022）
@@ -35,7 +35,7 @@ export function FollowUps({ jobs, showProject }: { jobs: JobView[]; showProject?
                     <small>
                       {[showProject ? job.project : null,
                         job.lastCheckedAt ? `上次查看 ${md(job.lastCheckedAt)}` : `投递 ${md(job.appliedAt)} · 还没查看过`,
-                        PHASE[job.phase ?? ""] ?? job.label].filter(Boolean).join(" · ")}
+                        PHASE[job.phase ?? ""] ?? labelText(job.label)].filter(Boolean).join(" · ")}
                     </small>
                   </div>
                   <button className="linkbtn" title="去邮箱或官网看看，看完在它的工作台里告诉 Agent"

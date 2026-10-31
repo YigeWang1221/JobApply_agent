@@ -1,5 +1,5 @@
 import { localDay, type JobView } from "../api";
-import { addDays, applications, dayOf, md, weekStart } from "./metrics";
+import { addDays, applications, dayOf, md, submitted, weekStart } from "./metrics";
 
 // 宽度跟着周数走（每周 56），不再把 960 宽的图缩进窄列里、把坐标字缩到 7px（C023-A）
 const W_MIN = 360;
@@ -11,9 +11,9 @@ const T = 14;
 const R = 8;
 const MAX_WEEKS = 16;
 
-// 每周节奏：按周（周一起算）统计投递数。面试数要等轮次数据（里程碑第 6 段）
+// 每周节奏：按周（周一起算）统计投递数，和 KPI 同一口径（submitted：投递失败不算，C024-fix）。面试数要等轮次数据（里程碑第 6 段）
 export function Weekly({ jobs }: { jobs: JobView[] }) {
-  const days = applications(jobs).map((j) => dayOf(j.appliedAt)).filter((d): d is string => d !== null);
+  const days = applications(jobs).filter(submitted).map((j) => dayOf(j.appliedAt)).filter((d): d is string => d !== null);
   return (
     <div className="panel">
       <h2>每周节奏</h2>

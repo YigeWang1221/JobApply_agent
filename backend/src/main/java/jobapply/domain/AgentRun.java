@@ -50,7 +50,10 @@ public record AgentRun(
      */
     public static final String QUEUED = "queued";
     public static final String INTERRUPTED = "interrupted";
-    /** 也只在对外的状态里：用户已经定下了（已提交、结束了），这个申请线程不再接着做（C006-fix-2 回归第 1 条）。 */
+    /**
+     * 也只在对外的状态里：用户已经定下了（已提交、在提交、结束了），这个申请线程不再接着做（C006-fix-2 回归第 1 条）。
+     * 是投递段的线程结束，不是申请结束：已投递的申请照样往下走（C024-fix）。
+     */
     public static final String DONE = "done";
 
     public AgentRun {
