@@ -5,7 +5,7 @@ import java.util.Optional;
 
 /**
  * ui.md「预设」表。选了预设就自动填好接口格式和 Base URL，用户只需要填 Key 和选模型。
- * Base URL 按各厂商的官方文档核对（2026-10-22，来源见 plan/coding/C004-A-model-guard.md「实际结果」）。
+ * Base URL 按各厂商的官方文档核对（2026-10-22，来源见 plan/coding/02-core-agent/C004-A-model-guard.md「实际结果」）。
  * OpenAI 兼容格式的 Base URL 带版本路径（例如 {@code /v1}），SDK 在后面接 {@code chat/completions}；
  * Anthropic 格式的 Base URL 不带 {@code /v1}，SDK 自己接 {@code v1/messages}。
  */

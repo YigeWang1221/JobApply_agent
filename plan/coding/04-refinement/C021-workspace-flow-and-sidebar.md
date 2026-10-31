@@ -1,6 +1,6 @@
 # C021 · 工作台内闭环投递、三级 Memory 贯通与左侧三级导航栏
 
-- 对应 Master：[agent-runtime.md](../master/agent-runtime.md) §7.1–7.3、[workflow.md](../master/workflow.md) 主流程、[memory.md](../master/memory.md)、[ui.md](../master/ui.md)
+- 对应 Master：[agent-runtime.md](../../master/agent-runtime.md) §7.1–7.3、[workflow.md](../../master/workflow.md) 主流程、[memory.md](../../master/memory.md)、[ui.md](../../master/ui.md)
 - 依据：用户（2026-10-28）提出三项体验与架构改进：
   1. **职责边界重划**：`Session` 专注搜寻公司与岗位、官网核验、把匹配的岗位加进候选池（显示在 Session 右侧岗位栏）；单岗位的**简历匹配排名、针对 JD 的修改建议、用户确认选定简历、以及打开 Chrome 填表至提交前**全部移入该岗位专属的「申请工作台（JobPage）」内一步到位完成，不再在 Session 与工作台之间来回跳转；
   2. **三级 Memory（Base → Project → Session → Job 工作台）贯通**：将 `base/profile.md`（用户画像）与 Session 调研留下的 `job.md` `lead_note`（岗位调研备注）每步自动注入工作台 `FillContext`，配合 `read_jd` 读取 JD 快照与写作偏好，使工作台 Agent 一启动就具备完整的跨层上下文；

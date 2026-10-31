@@ -90,6 +90,6 @@ class ViewsWorkspacesTest {
                 "https://jobs.example.com/" + id, null, "self-campus", discoveredIn, leadStatus, null,
                 preparing ? "prep" : null, preparing ? "filling" : null, preparing ? "填写中" : "已转申请", null, null,
                 null, application, null, null, null, false, null, false,
-                preparing ? "preparing" : "ready", false, null, List.of());
+                preparing ? "preparing" : "ready", false, null, List.of(), null, null, false);
     }
 }

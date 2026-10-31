@@ -16,7 +16,7 @@ import jobapply.domain.Ids;
 /**
  * {@code base/ledger.md}：论断台账。id 是 {@code c-NNNN}，全局连续编号；删除以后不复用
  * （用 frontmatter 的 {@code last_claim} 记住用过的最大编号）。读的时候保留未识别的列和表格前后的内容。
- * 格式见 plan/coding/C004-A-1-profile-import.md「论断台账」。
+ * 格式见 plan/coding/02-core-agent/C004-A-1-profile-import.md「论断台账」。
  */
 public final class LedgerFile {
 

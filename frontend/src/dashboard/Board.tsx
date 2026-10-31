@@ -21,7 +21,8 @@ export function Board({ jobs, showProject }: { jobs: JobView[]; showProject?: bo
                 <div className="colh"><b>{name}</b><span>{items.length}</span></div>
                 {items.length === 0 && <div className="empty colempty">暂无</div>}
                 {items.map((job) => (
-                  <button key={job.id} className="bcard" onClick={() => go({ kind: "job", id: job.id })}>
+                  <button key={job.id} className="bcard" onClick={() => go({ kind: "job", id: job.id })}
+                    title={job.phase === "closed" && job.outcomeReason ? `原因：${job.outcomeReason}` : undefined}>
                     <span className="co">{job.company}</span>
                     <span className="ro">{[job.title, job.city.join("、")].filter(Boolean).join(" · ")}</span>
                     <span className="meta"><span className="dtext">{phaseText(job)}</span></span>

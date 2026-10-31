@@ -137,6 +137,8 @@ public final class HarnessLoop {
     private final ResumeMatch resumes;
     private volatile boolean seeded;
     private final ExperienceIndex experience;
+    /** 记下「投递失败 / 不投了」时给 Session 的系统通知（C024）。 */
+    private final SessionNote sessionNote;
 
     public HarnessLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock,
                        HarnessProperties limits) {
@@ -152,7 +154,15 @@ public final class HarnessLoop {
     /** @param experience 跨工作台经验检索（C022）；为 null 时 {@code search_experience} 回报不可用 */
     public HarnessLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock,
                        HarnessProperties limits, IntSupplier toolCallsPerRun, ExperienceIndex experience) {
+        this(model, browser, layout, clock, limits, toolCallsPerRun, experience, SessionNote.NONE);
+    }
+
+    /** @param sessionNote 记下「投递失败 / 不投了」时给 Session 写系统通知（C024） */
+    public HarnessLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock,
+                       HarnessProperties limits, IntSupplier toolCallsPerRun, ExperienceIndex experience,
+                       SessionNote sessionNote) {
         this.experience = experience;
+        this.sessionNote = sessionNote == null ? SessionNote.NONE : sessionNote;
         this.model = model;
         this.browser = browser;
         this.layout = layout;
@@ -490,7 +500,8 @@ public final class HarnessLoop {
         public Step<AgentRun> handle(AgentRun.ToolCall call) {
             String name = call.name();
             Step<AgentRun> shared = WorkbenchTools.handle(new WorkbenchTools.Where(run.project(), run.job(),
-                    run.company(), run.title(), WorkbenchTools.Where.FILL), call, experience);
+                    run.session(), run.company(), run.title(), WorkbenchTools.Where.FILL), call, experience,
+                    new JobLedger(layout, clock), sessionNote);
             if (shared != null) {
                 return shared;
             }

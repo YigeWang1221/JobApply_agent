@@ -1,8 +1,8 @@
 # C009 · 敏感信息用占位符记在本地，填表时由系统换成真实值
 
-**状态：并入 [C014](C014-move-forward.md)（用户定下，2026-10-24）**：占位符写成 `{KEY}`，真实值在 `storage/settings/personal.env`。下面是原来的草稿。
+**状态：并入 [C014](C014-interviews-memory-cover-letter.md)（用户定下，2026-10-24）**：占位符写成 `{KEY}`，真实值在 `storage/settings/personal.env`。下面是原来的草稿。
 
-- 依据：用户（2026-10-23，真实跑通小米 Agent工程师后，[C006-fix-real-run](C006-fix-real-run.md) 第 7 条）：年龄、身份证、籍贯、居住地点这类敏感信息也希望记在本地 memory 里，投递时自动填；每次投递确认前和 Agent 对话，Agent 按对话更新 Session / Project 的资料。
+- 依据：用户（2026-10-23，真实跑通小米 Agent工程师后，[C006-fix-real-run](../02-core-agent/C006-fix-real-run.md) 第 7 条）：年龄、身份证、籍贯、居住地点这类敏感信息也希望记在本地 memory 里，投递时自动填；每次投递确认前和 Agent 对话，Agent 按对话更新 Session / Project 的资料。
 - 现状：
   - 证件号码、签证和工作授权、薪资、民族、宗教、健康、犯罪记录、声明承诺是 C 级：不提取、不写入任何文件（memory.md「新建 Project」第 5 条、资料字段 `class: A | B`），申请 Agent 不填（`FieldClassGuard` 拒绝，`SnapshotRedactor` 遮值），交给用户在浏览器里亲填（workflow.md 关卡 B「用户已填」、agent-runtime.md 第 7 节）。
   - 年龄 / 出生日期、籍贯、居住地点现在**不是** C 级：资料里有就按 A / B 级填，没有就问用户。这几项不需要占位符，只要资料里有；本计划主要针对 C 级里用户愿意自动填的那几项（身份证号等）。

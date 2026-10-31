@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   api, ApiError, awaitingSubmit, errorText, type ApplicationQuestion, type ApplicationState, type ApplicationStatus,
   type Asset, type BrowserTab, type FileSlot,
-  type JobDetail, type JobEventView, type ReplyBody, type ResumeChoice, type RoundView,
+  type JobDetail, type JobEventView, type OutcomeKind, type ReplyBody, type ResumeChoice, type RoundView,
   type SentAttachment, type StateField,
 } from "../api";
 import { Markdown } from "../chat/Markdown";
@@ -17,7 +17,8 @@ import { useLiveUpdates } from "../chat/useLiveUpdates";
 import { ResizablePanel } from "../ResizeHandle";
 import { go } from "../route";
 import {
-  APPLICATION, JobState, phaseText, ROUND_CHIP, ROUND_RESULT, RoundProgress, SubmitConfirm, VerifiedChip,
+  APPLICATION, JobState, OUTCOME, OutcomeDialog, phaseText, ROUND_CHIP, ROUND_RESULT, RoundProgress, SubmitConfirm,
+  VerifiedChip,
 } from "../status";
 import { toast } from "../toast";
 
@@ -51,6 +52,8 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
   const [text, setText] = useState("");
   const [form, setForm] = useState<ReplyForm>({ key: "", answers: {}, picked: {} });
   const [panelOpen, setPanelOpen] = useState(() => window.matchMedia("(min-width: 1100px)").matches);
+  // 「更多 → 投递失败… / 不投了…」打开的小框（C024）
+  const [outcomeKind, setOutcomeKind] = useState<OutcomeKind | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -164,7 +167,7 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
   const lockedReason = !status
     ? "还没有开始申请"
     : job.phase !== "prep" || USER_DECIDED.has(job.prepState ?? "")
-      ? `这个申请现在是「${job.label}」，你已经定下了，不用再回复申请 Agent`
+      ? `这个申请现在是「${phaseText(job)}」，你已经定下了，不用再回复申请 Agent`
     : running || waiting ? null : "现在不需要回复";
   // 挡住发送的只有这一条；必填问题没答、上传位置空着都不挡，Agent 会再问（C006-fix 第 5 节、第 6 节）
   const hints = [
@@ -218,6 +221,13 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
 
   return (
     <div className="chatpage">
+      {outcomeKind && (
+        <OutcomeDialog job={job} kind={outcomeKind} onClose={() => setOutcomeKind(null)}
+          onDone={async () => {
+            await load();
+            await onChanged?.();
+          }} />
+      )}
       <div className="chatmain">
         <header className="chathead">
           <div className="chathead-t">
@@ -239,12 +249,34 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
                   )}
                   {discoveredDeleted && <span className="muted small" title={`发现它的 Session（${job.discoveredIn}）已经删除，岗位留着`}>会话已删除</span>}
                   {job.phase !== "closed" && job.leadStatus !== "closed" && job.leadStatus !== "skipped" && (
-                    <button className="ghost" title="岗位已下线 / 停止招聘"
-                      onClick={() => void call(() => api.postingClosed(job.id))}>岗位下线了</button>
+                    <>
+                      <button className="ghost" title="想投、但投不成（站点拒收、重复投递、名额满……），手动写原因"
+                        onClick={() => setOutcomeKind("apply_failed")}>投递失败…</button>
+                      <button className="ghost" title="你决定不投 / 不再继续，手动写原因"
+                        onClick={() => setOutcomeKind("gave_up")}>不投了…</button>
+                      <button className="ghost" title="岗位已下线 / 停止招聘"
+                        onClick={() => void call(() => api.postingClosed(job.id))}>岗位下线了</button>
+                    </>
                   )}
                 </div>
               </details>
             </span>
+            {/* 结束了（C024）：结局、原因原话、时间；用户记的投递失败 / 不投了可以撤销 */}
+            {job.phase === "closed" && (
+              <p className="endnote">
+                <b>已结束 · {OUTCOME[job.label.split(":")[1] ?? ""] ?? job.label}</b>
+                {job.outcomeReason && <span className="reason" title={job.outcomeReason}>原因：{job.outcomeReason}</span>}
+                {job.closedAt && <span className="muted">{shortTime(job.closedAt)}</span>}
+                {job.canReopen && (
+                  <button className="linkbtn" disabled={busy} title="回到记之前的状态"
+                    onClick={() => void call(async () => {
+                      await api.reopen(job.id);
+                      toast(`${job.company} · ${job.title}：已撤销，回到之前的状态`);
+                      await onChanged?.();
+                    })}>撤销</button>
+                )}
+              </p>
+            )}
           </div>
           <div className="row nowrap">
             <VerifiedChip verified={job.verified} />
@@ -330,32 +362,42 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
           </div>
           <StatusNote status={status} />
           {awaitingSubmit(job) && !running && <SubmitConfirm job={job} onDone={load} />}
+          {/* 下面每块同一种折叠头（C023-E）：要你现在做的默认展开，做完的、参考性的默认折起 */}
           {questions.length > 0 && (
-            <Questions questions={questions} answers={current.answers}
-              setAnswers={(answers) => setForm({ ...current, answers })} />
+            <Fold title="要你回答" open
+              meta={<>{questions.length} 个{missingAnswers.length > 0 && <span className="warn"> · 必填没答 {missingAnswers.length}</span>}</>}>
+              <Questions questions={questions} answers={current.answers}
+                setAnswers={(answers) => setForm({ ...current, answers })} />
+            </Fold>
           )}
           {slots.length > 0 && (
-            <Files slots={slots} offered={status?.assets ?? null} attachments={attachable} picked={current.picked}
-              setPicked={(update) => setForm((old) => {
-                const base = old.key === formKey ? old : fresh;
-                return { ...base, picked: update(base.picked) };
-              })} />
+            <Fold title="上传位置" open
+              meta={<>{slots.length} 个 · 已选 {slots.filter((slot) => current.picked[slot.id]).length}</>}>
+              <Files slots={slots} offered={status?.assets ?? null} attachments={attachable} picked={current.picked}
+                setPicked={(update) => setForm((old) => {
+                  const base = old.key === formKey ? old : fresh;
+                  return { ...base, picked: update(base.picked) };
+                })} />
+            </Fold>
           )}
           <Rounds jobId={job.id} rounds={job.rounds ?? []} />
           <ResumeRank choice={job.resumeChoice ?? null} />
           <Progress state={status?.state ?? null} />
           {status && <HandTab jobId={job.id} />}
           {status && (ready || status.report) && (
-            <section className="sidesec">
+            <Fold title="填写报告" open={ready} meta={status.report === "final" ? "定稿" : status.report === "draft" ? "草稿" : null}>
               <Report jobId={job.id} version={`${status.status}:${status.usage?.toolCalls ?? 0}:${status.round ?? 1}`} />
-            </section>
+            </Fold>
           )}
           {status?.usage && (
-            <div className="stats">
-              <div><strong>{status.usage.toolCalls.toLocaleString()}</strong><span className="muted small">工具调用</span></div>
-              <div><strong>{status.usage.modelCalls.toLocaleString()}</strong><span className="muted small">模型调用</span></div>
-              <div><strong>{status.usage.tokens.toLocaleString()}</strong><span className="muted small">token</span></div>
-            </div>
+            <Fold title="用量" remember="usage" open={false}
+              meta={`工具 ${status.usage.toolCalls.toLocaleString()} · 模型 ${status.usage.modelCalls.toLocaleString()} · token ${status.usage.tokens.toLocaleString()}`}>
+              <div className="stats">
+                <div><strong>{status.usage.toolCalls.toLocaleString()}</strong><span className="muted small">工具调用</span></div>
+                <div><strong>{status.usage.modelCalls.toLocaleString()}</strong><span className="muted small">模型调用</span></div>
+                <div><strong>{status.usage.tokens.toLocaleString()}</strong><span className="muted small">token</span></div>
+              </div>
+            </Fold>
           )}
           <Events events={events} />
         </ResizablePanel>
@@ -398,7 +440,75 @@ function StatusNote({ status }: { status: ApplicationStatus | null }) {
   );
 }
 
-// 进度（C019）：申请状态的现在在哪一步、计划、按区域的字段清单。每轮存盘后推送 changed，跟着刷新。不显示值
+// 右栏的一块（C023-E）：一行折叠头（箭头 + 标题 + 一行状态 / 计数），下面是内容。level 2 是块里的第二层。
+// remember 给了时，用户点过的开 / 合记在 localStorage（每块一个键）；数据决定默认值的子层不记
+const FOLD_KEY = "jobapply.jobPanel.fold.";
+
+function Fold({ title, meta, open: initial, remember, level = 1, children }: {
+  title: ReactNode;
+  meta?: ReactNode;
+  open: boolean;
+  remember?: string;
+  level?: 1 | 2;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(() => {
+    if (remember) {
+      try {
+        const saved = localStorage.getItem(FOLD_KEY + remember);
+        if (saved !== null) {
+          return saved === "1";
+        }
+      } catch {
+        // 读不到就用默认
+      }
+    }
+    return initial;
+  });
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (remember) {
+      try {
+        localStorage.setItem(FOLD_KEY + remember, next ? "1" : "0");
+      } catch {
+        // 记不住也照常开合
+      }
+    }
+  };
+  return (
+    <section className={`fold l${level}${open ? " open" : ""}`}>
+      <button type="button" className="foldhead" aria-expanded={open} onClick={toggle}>
+        <span className={`chev${open ? " open" : ""}`}><Icon name="chevron" size={12} /></span>
+        <span className="foldtitle">{title}</span>
+        {meta !== undefined && meta !== null && meta !== "" && <span className="foldmeta">{meta}</span>}
+      </button>
+      {open && <div className="foldbody">{children}</div>}
+    </section>
+  );
+}
+
+// 字段状态的小标记：已核对 / 已填是勾（核对过的绿色），待填是空心圈，要问你是黄点，跳过是一道横线
+function FieldMark({ status }: { status: string }) {
+  const [text] = FIELD[status] ?? [status];
+  return (
+    <span className={`frmark fm-${status}`} title={text} aria-label={text} role="img">
+      {(status === "verified" || status === "filled") && <Icon name="check" size={11} />}
+    </span>
+  );
+}
+
+// 说明一行截断，点一下看全文
+function FieldNote({ text }: { text: string }) {
+  const [full, setFull] = useState(false);
+  return (
+    <button type="button" className={`frnote${full ? " full" : ""}`} title={full ? undefined : text}
+      onClick={() => setFull(!full)}>{text}</button>
+  );
+}
+
+// 进度（C019，C023-E 分层）：当前阶段一行；计划是带状态点的步骤；字段按区域成第二层折叠；决定和站点规律折起。
+// 每轮存盘后推送 changed，跟着刷新。不显示值
 function Progress({ state }: { state: ApplicationState | null }) {
   const steps = state?.steps ?? [];
   const fields = state?.fields ?? [];
@@ -408,51 +518,78 @@ function Progress({ state }: { state: ApplicationState | null }) {
   }
   const done = fields.filter((f) => FIELD_DONE.has(f.status ?? "")).length;
   const asking = fields.filter((f) => f.status === "needs_user").length;
+  const stepsDone = steps.filter((item) => item.status === "done").length;
   const sections = new Map<string, StateField[]>();
   for (const field of fields) {
     const name = field.section || "其它";
     sections.set(name, [...(sections.get(name) ?? []), field]);
   }
+  const unfinished = done < fields.length || stepsDone < steps.length;
+  const meta = (
+    <>
+      {fields.length > 0 ? `字段 ${done}/${fields.length}` : `计划 ${stepsDone}/${steps.length}`}
+      {asking > 0 && <span className="warn"> · 要问你 {asking}</span>}
+    </>
+  );
   return (
-    <section className="sidesec progress">
-      <strong className="small">进度</strong>
-      {state?.stage && <p className="small">现在在：{state.stage}</p>}
-      {fields.length > 0 && (
-        <p className="muted small">字段 {done}/{fields.length} 好了{asking > 0 && <> · <span className="warn">要问你 {asking}</span></>}</p>
+    <Fold title="进度" meta={meta} open={unfinished} remember="progress">
+      {state?.stage && (
+        <div className="stagehead"><span className="muted small">当前阶段</span><strong>{state.stage}</strong></div>
       )}
       {steps.length > 0 && (
-        <ol className="questions">
-          {steps.map((item, index) => (
-            <li key={index}><span><span className="muted small">[{PLAN[item.status] ?? item.status}]</span> {item.text}</span></li>
-          ))}
-        </ol>
+        <>
+          <div className="subhead">计划 <span className="muted">{stepsDone}/{steps.length}</span></div>
+          <ol className="plansteps">
+            {steps.map((item, index) => (
+              <li key={index} className={`ps-${item.status}`}>
+                <span className="psmark" role="img" aria-label={PLAN[item.status] ?? item.status} title={PLAN[item.status] ?? item.status}>
+                  {item.status === "done" && <Icon name="check" size={11} />}
+                </span>
+                <span className="pstext">{item.text}</span>
+                {item.status === "blocked" && <span className="chip bad">卡住</span>}
+              </li>
+            ))}
+          </ol>
+        </>
       )}
-      {[...sections.entries()].map(([name, list]) => {
-        const left = list.filter((f) => !FIELD_DONE.has(f.status ?? "")).length;
-        return (
-          <details key={name} open={left > 0}>
-            <summary className="small">{name} <span className="muted">{list.length - left}/{list.length}</span></summary>
-            <ul className="checklist">
-              {list.map((field) => {
-                const [text, cls] = FIELD[field.status ?? "todo"] ?? [field.status ?? "", "chip"];
-                return (
-                  <li key={field.id}>
-                    <span className={cls}>{text}</span> <span>{field.label}</span>
-                    {field.note && <span className="muted small"> · {field.note}</span>}
-                  </li>
-                );
-              })}
-            </ul>
-          </details>
-        );
-      })}
+      {fields.length > 0 && (
+        <>
+          <div className="subhead">
+            字段 <span className="muted">{done}/{fields.length}</span>
+            <span className="legend muted">
+              <FieldMark status="verified" />已核对 <FieldMark status="filled" />已填 <FieldMark status="todo" />待填 <FieldMark status="skipped" />跳过
+            </span>
+          </div>
+          {[...sections.entries()].map(([name, list]) => {
+            const left = list.filter((f) => !FIELD_DONE.has(f.status ?? "")).length;
+            const ask = list.filter((f) => f.status === "needs_user").length;
+            return (
+              <Fold key={name} level={2} title={name} open={left > 0}
+                meta={<>{list.length - left}/{list.length}{ask > 0 && <span className="warn"> · 要问你 {ask}</span>}</>}>
+                <ul className="fieldrows">
+                  {list.map((field) => {
+                    const status = field.status ?? "todo";
+                    return (
+                      <li key={field.id} className={`fr-${status}`}>
+                        <FieldMark status={status} />
+                        <span className="frlabel">{field.label}</span>
+                        {status === "needs_user" && <span className="chip wait">要问你</span>}
+                        {field.note && <FieldNote text={field.note} />}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </Fold>
+            );
+          })}
+        </>
+      )}
       {notes.length > 0 && (
-        <details>
-          <summary className="small">决定和站点规律 <span className="muted">{notes.length}</span></summary>
-          <ul className="checklist">{notes.map((note, index) => <li key={index} className="small">{note}</li>)}</ul>
-        </details>
+        <Fold level={2} title="决定和站点规律" meta={`${notes.length} 条`} open={false} remember="notes">
+          <ul className="noterows">{notes.map((note, index) => <li key={index}>{note}</li>)}</ul>
+        </Fold>
       )}
-    </section>
+    </Fold>
   );
 }
 
@@ -480,8 +617,7 @@ function Rounds({ jobId, rounds }: { jobId: string; rounds: RoundView[] }) {
     }
   }
   return (
-    <section className="sidesec">
-      <strong className="small">轮次</strong> <span className="small"><RoundProgress rounds={rounds} /></span>
+    <Fold title="轮次" open remember="rounds" meta={<RoundProgress rounds={rounds} />}>
       <ol className="questions">
         {rounds.map((r) => {
           const when = (r.happenedAt ?? r.scheduledAt)?.slice(0, 16).replace("T", " ");
@@ -508,7 +644,7 @@ function Rounds({ jobId, rounds }: { jobId: string; rounds: RoundView[] }) {
           );
         })}
       </ol>
-    </section>
+    </Fold>
   );
 }
 
@@ -519,8 +655,8 @@ function ResumeRank({ choice }: { choice: ResumeChoice | null }) {
   }
   const day = shortTime(choice.at);
   return (
-    <section className="sidesec">
-      <strong className="small">简历排名</strong> <span className="muted small">{day}</span>
+    <Fold title="简历排名" open={false} remember="resume"
+      meta={choice.skipped ? `没有排 · ${day}` : `${choice.file ? `拟用 ${choice.file} · ` : ""}${day}`}>
       {choice.skipped ? <p className="muted small">没有排：{choice.skipped}</p> : (
         <>
           <ol className="questions">
@@ -544,7 +680,7 @@ function ResumeRank({ choice }: { choice: ResumeChoice | null }) {
           )}
         </>
       )}
-    </section>
+    </Fold>
   );
 }
 
@@ -591,10 +727,9 @@ function HandTab({ jobId }: { jobId: string }) {
   };
 
   return (
-    <section className="sidesec">
+    <Fold title="把标签页交给 Agent" open={false} remember="handtab">
       <div className="row">
-        <strong className="small">把一个标签页交给 Agent</strong>
-        <button disabled={busy} onClick={() => void (tabs ? setTabs(null) : list())}>{tabs ? "收起" : "选标签页"}</button>
+        <button className="btn-xs" disabled={busy} onClick={() => void (tabs ? setTabs(null) : list())}>{tabs ? "收起列表" : "选标签页"}</button>
       </div>
       {!tabs && <p className="muted small">Agent 只碰它自己开的标签页。你自己开着的页面（比如已经填了一半的申请）想让它接着用，在这里交给它。</p>}
       {error && <p className="error">{error}</p>}
@@ -612,14 +747,14 @@ function HandTab({ jobId }: { jobId: string }) {
           </div>
         </>
       ))}
-    </section>
+    </Fold>
   );
 }
 
 function Events({ events }: { events: JobEventView[] }) {
   return (
-    <section className="sidesec">
-      <strong className="small">事件</strong>
+    <Fold title="事件" open={false} remember="events"
+      meta={events.length === 0 ? "无" : `${events.length} 条 · 最近 ${shortTime(events[events.length - 1].at)}`}>
       {events.length === 0 ? <p className="empty">没有事件。</p> : (
         <ul className="events">
           {events.map((event, index) => (
@@ -631,7 +766,7 @@ function Events({ events }: { events: JobEventView[] }) {
           ))}
         </ul>
       )}
-    </section>
+    </Fold>
   );
 }
 
@@ -763,21 +898,66 @@ function Report({ jobId, version }: { jobId: string; version: string }) {
     void loadReport();
   }, [loadReport, version]);
 
+  const parts = report && !raw ? splitReport(report) : null;
   return (
     <>
-      <div className="row">
-        <strong>填写报告</strong>
-        <button onClick={() => void loadReport()}>重新读取</button>
+      <div className="row reporttools">
+        <button className="btn-xs" onClick={() => void loadReport()}>重新读取</button>
         {report && (
-          <button onClick={() => setRaw((on) => !on)}>{raw ? "表格视图" : "查看原文"}</button>
+          <button className="btn-xs" onClick={() => setRaw((on) => !on)}>{raw ? "分节视图" : "查看原文"}</button>
         )}
       </div>
       {reportError && <p className="error">{reportError}</p>}
       {loaded && !reportError && (report === null
         ? <p className="muted">还没有报告。</p>
-        : raw ? <pre className="report">{report}</pre> : <Markdown text={report} />)}
+        : raw ? <pre className="report">{report}</pre>
+        : parts && parts.sections.length > 0 ? (
+          <>
+            {parts.head && <p className="muted small reporthead">{parts.head}</p>}
+            {parts.intro.trim() && <Markdown text={parts.intro} />}
+            {parts.sections.map((section) => {
+              const count = countItems(section.body);
+              return (
+                <Fold key={section.title} level={2} title={section.title}
+                  open={count.n > 0 && (section.title === "未解决" || section.title === "字段")}
+                  meta={count.n === 0 ? "无" : `${count.n} ${count.unit}`}>
+                  <Markdown text={section.body} />
+                </Fold>
+              );
+            })}
+          </>
+        ) : <Markdown text={report} />)}
     </>
   );
+}
+
+// 报告按自己的 Markdown 标题拆开（C023-E）：「# 」那一行当说明，每个「## 」一节；格式见后端 FillReportWriter
+function splitReport(text: string): { head: string | null; intro: string; sections: { title: string; body: string }[] } {
+  let head: string | null = null;
+  let intro = "";
+  const sections: { title: string; body: string }[] = [];
+  for (const line of text.split("\n")) {
+    if (line.startsWith("## ")) {
+      sections.push({ title: line.slice(3).trim(), body: "" });
+    } else if (line.startsWith("# ") && head === null && sections.length === 0) {
+      head = line.slice(2).trim();
+    } else if (sections.length > 0) {
+      sections[sections.length - 1].body += line + "\n";
+    } else {
+      intro += line + "\n";
+    }
+  }
+  return { head, intro, sections };
+}
+
+// 一节里有几行表格 / 几条列表（「- 无」不算）
+function countItems(body: string): { n: number; unit: string } {
+  const lines = body.split("\n").map((line) => line.trim());
+  const rows = lines.filter((line) => line.startsWith("|")).length;
+  if (rows >= 2) {
+    return { n: rows - 2, unit: "行" };
+  }
+  return { n: lines.filter((line) => /^[-*] /.test(line) && line !== "- 无").length, unit: "条" };
 }
 
 function SlotPicker({ slot, assets, attachments, value, onPick, onUpload }: {

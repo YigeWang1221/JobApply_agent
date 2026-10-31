@@ -3,7 +3,7 @@ spring:
     name: jobapply
   servlet:
     multipart:
-      # 原件上传的上限（plan/coding/C004-A-model-guard.md）
+      # 原件上传的上限（plan/coding/02-core-agent/C004-A-model-guard.md）
       max-file-size: 20MB
       max-request-size: 21MB
 

@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { api, errorText, type JobView, type RoundView } from "./api";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { api, errorText, type JobView, type OutcomeKind, type RoundView } from "./api";
 import { toast } from "./toast";
 
 // 状态的中文说法和小标签，几个页面共用
@@ -54,7 +55,98 @@ export const OUTCOME: Record<string, string> = {
   ghosted: "长期无回应",
   not_submitted: "最终未投",
   posting_closed: "岗位下线",
+  apply_failed: "投递失败",
+  gave_up: "不投了",
 };
+
+// 用户在工作台里记的两种结果（C024）：按钮上的字和框里的提示
+export const OUTCOME_KIND: Record<OutcomeKind, { name: string; hint: string; example: string }> = {
+  apply_failed: {
+    name: "投递失败",
+    hint: "想投、但投不成：站点拒收、重复投递、名额满、资格系统卡住、账号受限……",
+    example: "例如：系统提示已投过同类岗位",
+  },
+  gave_up: {
+    name: "不投了",
+    hint: "你决定不投 / 不再继续这份申请。",
+    example: "例如：地点不合适",
+  },
+};
+
+// 记下「投递失败 / 不投了」的小框（C024）：原因手动写，必填。工作台「更多」和停在提交前的「不投了」共用
+export function OutcomeDialog({ job, kind, onClose, onDone }: {
+  job: JobView;
+  kind: OutcomeKind;
+  onClose: () => void;
+  onDone: () => void | Promise<void>;
+}) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const meta = OUTCOME_KIND[kind];
+  const name = `${job.company} · ${job.title}`;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  async function save() {
+    if (!reason.trim()) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await api.recordOutcome(job.id, kind, reason.trim());
+      toast(`${name}：记为${meta.name}`);
+      onClose();
+      await onDone();
+    } catch (e) {
+      setError(errorText(e));
+      setBusy(false);
+    }
+  }
+
+  return createPortal(
+    <div className="dialogback" onClick={onClose}>
+      <form className="dialog" role="dialog" aria-modal="true" aria-labelledby="outcome-title"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}>
+        <h3 id="outcome-title">{meta.name}：{name}</h3>
+        <p className="dialog-sub">{meta.hint}</p>
+        <label className="dialog-field">
+          <span>原因（手动写）</span>
+          <textarea autoFocus rows={3} value={reason} placeholder={meta.example}
+            onChange={(e) => setReason(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                void save();
+              }
+            }} />
+        </label>
+        <p className="dialog-note">记下后这份申请结束，原因显示在工作台、Session、Dashboard 和台账里；点错了可以在工作台头部或 Dashboard 里撤销。</p>
+        {error && <p className="error small">{error}</p>}
+        <div className="dialog-actions">
+          <button type="button" onClick={onClose}>取消</button>
+          <button type="submit" className="primary" disabled={busy || !reason.trim()}>
+            {busy ? "记下中…" : "确定"}
+          </button>
+        </div>
+      </form>
+    </div>,
+    document.body,
+  );
+}
 
 // 阶段的说法：prep 显示子状态，closed 带上结局（label 形如 closed:posting_closed）
 export function phaseText(job: JobView): string {
@@ -153,6 +245,7 @@ export function JobState({ job, compact }: { job: JobView; compact?: boolean }) 
 export function SubmitConfirm({ job, onDone }: { job: JobView; onDone: () => void | Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [notYet, setNotYet] = useState(false);
+  const [givingUp, setGivingUp] = useState(false);
   async function act(action: () => Promise<unknown>, done: string) {
     setBusy(true);
     try {
@@ -187,13 +280,11 @@ export function SubmitConfirm({ job, onDone }: { job: JobView; onDone: () => voi
             onClick={() => void act(() => api.markNotSubmitted(job.id, false), `${name}：先暂停，之后可以接着申请`)}>
             还没提交，先放着
           </button>
-          <button disabled={busy}
-            onClick={() => void act(() => api.markNotSubmitted(job.id, true), `${name}：不投了`)}>
-            不投了
-          </button>
+          <button disabled={busy} onClick={() => setGivingUp(true)}>不投了…</button>
           <button className="linkbtn" disabled={busy} onClick={() => setNotYet(false)}>返回</button>
         </div>
       )}
+      {givingUp && <OutcomeDialog job={job} kind="gave_up" onClose={() => setGivingUp(false)} onDone={onDone} />}
     </div>
   );
 }

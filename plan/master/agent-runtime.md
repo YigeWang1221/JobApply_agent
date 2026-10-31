@@ -98,7 +98,7 @@ C004-B 做出来的是「Java 写死的流程，中间加了 LLM」：
 | 表单夹具 `backend/src/test/resources/fixtures/forms/`、假浏览器 `FakePlaywrightMcpServer` / `FakeFormScript` | 保留 | 用来让真实模型试跑，不是写断言 |
 | `ApplicationLlmManualCheck`、`ApplicationManualSmoke` | 改造 | 改成新流程的试跑入口；冒烟时在每个要用户的地方直接告诉用户要做什么 |
 | 前端「申请」页 | 并入以后的界面 | |
-| 计划：C004-B 的流程部分、草案 [C004-C](../coding/C004-C-agent-rework.md) | 作废，只作参考 | C004-C 里可以参考的想法：一个 `ask_user` 管所有要用户的地方、模型自己维护计划和进度、上下文里放用户的原文、主模型网络失败时等一会儿再试 |
+| 计划：C004-B 的流程部分、草案 [C004-C](../coding/02-core-agent/C004-C-agent-rework-draft.md) | 作废，只作参考 | C004-C 里可以参考的想法：一个 `ask_user` 管所有要用户的地方、模型自己维护计划和进度、上下文里放用户的原文、主模型网络失败时等一会儿再试 |
 | C004-B 的安全边界、存储格式、skill、报告、日志部分 | 保留 | |
 
 ---
@@ -240,11 +240,13 @@ C004-B 做出来的是「Java 写死的流程，中间加了 LLM」：
 - 投递段：现有的申请循环（排简历、填表到提交前）。
 - 后续段：确认已投递后开的新一段对话，和投递段共用循环机制，但历史分开存。开场上下文是整理好的岗位材料，不是投递段的历史。工具有 `record_status`、`record_round`、`save_review`、读简历、读 JD、只读的浏览器工具（看邮箱和官网状态），不带填表工具。
 - 两段都有 `search_experience`（本地 RAG，见 [memory.md](memory.md)「经验检索」）。
+- 两段都有 `record_outcome(kind: apply_failed | gave_up, reason)`（用户确认，2026-10-31，C024）：只在用户明确说了时记，reason 是用户原话；用户没说原因先 `ask_user` 问。Agent 自己在页面上看到像是投不成时不记，用 `ask_user` 把页面原文给用户，由用户决定。执行和工作台按钮是同一个 `JobLedger.recordOutcome`，记下后往 Session 写一条系统通知（不唤醒模型）。Session Agent 不带这个工具。
+- 后续段只在投递过之后才有（`applied_at` 或投递证据在，或者在投递以后的阶段）；准备中就结束的申请没有后续段（C024）。
 - Session 对话 Agent 只管找岗位、调研和候选池，不再带后续工具。
 
 ## 8. 运行时的结构规则（用户确认，2026-10-23）
 
-来源：C006 之后的四个问题和用户要求「从流程和结构上解决，不要打补丁」；参考 OpenMAIC、Deep Agents，出处见 [research-agent-design.md](../reference/research-agent-design.md)「运行时」，施工见 [C006-fix-runtime.md](../coding/C006-fix-runtime.md)。
+来源：C006 之后的四个问题和用户要求「从流程和结构上解决，不要打补丁」；参考 OpenMAIC、Deep Agents，出处见 [research-agent-design.md](../reference/research-agent-design.md)「运行时」，施工见 [C006-fix-runtime.md](../coding/02-core-agent/C006-fix-runtime.md)。
 
 1. **事件日志是真相的变化记录，推送只是它的尾巴**：应用级一条带序号的事件日志；`GET /api/events` 按 `Last-Event-ID` 补发、发 `caught_up`、心跳、不关流；应用重启（纪元变了）发 `reset`。Session 的推送包括它涉及的 Job 的事件。客户端靠浏览器原生重连，不因为一次出错就退回轮询。
 2. **子 Agent 回报父 Session**：申请线程停在提交前、等用户、出错、结束时，往发起它的 Session 记一条（transcript 的 note + 事件）。父 Session 空闲时**不自动唤醒模型**，用户下一句话时对话 Agent 看得到。

@@ -1,9 +1,9 @@
 # C001 · 脚手架：本地单模块 Spring Boot
 
-- 对应 Master：[base.md](../master/base.md)、[architecture.md](../master/architecture.md)
+- 对应 Master：[base.md](../../master/base.md)、[architecture.md](../../master/architecture.md)
 - 状态：完成。日期：2026-10-22。
 
-产品目标与技术路线见 [base.md](../master/base.md)。逻辑目录见 [architecture.md](../master/architecture.md)。本文件只记这一刀实际落地的工程。
+产品目标与技术路线见 [base.md](../../master/base.md)。逻辑目录见 [architecture.md](../../master/architecture.md)。本文件只记这一刀实际落地的工程。
 
 ## 目标
 

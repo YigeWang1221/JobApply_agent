@@ -19,7 +19,7 @@ import java.util.Set;
 
 /**
  * 候选与申请的合法跳转。纯函数：不读写文件，非法时抛出 {@link IllegalTransitionException}。
- * 规则见 plan/master/workflow.md「状态」与 plan/coding/C002-memory-ledger.md「状态机」。
+ * 规则见 plan/master/workflow.md「状态」与 plan/coding/01-foundation/C002-memory-ledger.md「状态机」。
  */
 public final class ApplicationStateMachine {
 
@@ -54,6 +54,9 @@ public final class ApplicationStateMachine {
     }
 
     public static JobStatus next(JobStatus current, Transition transition, Actor actor) {
+        if (transition instanceof Transition.Reopen reopen) {
+            return reopen(current, reopen.to(), actor);
+        }
         if (current.phase() == Phase.CLOSED) {
             throw new IllegalTransitionException("申请已经结束（closed），不能再变化");
         }
@@ -64,6 +67,7 @@ public final class ApplicationStateMachine {
             case Transition.MarkApplied applied -> markApplied(current, applied.evidence());
             case Transition.ChangePhase change -> changePhase(current, change.to());
             case Transition.Close close -> close(current, close.outcome(), actor);
+            case Transition.Reopen reopen -> throw new IllegalStateException("上面已经处理");
         };
     }
 
@@ -148,7 +152,7 @@ public final class ApplicationStateMachine {
         }
         boolean allowed = switch (outcome) {
             case NOT_SUBMITTED -> phase == Phase.PREP;
-            case POSTING_CLOSED -> phase != Phase.CLOSED;
+            case POSTING_CLOSED, APPLY_FAILED, GAVE_UP -> phase != Phase.CLOSED;
             case ACCEPTED, DECLINED -> phase == Phase.OFFER;
             case REJECTED, WITHDRAWN, GHOSTED -> AFTER_APPLIED.contains(phase);
         };
@@ -158,7 +162,43 @@ public final class ApplicationStateMachine {
         if (outcome == Outcome.GHOSTED && actor != Actor.USER) {
             throw new IllegalTransitionException("ghosted 只能由用户手动关闭时选择");
         }
+        if (outcome.userMarked() && actor != Actor.USER) {
+            throw new IllegalTransitionException(outcome.value() + " 只能由用户定下（C024）");
+        }
         return new JobStatus(LeadStatus.CONVERTED, null, Phase.CLOSED, null, outcome, current.evidence());
+    }
+
+    /**
+     * 撤销「投递失败 / 不投了」（C024）：只有用户能撤，只撤这两种；回到记之前的状态（候选、准备中的某个状态、投递后的阶段），
+     * 证据原样留着。投递后的其它结局（withdrawn、rejected……）不撤销。
+     */
+    private static JobStatus reopen(JobStatus current, String to, Actor actor) {
+        if (actor != Actor.USER) {
+            throw new IllegalTransitionException("只有用户能撤销");
+        }
+        if (current.phase() != Phase.CLOSED || !current.outcome().userMarked()) {
+            throw new IllegalTransitionException("只有「投递失败 / 不投了」能撤销，当前是 " + current.label());
+        }
+        if (to == null || to.isBlank()) {
+            throw new IllegalTransitionException("没有记下之前的状态，不能撤销");
+        }
+        String label = to.strip();
+        try {
+            if (label.equals("lead:new") || label.equals("lead:shortlisted")) {
+                return new JobStatus(LeadStatus.of(label.substring(5)), null, null, null, null, null);
+            }
+            if (label.startsWith("prep:")) {
+                return new JobStatus(LeadStatus.CONVERTED, null, Phase.PREP, PrepState.of(label.substring(5)), null,
+                        current.evidence());
+            }
+            Phase phase = Phase.of(label);
+            if (AFTER_APPLIED.contains(phase)) {
+                return new JobStatus(LeadStatus.CONVERTED, null, phase, null, null, current.evidence());
+            }
+        } catch (IllegalArgumentException e) {
+            // 落到下面
+        }
+        throw new IllegalTransitionException("不能撤销回 " + label);
     }
 
     private static void requirePrep(JobStatus current) {

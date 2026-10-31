@@ -11,6 +11,7 @@ import java.util.function.Supplier;
 import jobapply.domain.AgentRun;
 import jobapply.domain.Inbox;
 import jobapply.domain.Job;
+import jobapply.domain.JobBucket;
 import jobapply.domain.LiveRuns;
 import jobapply.domain.Phase;
 import jobapply.harness.runtime.FollowupLoop;
@@ -76,9 +77,14 @@ public final class FollowupRunner implements AutoCloseable {
         this.followups = new FollowupRepository(layout, clock);
     }
 
-    /** 这个 Job 有没有后续段：离开了 prep（已投递、之后的阶段、结束了）。 */
+    /**
+     * 这个 Job 有没有后续段：投递过才有（C024）。现在在投递后的阶段，或者记过投递时间 / 投递证据（投递以后才结束的）。
+     * 候选、准备中、准备中就结束的（不投了、投递失败、岗位下线）没有。
+     */
     public static boolean open(Job job) {
-        return job.status().phase() != Phase.PREP;
+        Phase phase = job.status().phase();
+        return JobBucket.AFTER_APPLIED.contains(phase) || phase == Phase.CLOSED
+                && (job.extraString("applied_at") != null || job.status().evidence() != null);
     }
 
     /**
@@ -171,7 +177,7 @@ public final class FollowupRunner implements AutoCloseable {
                 List<AgentRun.Turn> history = followups.readTurns(projectId, jobId).stream()
                         .map(SessionRepository.TimedTurn::turn).toList();
                 FollowupLoop loop = new FollowupLoop(mainModel.get(), browser, layout, clock, fetch, events::changed,
-                        applications.toolCallLimits()::perMessage, applications.experience());
+                        applications.toolCallLimits()::perMessage, applications.experience(), applications::noteToSession);
                 loop.run(projectId, jobId, session, history, () -> stopRequested(jobId),
                         turn -> followups.appendTurn(projectId, jobId, turn), events.followupObserver(jobId),
                         () -> inbox.take(jobId));

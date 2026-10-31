@@ -65,7 +65,8 @@ final class Views {
                    String phase, String prepState, String label, String verified, String officialUrl, String note,
                    String application, String appliedAt, String lastCheckedAt, String nextCheckAt,
                    boolean pageLooksSubmitted, List<PhaseEvent> events, boolean due, String bucket,
-                   boolean canStart, Map<?, ?> resumeChoice, List<RoundView> rounds) {
+                   boolean canStart, Map<?, ?> resumeChoice, List<RoundView> rounds, String outcomeReason,
+                   String closedAt, boolean canReopen) {
     }
 
     /**
@@ -214,7 +215,11 @@ final class Views {
                         && job.posting().url() != null && !job.posting().url().isBlank(),
                 // C008 简历排名：job.md 里 resume_choice 原样给前端（asset、file、ranking、suggestions、at，或 skipped）
                 job.extra().get("resume_choice") instanceof Map<?, ?> choice ? choice : null,
-                rounds(job, today));
+                rounds(job, today),
+                // C024：结束的原因（用户写的原话）、时间，能不能撤销（用户记的投递失败 / 不投了）
+                job.status().phase() == Phase.CLOSED ? job.extraString("outcome_reason") : null,
+                job.status().phase() == Phase.CLOSED ? job.extraString("closed_at") : null,
+                JobLedger.canReopen(job));
     }
 
     /**

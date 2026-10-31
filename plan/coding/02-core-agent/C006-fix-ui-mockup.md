@@ -1,6 +1,6 @@
 # C006-fix · 照最早的示意页改 Project / 全局页的版式
 
-- 依据：用户（2026-10-23）：「UI 没有最早给我展示的那个好看」，指商讨 Dashboard 时的静态示意页 https://claude.ai/artifact/4K6eE85i51GvrLUGz8cARD ，副本在 [plan/reference/ui-mockup.html](../reference/ui-mockup.html)（虚构数据，只当样子参考）。
+- 依据：用户（2026-10-23）：「UI 没有最早给我展示的那个好看」，指商讨 Dashboard 时的静态示意页 https://claude.ai/artifact/4K6eE85i51GvrLUGz8cARD ，副本在 [plan/reference/ui-mockup.html](../../reference/ui-mockup.html)（虚构数据，只当样子参考）。
 - 现状：颜色变量、字体（IBM Plex）、侧栏和卡片的基础样式在 C005 已经照它做了；差的是**主区域的版式和图**：示意页的全局 / Project 页是一整块 Dashboard，现在只有一行 KPI 和几张列表。
 - 不做：示意页里要轮次和复盘数据的部分（轮次表、题库、复盘概览、看板上的进度点），这些数据属于里程碑第 6 段，现在没有；不改对话页和申请工作台（C006 刚做过）。不加图表库，图用内联 SVG。
 

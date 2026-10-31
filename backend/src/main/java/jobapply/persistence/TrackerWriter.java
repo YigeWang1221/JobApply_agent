@@ -129,7 +129,7 @@ public final class TrackerWriter {
             Map<String, String> lastActivity) {
         StringBuilder out = new StringBuilder(GENERATED).append("\n# 申请总表 · ").append(projectId).append("\n\n");
         table(out, List.of("#", "公司", "岗位", "类型", "城市", "投递日", "阶段", "进度", "下一件事", "最近动态", "最近核验",
-                "下次查看", "同步", "下一步"));
+                "下次查看", "同步", "下一步", "结束原因"));
         for (Job job : applications) {
             row(out, List.of(
                     String.valueOf(numbers.get(job.id())),
@@ -145,7 +145,8 @@ public final class TrackerWriter {
                     cell(shortDate(job.extraString("last_checked_at"))),
                     cell(shortDate(job.extraString("next_check_at"))),
                     cell(sync(job, lastActivity.get(job.id()))),
-                    cell(job.extraString("next_action"))));
+                    cell(job.extraString("next_action")),
+                    cell(job.status().phase() == Phase.CLOSED ? job.extraString("outcome_reason") : null)));
         }
         return out.toString();
     }
@@ -285,6 +286,8 @@ public final class TrackerWriter {
             new Column("phase", row -> enumValue(row.job().status().phase())),
             new Column("prep_state", row -> enumValue(row.job().status().prepState())),
             new Column("outcome", row -> enumValue(row.job().status().outcome())),
+            new Column("outcome_reason", row -> row.job().extraString("outcome_reason")),
+            new Column("closed_at", row -> row.job().extraString("closed_at")),
             new Column("evidence.submitted.kind", row -> evidence(row, Evidence::kind)),
             new Column("evidence.submitted.text", row -> evidence(row, Evidence::text)),
             new Column("evidence.submitted.official_time", row -> evidence(row, Evidence::officialTime)),

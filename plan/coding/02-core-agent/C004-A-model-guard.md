@@ -1,6 +1,6 @@
 # C004-A · 模型接入、资料原件、设置页、提交守卫
 
-- 对应 Master：[ui.md](../master/ui.md)「模型设置」「密钥存放」「隐私说明」；[memory.md](../master/memory.md)「storage 目录」（`base/assets.md`、`base/originals/`、`settings/`）「文档读取工具」；[workflow.md](../master/workflow.md)「提交保护」「Chrome MCP」；[architecture.md](../master/architecture.md)（`api`、`frontend/`）
+- 对应 Master：[ui.md](../../master/ui.md)「模型设置」「密钥存放」「隐私说明」；[memory.md](../../master/memory.md)「storage 目录」（`base/assets.md`、`base/originals/`、`settings/`）「文档读取工具」；[workflow.md](../../master/workflow.md)「提交保护」「Chrome MCP」；[architecture.md](../../master/architecture.md)（`api`、`frontend/`）
 - 总表：[C004](C004-harness-guard.md)（拆分方式、共用的事实、已定决定、回写 Master 清单）
 - 状态：**完成**（用户验收，2026-10-22：手动检查全部通过）。手动检查中修了两个缺陷，`mvn -B clean verify` 全绿，`npm run build` 通过。`ModelConnectionManualCheck` 没有运行：用户已经在页面上用真实模型测过连接。
 

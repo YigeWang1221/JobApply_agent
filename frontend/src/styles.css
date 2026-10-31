@@ -516,7 +516,7 @@ h2 {
 
 .kpis {
   display: grid;
-  grid-template-columns: repeat(9, minmax(0, 1fr));
+  grid-template-columns: repeat(10, minmax(0, 1fr));
   gap: 1px;
   background: var(--line);
   border: 1px solid var(--line);
@@ -666,6 +666,48 @@ button.cohead span:last-child {
 
 .cogrp .lead:first-of-type {
   margin-top: 6px;
+}
+
+/* 候选池（C023-C）：全局页最外层的 Project、公司内的地点小节、没归并时的提示 */
+.projgrp > button.cohead b {
+  font-size: var(--fs-lg);
+}
+
+.projbody {
+  padding-left: 16px;
+}
+
+.projbody .cogrp:first-child {
+  border-top: 1px solid var(--grid);
+  padding-top: 12px;
+}
+
+.locsec {
+  margin-top: 8px;
+}
+
+.lochead {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 2px 0 2px 12px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.lochead span {
+  font-weight: 400;
+}
+
+.groupnote {
+  margin: 0 0 8px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.groupnote .linkbtn {
+  margin-left: 8px;
 }
 
 .cotools {
@@ -1130,8 +1172,9 @@ ol.questions li {
 }
 
 pre.report {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  /* 原文不折行（C023-E）：表格行保持一行，装不下时横向滚动 */
+  white-space: pre;
+  overflow-wrap: normal;
   font-family: var(--mono);
   font-size: 12.5px;
   background: var(--bg);
@@ -1520,22 +1563,50 @@ pre.report {
   border-top: 1px solid var(--grid);
 }
 
+/* 表格（C023-D，参照 ChatGPT / Claude）：外框贴着表格宽度，最宽是消息列；
+   放不下时在自己的外框里横向滚动，不挤成一字一行、不撑破页面 */
 .mdtable {
+  width: fit-content;
+  max-width: 100%;
   overflow-x: auto;
   margin: 0 0 0.8em;
+  border: 1px solid var(--grid);
+  border-radius: 8px;
 }
 
 .md table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 0.93em;
+  line-height: 1.5;
+  /* .md 的 anywhere 会把列的最小宽度算成一个字；表格里只在真放不下时断词 */
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .md th,
 .md td {
-  border: 1px solid var(--grid);
-  padding: 5px 10px;
+  min-width: 6em;
+  padding: 6px 12px;
   text-align: left;
   vertical-align: top;
+  border-bottom: 1px solid var(--grid);
+  border-right: 1px solid var(--grid);
+}
+
+.md th:last-child,
+.md td:last-child {
+  border-right: 0;
+}
+
+.md tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* 长网址可以在任意处断开，不把一列撑到几百像素 */
+.md td a,
+.md td code {
+  overflow-wrap: anywhere;
 }
 
 .md th {
@@ -1813,11 +1884,11 @@ pre.report {
   gap: 4px;
 }
 
+/* Agent 的提问（C023-D）：和回复同一种排版，不再是填色的框（工作台每轮都问，填色框和右边的气泡一左一右，看着像微信）；
+   只在左边一条细线 + 一行小标题标出来 */
 .askblock {
-  border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent);
-  background: color-mix(in srgb, var(--warn) 10%, transparent);
-  border-radius: 10px;
-  padding: 10px 14px;
+  border-left: 2px solid var(--warn);
+  padding: 0 0 0 12px;
 }
 
 .askblock-h {
@@ -2049,26 +2120,310 @@ pre.report {
   border-color: color-mix(in srgb, var(--accent) 50%, transparent);
 }
 
-.sidesec {
+/* 工作台右栏的折叠块（C023-E）：一行折叠头（箭头 + 标题 + 一行状态），level 2 是块里的第二层 */
+.fold.l1 {
   border-top: 1px solid var(--grid);
-  padding-top: 10px;
+  padding-top: 4px;
 }
 
-/* 侧栏「进度」（C019）：按区域的字段清单，一行一个字段 */
-.progress p {
-  margin: 4px 0;
+.foldhead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  padding: 6px 4px;
+  margin: 0 -4px;
+  box-sizing: content-box;
+  text-align: left;
+  color: var(--ink);
 }
 
-ul.checklist {
+.foldhead:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.foldtitle {
+  flex: none;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.foldmeta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  text-align: right;
+}
+
+.foldbody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 0 10px;
+  min-width: 0;
+}
+
+.fold.l2 {
+  border-left: 1px solid var(--grid);
+  padding-left: 10px;
+  margin-left: 5px;
+}
+
+.fold.l2 > .foldhead {
+  padding: 3px 4px;
+}
+
+.fold.l2 > .foldhead .foldtitle {
+  font-weight: 500;
+}
+
+.fold.l2 > .foldbody {
+  padding: 0 0 6px;
+  gap: 4px;
+}
+
+/* 进度：当前阶段、计划步骤、字段行 */
+.stagehead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.stagehead strong {
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.subhead {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.subhead .legend {
+  margin-left: auto;
+  font-weight: 400;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px 4px;
+}
+
+.subhead .legend .frmark {
+  margin-left: 4px;
+}
+
+ol.plansteps {
   list-style: none;
-  padding-left: 4px;
-  margin: 4px 0 8px;
-  font-size: 13px;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-ul.checklist li {
-  margin: 3px 0;
+ol.plansteps li {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 0 3px 0;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+
+/* 步骤之间一条细竖线把点串起来 */
+ol.plansteps li:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 17px;
+  bottom: -5px;
+  width: 1px;
+  background: var(--grid);
+}
+
+.psmark {
+  flex: none;
+  position: relative;
+  z-index: 1;
+  width: 13px;
+  height: 13px;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 1.5px solid var(--axis);
+  background: var(--surface);
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pstext {
+  flex: 1;
+  min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.ps-done .psmark {
+  border-color: var(--muted);
+  background: var(--muted);
+  color: var(--surface);
+}
+
+.ps-done .pstext {
+  color: var(--muted);
+}
+
+.ps-doing .psmark {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 2.5px var(--surface);
+  background: var(--accent);
+}
+
+.ps-doing .pstext {
+  font-weight: 600;
+}
+
+.ps-blocked .psmark {
+  border-color: var(--crit);
+  background: var(--crit);
+  box-shadow: inset 0 0 0 2.5px var(--surface);
+}
+
+.ps-blocked .pstext {
+  color: var(--crit-ink);
+}
+
+ul.fieldrows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+ul.fieldrows li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  padding: 2px 0;
+  font-size: var(--fs-sm);
+  min-width: 0;
+}
+
+.frmark {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--axis);
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fm-verified {
+  border-color: var(--good);
+  background: var(--good);
+  color: var(--surface);
+}
+
+.fm-filled {
+  border-color: var(--muted);
+  color: var(--muted);
+}
+
+.fm-needs_user {
+  border-color: var(--warn);
+  background: var(--warn);
+}
+
+.fm-skipped {
+  border: 0;
+  border-radius: 0;
+  height: 1.5px;
+  background: var(--muted);
+}
+
+.frlabel {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fr-verified .frlabel,
+.fr-filled .frlabel,
+.fr-skipped .frlabel {
+  color: var(--ink-2);
+}
+
+.frnote {
+  flex: 1 1 0;
+  min-width: 4em;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.frnote:hover:not(:disabled) {
+  background: none;
+  color: var(--ink-2);
+}
+
+.frnote.full {
+  flex-basis: 100%;
+  padding-left: 18px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+ul.noterows {
+  margin: 0;
+  padding-left: 18px;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+ul.noterows li {
+  margin: 2px 0;
+  overflow-wrap: anywhere;
+}
+
+/* 填写报告：工具按钮、头部说明 */
+.reporttools {
+  margin: 0;
+}
+
+.reporthead {
+  margin: 0;
+}
+
+.fold .foldbody > .stats {
+  margin: 0;
 }
 
 .chip.muted {
@@ -3045,4 +3400,100 @@ body.resizing * {
   padding: 5px 8px;
   font-size: var(--fs-sm);
   white-space: nowrap;
+}
+
+/* 投递失败 / 不投了（C024）：原因框、工作台头部的结束行、Dashboard 面板、总表里的原因 */
+.dialog-sub {
+  margin: -0.4em 0 0.9em;
+  color: var(--ink-2);
+}
+
+.dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+  margin-bottom: 0.9em;
+}
+
+.dialog-field span {
+  font-weight: 500;
+}
+
+.dialog-field textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+}
+
+.endnote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
+.endnote .reason {
+  color: var(--ink-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.outcomes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.outcomes li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1.2fr) minmax(0, 2fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.outcomes li:first-child {
+  border-top: 0;
+}
+
+.outcomes .who,
+.outcomes .reason {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outcomes .reason {
+  color: var(--ink-2);
+}
+
+.outcomes .acts {
+  display: flex;
+  gap: 10px;
+}
+
+.endreason {
+  display: inline-block;
+  max-width: 16em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  color: var(--ink-2);
+}
+
+@media (max-width: 760px) {
+  .outcomes li {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .outcomes .reason {
+    grid-column: 1 / -1;
+    white-space: normal;
+  }
 }

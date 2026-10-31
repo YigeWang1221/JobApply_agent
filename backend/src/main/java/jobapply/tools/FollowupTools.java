@@ -19,6 +19,8 @@ public final class FollowupTools {
     public static final String RECORD_STATUS = "record_status";
     public static final String RECORD_ROUND = "record_round";
     public static final String SAVE_REVIEW = "save_review";
+    /** 投递失败 / 不投了（C024）：工作台两段都有，由 {@code WorkbenchTools} 执行。 */
+    public static final String RECORD_OUTCOME = "record_outcome";
     public static final String READ_RESUME = ControlTools.READ_RESUME;
     public static final String READ_JD = ControlTools.READ_JD;
     public static final String ASK_USER = ControlTools.ASK_USER;
@@ -37,6 +39,23 @@ public final class FollowupTools {
                     + "check the site or email first. Calling it again records nothing new.",
             """
             {"type":"object","properties":{"note":{"type":"string","description":"What the user said"}}}""");
+
+    private static final ToolDefinition OUTCOME = definition(RECORD_OUTCOME,
+            "Record that this application ended because the USER decided so, with the user's reason. kind: "
+                    + "apply_failed (the user wanted to apply but it cannot go through: the site refuses, duplicate "
+                    + "application, quota full, eligibility system blocks, account restricted...) or gave_up (the user "
+                    + "decided not to apply / not to continue). Works at any stage that has not ended (before applying, "
+                    + "while preparing, after submitting). Only when the user explicitly told you in this conversation "
+                    + "to mark it; never decide on your own that it failed or should be dropped. When you see on the "
+                    + "page that it looks like it cannot go through, use ask_user with the page's words instead and let "
+                    + "the user decide. reason is required: the user's own words (may be shortened); when the user did "
+                    + "not give a reason, ask for it first (ask_user) and record only after they answer. The user can "
+                    + "undo it in the workspace header. Calling it again with the same kind records nothing new.",
+            """
+            {"type":"object","properties":{\
+            "kind":{"type":"string","enum":["apply_failed","gave_up"]},\
+            "reason":{"type":"string","description":"the user's reason, in their words"}},\
+            "required":["kind","reason"]}""");
 
     private static final List<ToolDefinition> OWN = List.of(
             definition(RECORD_STATUS,
@@ -138,6 +157,11 @@ public final class FollowupTools {
                 .filter(tool -> BROWSER.contains(tool.getToolDefinition().name()))
                 .forEach(tools::add);
         return List.copyOf(tools);
+    }
+
+    /** 两段共用的 {@code record_outcome}（C024）。 */
+    public static ToolCallback recordOutcome() {
+        return new DefinitionOnly(OUTCOME);
     }
 
     /** 投递段的 {@code mark_submitted}。 */

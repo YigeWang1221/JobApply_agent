@@ -35,7 +35,9 @@ public record JobEvent(
         /** 记下或更新了一轮（C014-A）。阶段跟着变时另有一条 phase_changed / closed。 */
         ROUND_RECORDED,
         /** 写了一轮的复盘（C014-A）。不改状态。 */
-        REVIEW_SAVED;
+        REVIEW_SAVED,
+        /** 用户撤销了「投递失败 / 不投了」（C024），回到记之前的状态。 */
+        REOPENED;
 
         public String value() {
             return name().toLowerCase(Locale.ROOT);

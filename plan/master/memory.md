@@ -66,7 +66,7 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 │   ├── jobs/<job-id>/                # 一个岗位：候选 → 申请 → 各轮 → 结束，跨多个 Session
 │   │   ├── job.md                    # frontmatter = 岗位与申请的当前状态（单一事实来源）；正文 = JD 快照、资格映射、本次答案、授权、证据
 │   │   ├── rounds/<seq>-<type>.md    # 每一轮的记录与复盘（用户确认的原始内容）
-│   │   ├── events.jsonl              # 追加式事件；每条事件带 session 字段
+│   │   ├── events.jsonl              # 追加式事件；每条事件带 session 字段（C024 加 reopened：撤销投递失败 / 不投了）
 │   │   ├── run-log.jsonl             # 填写过程日志：工具、守卫结论、按钮用途、用户反馈；不记填写的值和快照全文
 │   │   ├── fill-report.md            # 关卡 B 的填写报告
 │   │   └── followup/                 # C022：工作台后续段的对话（和投递段 AgentRun 分开存）
@@ -94,7 +94,7 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 ├── browser/sites.md                  # 站点登录登记（全局，因为浏览器只有一个）
 ├── uploads/                          # MCP 允许读取的上传暂存区（等字节副本）
 ├── model/RAG/                        # C022：本地 ONNX 嵌入模型（multilingual-e5-small），第一次用时下载
-├── cache/                            # 可以随时删除：rag/（经验检索的向量索引，可重建）、web/（抽取结果）、playwright-mcp/（MCP 输出目录，每次连接和关闭时清空）
+├── cache/                            # 可以随时删除：rag/（经验检索的向量索引，可重建）、lead-groups.json（候选池公司名 / 地点归并映射，可删除重建）、web/（抽取结果）、playwright-mcp/（MCP 输出目录，每次连接和关闭时清空）
 ├── checkpoints.sqlite                # LangGraph4j 持久化 Checkpoint（sqlite-saver），按 session-id 区分
 ├── index.sqlite                      # 可重建的查询索引（台账、Dashboard、题库 FTS5），删掉也能从文件重建
 └── exports/                          # 全局台账的 csv（各 Project 的 csv 在各自 tracker/ 下）
@@ -303,7 +303,10 @@ url: <岗位链接>
 history_url: <官方投递历史页>
 phase: interview                      # 只在 lead_status=converted 后才有；固定阶段，由 rounds 推导，见 tracking.md
 prep_state: null                      # 只在 phase=prep 时使用：preparing / needs_input / awaiting_review …
-outcome: null                         # 只在 phase=closed 时使用：accepted / rejected / withdrawn …
+outcome: null                         # 只在 phase=closed 时使用：accepted / rejected / withdrawn / apply_failed / gave_up …
+outcome_reason: null                  # C024：结束的原因（用户原话）；投递失败 / 不投了必填，其它结局有原因时也写
+closed_at: null                       # C024：结束的时间
+reopen_to: null                       # C024：投递失败 / 不投了记之前的状态（例如 prep:needs_input），撤销时回到它
 rounds:                               # 只放摘要；每一轮的详情在 rounds/ 目录下
   - { seq: 1, name: 一面, type: technical, happened_at: ..., result: passed, result_source: user }
 next_event: { what: 三面, at: ... }
@@ -397,6 +400,6 @@ blocker: <阻塞原因>
 3. `storage/` **不做任何版本控制**（用户确认，2026-10-23，取代 2026-10-22 的「git 可选」）：没有 `storage/.git`、没有自动提交、没有 `storage/.gitignore`；`base_pin` 只能是 `live`，不能回滚。整个 `storage/` 被主仓库的 `.gitignore` 忽略。
 4. B 级个人信息：Agent 能填的统一填完，再由用户在关卡 B 审核。
 5. 原件保存在 base（`base/originals/`），其它内容跟随各 Project 的 memory。
-6. 资料导入与画像（2026-10-22）：保留四层（来源 / 证据 / 事实 / 画像）；各类求职内容由用户确认即可使用，出处、条件和论断引用可选，抽取与画像可以提出量化及表达候选；中英双语共用一份结构化事实；支持页面上传、本地目录和 GitHub 公开仓库；在 C004-B 之前施工，拆成两段：[C004-A-1](../coding/C004-A-1-profile-import.md)（格式、按语言取值、来源扫描，不调用模型；具体格式写在这里）和 [C004-A-2](../coding/C004-A-2-profile-review.md)（整理、确认、画像）。用户确认（2026-10-22）：拆分，其余细节按建议。
+6. 资料导入与画像（2026-10-22）：保留四层（来源 / 证据 / 事实 / 画像）；各类求职内容由用户确认即可使用，出处、条件和论断引用可选，抽取与画像可以提出量化及表达候选；中英双语共用一份结构化事实；支持页面上传、本地目录和 GitHub 公开仓库；在 C004-B 之前施工，拆成两段：[C004-A-1](../coding/02-core-agent/C004-A-1-profile-import.md)（格式、按语言取值、来源扫描，不调用模型；具体格式写在这里）和 [C004-A-2](../coding/02-core-agent/C004-A-2-profile-review.md)（整理、确认、画像）。用户确认（2026-10-22）：拆分，其余细节按建议。
 
 待用户决定：无。

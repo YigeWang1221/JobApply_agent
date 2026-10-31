@@ -2,7 +2,7 @@
 
 状态：技术路线已确认（沿用 `../Eco_Agent/` 的栈）。产品目标已由用户给出；各 Master Plan **已确认**（2026-10-22）。未写业务代码。日期：2026-10-22。
 
-文件架构见 [architecture.md](architecture.md)。脚手架与精确版本见 [C001-scaffold.md](../coding/C001-scaffold.md)。本文件不重复目录树。
+文件架构见 [architecture.md](architecture.md)。脚手架与精确版本见 [C001-scaffold.md](../coding/01-foundation/C001-scaffold.md)。本文件不重复目录树。
 
 ## 最终目的
 
@@ -61,7 +61,7 @@ Spring AI ChatModel          Tools
 - 存储选型、是否上向量检索
 - 前端框架与推送方式
 - 岗位数据来源（以及条款是否允许抓取）
-- 账号；部署只做本机自用的 macOS App（用户确认，2026-10-27，见 [C017](../coding/C017-macos-app.md)），不做分发、签名公证、自动更新
+- 账号；部署只做本机自用的 macOS App（用户确认，2026-10-27，见 [C017](../coding/03-features/C017-macos-app.md)），不做分发、签名公证、自动更新
 
 ## 不做
 
