@@ -129,6 +129,16 @@ public record StorageLayout(Path root) {
         return settingsDir().resolve("tool-calls.yaml");
     }
 
+    /** 评测模式开关（C025，设置页写入）。 */
+    public Path evalYaml() {
+        return settingsDir().resolve("eval.yaml");
+    }
+
+    /** 评测的结果、标注单和题卡（C025）{@code eval/}：本地，不进 git。 */
+    public Path evalDir() {
+        return root.resolve("eval");
+    }
+
     /** API key（开发代理不读）。 */
     public Path envFile() {
         return settingsDir().resolve(".env");

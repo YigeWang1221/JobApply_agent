@@ -68,6 +68,12 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
     void load();
   }, [load]);
 
+  // 评测模式（C025）打开时在头部提醒一行：最终提交会被拦下
+  const [evalOn, setEvalOn] = useState(false);
+  useEffect(() => {
+    api.evalSettings().then((settings) => setEvalOn(settings.enabled), () => setEvalOn(false));
+  }, [id]);
+
   // 「浏览器连接断开了」从全局的连接状态推出来，而 browser 事件只在全局流里：收到就重读一次。
   // reset（后端重启）后工作台可能还留着旧的上传槽，也要重读（C006-fix-real-run 第 17 条）
   useEffect(() => subscribe(eventsUrl(), (event) => {
@@ -261,6 +267,7 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
                 </div>
               </details>
             </span>
+            {evalOn && <p className="evalnote">评测模式：最终提交会被拦下，不会发出</p>}
             {/* 结束了（C024）：结局、原因原话、时间；用户记的投递失败 / 不投了可以撤销 */}
             {job.phase === "closed" && (
               <p className="endnote">

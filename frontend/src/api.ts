@@ -681,6 +681,12 @@ export interface ToolCallSettings {
   defaultPerMessage: number;
 }
 
+// 评测模式（C025）：拦截最终提交、每步存脱敏快照。defaultEnabled 是 application.yml 的默认值（关）
+export interface EvalSettings {
+  enabled: boolean;
+  defaultEnabled: boolean;
+}
+
 // 敏感信息（C014-D）：一个键的名字和「已设置 / 未设置」，从不带值
 export interface PersonalKey {
   key: string;
@@ -735,6 +741,8 @@ export const api = {
     request<LeadGroups>("POST", "/api/lead-groups", { companies, cities }),
   ragStatus: () => request<RagStatus>("GET", "/api/rag/status"),
   downloadRagModel: () => request<RagStatus>("POST", "/api/rag/download"),
+  evalSettings: () => request<EvalSettings>("GET", "/api/settings/eval"),
+  saveEvalSettings: (enabled: boolean) => request<EvalSettings>("PUT", "/api/settings/eval", { enabled }),
   toolCallSettings: () => request<ToolCallSettings>("GET", "/api/settings/tool-calls"),
   saveToolCallSettings: (perRun: number, perMessage: number) =>
     request<ToolCallSettings>("PUT", "/api/settings/tool-calls", { perRun, perMessage }),

@@ -162,6 +162,22 @@ public final class ApplyAgent {
         return String.join("\n\n", IDENTITY, METHOD, SITUATIONS, WRITING_AND_MEMORY, LINES);
     }
 
+    /**
+     * 评测消融 2a（C025）：{@code skills} 为 false 时去掉提示词里引导读 skill 的那几句（「细节读 skill …」「先读相关的
+     * skill」「加不上时读 skill …」「读 skill cover-letter」和改 skill 的两句），其余不变。为 true 时同 {@link #systemPrompt()}。
+     */
+    public static String systemPrompt(boolean skills) {
+        String prompt = systemPrompt();
+        if (skills) {
+            return prompt;
+        }
+        return prompt.replace("、先读相关的 skill", "")
+                .replaceAll("加不上时读 skill [^。]*。", "")
+                .replaceAll("细节读 skill [^。]*。", "")
+                .replace("，读 skill cover-letter。", "。")
+                .replaceAll("用了某个 skill 遇到它没写到的问题，[^。]*。读 skill memory-update。", "");
+    }
+
     /** 交给模型的工具：浏览器工具 + 标签页（{@link BrowserTools#tabs()}）+ 控制工具 + 记下已投递（C022）。 */
     public static List<ToolCallback> tools() {
         List<ToolCallback> tools = new ArrayList<>(BrowserTools.definitions());
@@ -169,5 +185,11 @@ public final class ApplyAgent {
         tools.addAll(ControlTools.definitions());
         tools.add(FollowupTools.markSubmitted());
         return List.copyOf(tools);
+    }
+
+    /** 评测消融 2a（C025）：{@code skills} 为 false 时不给 {@code read_skill}。 */
+    public static List<ToolCallback> tools(boolean skills) {
+        return skills ? tools() : tools().stream()
+                .filter(tool -> !ControlTools.READ_SKILL.equals(tool.getToolDefinition().name())).toList();
     }
 }

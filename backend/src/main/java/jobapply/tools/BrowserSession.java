@@ -113,7 +113,14 @@ public final class BrowserSession implements AutoCloseable {
         public Set<String> othersUrls(String owner) {
             return BrowserSession.this.othersUrls(owner);
         }
+
+        @Override
+        public boolean diagnoseTimeouts() {
+            return diagnoseTimeouts;
+        }
     };
+    /** 动作超时后检查原因、被盖住时直接点一次（C006-fix 第 20 条）；只有命令行评测的消融 2b 关掉（C025）。 */
+    private volatile boolean diagnoseTimeouts = true;
     /** 连接状态（{@link BrowserState}）；读不拿锁。 */
     private volatile BrowserState state;
     /** {@code disconnected} 时还能不能自己再连一次。 */
@@ -197,6 +204,23 @@ public final class BrowserSession implements AutoCloseable {
                 throw new BrowserException.ToolFailed(masked(e.getMessage()));
             }
         }
+    }
+
+    /**
+     * 评测模式（C025）：在这个使用者正在用的那页上装好提交拦截（装过不再装），取走拦下的提交请求（方法、路径、时间、
+     * 字段名，不含值）。还没有标签页时为空；检查出错照常抛出，由调用方记下。
+     */
+    public List<Map<String, Object>> interceptSubmits(String owner, String pattern) {
+        OwnerBrowser o = owner(owner);
+        synchronized (o) {
+            o.sync(serial);
+            return o.interceptSubmits(pattern);
+        }
+    }
+
+    /** 消融 2b（C025，只给命令行评测用）：false 时动作超时直接报 MCP 的原话，不检查、不直接点。 */
+    public void diagnoseTimeouts(boolean on) {
+        this.diagnoseTimeouts = on;
     }
 
     /** 上一次操作留给这个使用者的说明，取一次就清掉；没有时为 null。 */

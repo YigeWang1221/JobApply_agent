@@ -58,6 +58,11 @@ final class OwnerBrowser {
 
         /** 别的使用者记下的网址（不含这个使用者），用来认「当前页被换成了别人的页」、排除别人的弹窗。 */
         Set<String> othersUrls(String owner);
+
+        /** 动作超时后要不要做检查和直接点一次（{@link #afterTimeout}）；只有评测消融 2b 关掉（C025）。 */
+        default boolean diagnoseTimeouts() {
+            return true;
+        }
     }
 
     final String owner;
@@ -250,6 +255,15 @@ final class OwnerBrowser {
         // 只读，不先列：紧接着的填写在动作前会核对一次
         ensureCurrent(false);
         return calls.use(this, c -> c.inspect(refs));
+    }
+
+    /** 评测模式（C025）：在正在用的那页上装好提交拦截，取走拦下的请求（{@link PlaywrightMcpClient#interceptSubmits}）。 */
+    synchronized List<Map<String, Object>> interceptSubmits(String pattern) {
+        if (current == null) {
+            return List.of();
+        }
+        ensureCurrent(false);
+        return calls.use(this, c -> c.interceptSubmits(pattern));
     }
 
     synchronized String find(Map<String, Object> args, BrowserToolPolicy.Context context) {
@@ -530,8 +544,8 @@ final class OwnerBrowser {
      */
     private String afterTimeout(String tool, Map<String, Object> args, BrowserException.ToolFailed failed) {
         boolean click = BrowserToolPolicy.CLICK.equals(tool);
-        if (!(click || BrowserToolPolicy.TYPE.equals(tool) || BrowserToolPolicy.SELECT_OPTION.equals(tool)
-                || BrowserToolPolicy.SET_DATE.equals(tool))
+        if (!calls.diagnoseTimeouts() || !(click || BrowserToolPolicy.TYPE.equals(tool)
+                || BrowserToolPolicy.SELECT_OPTION.equals(tool) || BrowserToolPolicy.SET_DATE.equals(tool))
                 || !(args.get("target") instanceof String ref) || !PlaywrightMcpClient.isActionTimeout(failed.getMessage())) {
             throw failed;
         }

@@ -97,6 +97,8 @@ public final class ExperienceIndex implements AutoCloseable {
     /** 本次启动以后至少对过一遍，索引和文件对得上。 */
     private volatile boolean synced;
     private volatile String lastError;
+    /** 消融 3（C025，只给命令行评测用）：true 时一律走关键词检索，不触发模型下载。 */
+    private volatile boolean keywordOnly;
 
     public ExperienceIndex(StorageLayout layout, ExperienceModel model) {
         this.sources = new ExperienceSources(layout);
@@ -138,6 +140,9 @@ public final class ExperienceIndex implements AutoCloseable {
 
     /** 检索；模型不能用、或索引正在后台重建时退回关键词检索。 */
     public Result search(Query query) {
+        if (keywordOnly) {
+            return keyword(query, "评测：只用关键词检索");
+        }
         ExperienceModel.State state = model.state();
         if (state == ExperienceModel.State.ABSENT) {
             model.download();
@@ -174,6 +179,11 @@ public final class ExperienceIndex implements AutoCloseable {
         Query query = new Query(text(args.get("query")), text(args.get("company")), text(args.get("phase")),
                 text(args.get("type")), args.get("limit") instanceof Number n ? n.intValue() : 0);
         return format(search(query));
+    }
+
+    /** 消融 3（C025）：打开后检索一律走关键词（等同模型未就绪，但不下载模型）。 */
+    public void keywordOnly(boolean on) {
+        this.keywordOnly = on;
     }
 
     /** 最近一次更新索引出的错；没有时为 null。 */

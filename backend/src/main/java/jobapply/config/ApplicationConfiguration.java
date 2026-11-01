@@ -10,6 +10,7 @@ import jobapply.tools.BrowserSession;
 import jobapply.tools.WebFetch;
 import jobapply.tools.WebSearch;
 import jobapply.workflow.ApplicationRunner;
+import jobapply.workflow.EvalMode;
 import jobapply.workflow.FollowupRunner;
 import jobapply.workflow.RuntimeEvents;
 import jobapply.workflow.SessionRunner;
@@ -25,7 +26,7 @@ import org.springframework.core.env.ConfigurableEnvironment;
  */
 @Configuration
 @EnableConfigurationProperties({StorageProperties.class, BrowserMcpProperties.class, HarnessProperties.class,
-        SearchProperties.class, WebProperties.class})
+        SearchProperties.class, WebProperties.class, EvalProperties.class})
 public class ApplicationConfiguration {
 
     @Bean
@@ -65,8 +66,10 @@ public class ApplicationConfiguration {
     @Bean(destroyMethod = "close")
     ApplicationRunner applicationRunner(StorageLayout layout, Clock clock, BrowserSession browser,
                                         ModelRegistry models, HarnessProperties limits, RuntimeEvents events,
-                                        ExperienceIndex experience) {
-        return new ApplicationRunner(layout, clock, browser, models::main, limits, events, experience);
+                                        ExperienceIndex experience, EvalProperties eval) {
+        // 评测模式（C025）默认关：设置页「评测」改过后以 settings/eval.yaml 为准
+        return new ApplicationRunner(layout, clock, browser, models::main, limits, events, experience,
+                new EvalMode(layout, eval.enabled()));
     }
 
     @Bean
