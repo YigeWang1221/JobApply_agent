@@ -122,11 +122,17 @@ public final class FillContext {
     /** @param attachments 用户附的文件存在哪里（C006 附件）；为 null 时图片不发 */
     public static List<Message> messages(Inputs inputs, List<AgentRun.Turn> turns, Conversation.LatestPage latest,
                                          AttachmentStore attachments) {
-        return Conversation.messages(ApplyAgent.systemPrompt(), context(inputs), turns, latest, attachments,
-                StateView.render(inputs.goal(), inputs.state()));
+        return messages(inputs, turns, latest, attachments, true);
     }
 
-    private static String context(Inputs inputs) {
+    /** @param skills 评测消融 2a（C025）为 false 时：提示词里不引导读 skill，上下文里没有 skill 目录 */
+    public static List<Message> messages(Inputs inputs, List<AgentRun.Turn> turns, Conversation.LatestPage latest,
+                                         AttachmentStore attachments, boolean skills) {
+        return Conversation.messages(ApplyAgent.systemPrompt(skills), context(inputs, skills), turns, latest,
+                attachments, StateView.render(inputs.goal(), inputs.state()));
+    }
+
+    private static String context(Inputs inputs, boolean skills) {
         StringBuilder out = new StringBuilder();
         out.append("# 有效资料\n\n");
         out.append("资料键可以写进字段的 fact（可选）。有两种写法时按页面语言选；标「未审阅」的写法是起草的，")
@@ -183,12 +189,14 @@ public final class FillContext {
             out.append("- 文件 ").append(i + 1).append("：").append(inputs.files().get(i)).append('\n');
         }
 
-        out.append("\n# skill 目录（用 read_skill 读全文）\n\n");
-        for (SkillCatalog.Skill skill : inputs.catalog()) {
-            out.append("- ").append(skill.name()).append("：").append(skill.description()).append('\n');
-        }
-        if (!inputs.suggested().isEmpty()) {
-            out.append("\n这个站点建议先读：").append(String.join("、", inputs.suggested())).append('\n');
+        if (skills) {
+            out.append("\n# skill 目录（用 read_skill 读全文）\n\n");
+            for (SkillCatalog.Skill skill : inputs.catalog()) {
+                out.append("- ").append(skill.name()).append("：").append(skill.description()).append('\n');
+            }
+            if (!inputs.suggested().isEmpty()) {
+                out.append("\n这个站点建议先读：").append(String.join("、", inputs.suggested())).append('\n');
+            }
         }
 
         if (inputs.siteNotes() != null && !inputs.siteNotes().isBlank()) {

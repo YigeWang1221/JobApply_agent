@@ -77,3 +77,7 @@ jobapply:
     application-workers: 3
     # 同一个网站上同时最多这么多个申请（礼貌限速，免得同站点请求过多被限流）；多出来的排队
     applications-per-site: 2
+  eval:
+    # 评测模式（C025）：拦截这次申请标签页上的最终提交请求、每步存一份脱敏快照到 storage/eval/app/。默认关；
+    # 设置页「评测」改过后存在 storage/settings/eval.yaml，以它为准。关着时主流程与没有这个功能时完全一样
+    enabled: false

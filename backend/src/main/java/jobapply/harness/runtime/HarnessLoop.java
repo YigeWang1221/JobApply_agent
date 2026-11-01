@@ -52,6 +52,8 @@ import jobapply.harness.runtime.AgentLoop.Step;
 import jobapply.memory.MemoryWriter;
 import jobapply.memory.ProfileResolver;
 import jobapply.memory.ResolvedFact;
+import jobapply.observability.EvalOptions;
+import jobapply.observability.EvalRecorder;
 import jobapply.persistence.AssetRegistry;
 import jobapply.persistence.AttachmentStore;
 import jobapply.persistence.FillReportWriter;
@@ -80,6 +82,8 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Agent 循环（agent-runtime.md 7.1）：拼消息 → 调主模型 → 依次执行工具调用 → 结果放回对话 → 下一轮。
@@ -107,6 +111,8 @@ import org.springframework.ai.chat.model.ChatResponse;
 public final class HarnessLoop {
 
     static final String STOPPED = "已按你的要求停下。回复后接着做。";
+
+    private static final Logger log = LoggerFactory.getLogger(HarnessLoop.class);
 
     private static final Set<String> TEXT_INPUTS = Set.of("textbox", "searchbox", "spinbutton");
     /** 选下拉没选中时结果里的一个选项（{@code PlaywrightMcpClient.choices} 的写法）。 */
@@ -139,6 +145,8 @@ public final class HarnessLoop {
     private final ExperienceIndex experience;
     /** 记下「投递失败 / 不投了」时给 Session 的系统通知（C024）。 */
     private final SessionNote sessionNote;
+    /** 评测模式（C025）：为 null 时不装拦截、不存快照，提示词和工具不变。 */
+    private EvalOptions eval;
 
     public HarnessLoop(ChatModel model, BrowserSession browser, StorageLayout layout, Clock clock,
                        HarnessProperties limits) {
@@ -183,6 +191,12 @@ public final class HarnessLoop {
         this.resumes = new ResumeMatch(new AssetRegistry(layout, clock), new JobLedger(layout, clock), clock);
     }
 
+    /** 这次运行用评测模式（C025）；{@code options} 为 null 时就是平常的申请。 */
+    public HarnessLoop eval(EvalOptions options) {
+        this.eval = options;
+        return this;
+    }
+
     /**
      * 跑到模型或系统结束这一次运行。开始时系统先确认标签页是这个岗位的（不是就打开岗位链接），再取一次快照。
      *
@@ -206,7 +220,16 @@ public final class HarnessLoop {
             seeder.seed();
             seeded = true;
         }
-        return new Round(run, stop, progress, observer == null ? LoopObserver.NONE : observer, inbox).go();
+        Round round = new Round(run, stop, progress, observer == null ? LoopObserver.NONE : observer, inbox);
+        AgentRun result;
+        try {
+            result = round.go();
+        } catch (RuntimeException e) {
+            round.evalFinished(null);
+            throw e;
+        }
+        round.evalFinished(result);
+        return result;
     }
 
     /**
@@ -267,6 +290,10 @@ public final class HarnessLoop {
         private SubmitGuard.Approval pendingApproval;
         /** 用户批准过的一次点击（存在 {@link AgentRun#lastPage()} 里）；用过或者翻到别的网址就清掉。 */
         private SubmitGuard.Approval approval;
+        /** 评测模式的记录（C025）；没开评测、或者记录目录建不了时为 null。 */
+        private EvalRecorder recorder;
+        /** 消融 1（C025）：这次运行里每个工具结果之后的页面，历史消息里也原样给出。 */
+        private final Map<String, PageSnapshot> pages = new LinkedHashMap<>();
 
         Round(AgentRun run, BooleanSupplier stop, Consumer<AgentRun> progress, LoopObserver observer,
               Supplier<List<AgentRun.Turn>> inbox) {
@@ -275,7 +302,7 @@ public final class HarnessLoop {
             this.progress = progress == null ? ignored -> {
             } : progress;
             // 调模型回来时用户已经要求停止：丢掉这条回复直接停（和对话 Agent 不同，见 AgentLoop）
-            this.loop = new AgentLoop<>(model, WorkbenchTools.with(ApplyAgent.tools()), clock, toolCallsPerRun, true,
+            this.loop = new AgentLoop<>(model, WorkbenchTools.with(ApplyAgent.tools(skills())), clock, toolCallsPerRun, true,
                     stop, observer, run.conversation(), null, inbox);
             this.detector = new LoopDetector(limits);
             this.state = run.state();
@@ -312,6 +339,9 @@ public final class HarnessLoop {
             if (fresh && reports.read(run.project(), run.job()).isPresent()) {
                 writeDraft(); // 重新开始的申请：上一次的报告换成这一次的（现在还是空的）
             }
+            if (eval != null) {
+                recorder = evalRecorder();
+            }
 
             // C021：工作台刚启动且尚未选定简历时，先不打开 Chrome 页面，让模型在工作台里读 JD 与简历、给匹配排名和修改建议；
             // 等用户确认并调用浏览器工具（或下一轮恢复）时再打开页面
@@ -333,6 +363,7 @@ public final class HarnessLoop {
                 return waiting("读不到当前页面（" + e.getMessage() + "）。确认 Chrome 里这个页面开着，然后回复，我再试一次。");
             }
             seen(latest);
+            drainSubmits();
             if (latest != null) {
                 loop.showPage(latest);
                 detector.startAt(pageText(latest));
@@ -438,8 +469,8 @@ public final class HarnessLoop {
 
         @Override
         public List<Message> messages(List<AgentRun.Turn> turns, Conversation.LatestPage latestPage) {
-            return FillContext.messages(inputs(), turns, latestPage,
-                    new AttachmentStore(layout.jobAttachmentsDir(run.job())));
+            return FillContext.messages(inputs(), withAllPages(turns, latestPage), latestPage,
+                    new AttachmentStore(layout.jobAttachmentsDir(run.job())), skills());
         }
 
         /** 每次调模型之后记用量。 */
@@ -498,6 +529,17 @@ public final class HarnessLoop {
 
         @Override
         public Step<AgentRun> handle(AgentRun.ToolCall call) {
+            Step<AgentRun> step = dispatch(call);
+            if (eval != null) {
+                if (eval.fullSnapshots() && step.page() != null) {
+                    pages.put(call.id(), step.page());
+                }
+                evalStep(call, step);
+            }
+            return step;
+        }
+
+        private Step<AgentRun> dispatch(AgentRun.ToolCall call) {
             String name = call.name();
             Step<AgentRun> shared = WorkbenchTools.handle(new WorkbenchTools.Where(run.project(), run.job(),
                     run.session(), run.company(), run.title(), WorkbenchTools.Where.FILL), call, experience,
@@ -867,6 +909,7 @@ public final class HarnessLoop {
                 return failed(call, translated.tool(), null, translated.args().toString(), false, e.getMessage());
             }
             seen(latest);
+            drainSubmits();
             if (latest != null) {
                 detector.startAt(pageText(latest));
             }
@@ -896,7 +939,8 @@ public final class HarnessLoop {
                 case ControlTools.ASK_USER -> askUser(call, args);
                 case ControlTools.UPDATE_STATE -> updateState(call, args);
                 case ControlTools.UPDATE_PLAN -> updatePlan(call, args);
-                case ControlTools.READ_SKILL -> readSkill(call, text(args.get("name")));
+                case ControlTools.READ_SKILL -> skills() ? readSkill(call, text(args.get("name")))
+                        : failedResult(call, "失败：没有这个工具：" + call.name());
                 case ControlTools.LIST_RESUMES -> result(call, resumes.list());
                 case ControlTools.READ_RESUME -> readResume(call, args);
                 case ControlTools.CHOOSE_RESUME -> chooseResume(call, args);
@@ -1492,6 +1536,183 @@ public final class HarnessLoop {
 
         private void log(RunLog.Entry entry) {
             runLog.append(run.project(), run.job(), entry);
+        }
+
+        // ---- 评测模式（C025）：只在 eval 不为 null 时走到；出错只记日志，不影响申请 ----
+
+        private boolean skills() {
+            return eval == null || eval.skills();
+        }
+
+        /** 资料和本次答案里的 A / B 级值 → 字段名（快照落盘前遮掉）；C 级只比对 personal.env 的值。 */
+        private EvalRecorder evalRecorder() {
+            Map<String, String> masks = new LinkedHashMap<>();
+            for (Map<String, ResolvedFact> profile : List.of(profileZh, profileEn)) {
+                profile.values().stream().filter(fact -> fact.factClass() != FactClass.C)
+                        .forEach(fact -> masks.putIfAbsent(fact.value(), fact.key()));
+            }
+            sessionAnswers.forEach(answer -> masks.putIfAbsent(answer.value(), answer.id()));
+            try {
+                return new EvalRecorder(eval, run.job(), masks, personal.values(), clock);
+            } catch (RuntimeException e) {
+                log.warn("Job {} 的评测记录建不了：{}", run.job(), e.getMessage());
+                return null;
+            }
+        }
+
+        /** 一次工具调用之后：记下键入的值（之后回显时遮掉），存这一步，取走拦下的提交请求。 */
+        private void evalStep(AgentRun.ToolCall call, Step<AgentRun> step) {
+            if (recorder == null) {
+                return;
+            }
+            try {
+                Map<String, Object> args;
+                try {
+                    args = parse(call.arguments());
+                } catch (IllegalArgumentException e) {
+                    args = Map.of();
+                }
+                if (BrowserTools.isBrowserTool(call.name())) {
+                    List<String> typed = new ArrayList<>();
+                    collectValues(args, typed);
+                    recorder.written(typed);
+                }
+                recorder.step(call.id(), call.name(), args.get("target") instanceof String target ? target : null,
+                        step.result().status(), step.result().text(), step.page());
+                drainSubmits();
+            } catch (RuntimeException e) {
+                log.warn("Job {} 的评测记录这一步没存下：{}", run.job(), e.getMessage());
+            }
+        }
+
+        /** 在申请自己的标签页上装好提交拦截（装过不再装），取走拦下的请求。 */
+        private void drainSubmits() {
+            if (recorder == null || !browser.isConnected()) {
+                return;
+            }
+            try {
+                recorder.submits(browser.interceptSubmits(run.job(), eval.submitPattern()));
+            } catch (RuntimeException e) {
+                recorder.interceptFailed(e.getMessage());
+            }
+        }
+
+        /** 一次运行结束（{@code result} 为 null 是出错抛出了）：更新 meta.json。 */
+        void evalFinished(AgentRun result) {
+            if (recorder == null) {
+                return;
+            }
+            try {
+                Map<String, Object> fixed = new LinkedHashMap<>();
+                fixed.put("model", model.getDefaultOptions() == null ? null : model.getDefaultOptions().getModel());
+                fixed.put("storage_root", layout.root().toString());
+                fixed.put("prompt_sha256", sha256(ApplyAgent.systemPrompt(skills())));
+                fixed.put("playbook_sha256", playbookHash());
+                AgentRun end = result == null ? current() : result;
+                Map<String, Object> usage = new LinkedHashMap<>();
+                usage.put("model_calls", end.usage().modelCalls());
+                usage.put("tool_calls", end.usage().toolCalls());
+                usage.put("tokens", end.usage().tokens());
+                recorder.finish(fixed, result == null ? AgentRun.FAILED : result.status(), stopReason(result), usage);
+            } catch (RuntimeException e) {
+                log.warn("Job {} 的评测 meta.json 没写下：{}", run.job(), e.getMessage());
+            }
+        }
+
+        /** 消融 1：历史消息里的快照不省掉（最新那份和它的整页由 {@link Conversation} 照常放，这里不重复）。 */
+        private List<AgentRun.Turn> withAllPages(List<AgentRun.Turn> turns, Conversation.LatestPage latest) {
+            if (eval == null || !eval.fullSnapshots() || pages.isEmpty()) {
+                return turns;
+            }
+            Set<String> shown = new java.util.HashSet<>();
+            if (latest != null) {
+                shown.add(latest.resultId());
+                if (latest.base() != null) {
+                    shown.add(latest.base().resultId());
+                }
+            }
+            List<AgentRun.Turn> out = new ArrayList<>(turns.size());
+            for (AgentRun.Turn turn : turns) {
+                if (!AgentRun.Turn.TOOL.equals(turn.role())) {
+                    out.add(turn);
+                    continue;
+                }
+                List<AgentRun.ToolResult> results = turn.results().stream().map(result ->
+                        pages.containsKey(result.id()) && !shown.contains(result.id())
+                                ? new AgentRun.ToolResult(result.id(), result.name(),
+                                result.text() + "\n" + Conversation.render(pages.get(result.id())), result.status(),
+                                result.startedAt(), result.ms())
+                                : result).toList();
+                out.add(new AgentRun.Turn(turn.role(), turn.text(), turn.calls(), results, turn.thinking(),
+                        turn.attachments()));
+            }
+            return out;
+        }
+
+        private String stopReason(AgentRun result) {
+            if (result == null || AgentRun.FAILED.equals(result.status())) {
+                return EvalRecorder.ERROR;
+            }
+            if (AgentRun.READY.equals(result.status())) {
+                return EvalRecorder.READY;
+            }
+            String message = result.message() == null ? "" : result.message();
+            if (STOPPED.equals(message)) {
+                return EvalRecorder.STOPPED;
+            }
+            if (message.contains(AgentLoop.RAISE_LIMIT)) {
+                return EvalRecorder.LIMIT;
+            }
+            return message.startsWith("浏览器断开") ? EvalRecorder.ERROR : EvalRecorder.WAITING;
+        }
+
+        /** playbook 下所有文件（skill、站点记录）的哈希：同一份 playbook 才能比。 */
+        private String playbookHash() {
+            Path dir = layout.playbookDir();
+            if (!Files.isDirectory(dir)) {
+                return null;
+            }
+            StringBuilder all = new StringBuilder();
+            try (java.util.stream.Stream<Path> files = Files.walk(dir)) {
+                for (Path file : files.filter(Files::isRegularFile).sorted().toList()) {
+                    all.append(dir.relativize(file)).append('\n').append(Files.readString(file)).append('\n');
+                }
+            } catch (IOException e) {
+                return null;
+            }
+            return sha256(all.toString());
+        }
+    }
+
+    /** 填写工具参数里的值（text、value、values、date），评测快照里遮掉它们的回显。 */
+    private static void collectValues(Object node, List<String> out) {
+        if (node instanceof Map<?, ?> map) {
+            map.forEach((key, value) -> {
+                if (Set.of("text", "value", "values", "date").contains(String.valueOf(key))) {
+                    leaves(value, out);
+                } else {
+                    collectValues(value, out);
+                }
+            });
+        } else if (node instanceof List<?> list) {
+            list.forEach(item -> collectValues(item, out));
+        }
+    }
+
+    private static void leaves(Object node, List<String> out) {
+        if (node instanceof String text) {
+            out.add(text);
+        } else if (node instanceof List<?> list) {
+            list.forEach(item -> leaves(item, out));
+        }
+    }
+
+    private static String sha256(String text) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(text.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
         }
     }
 

@@ -28,6 +28,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import jobapply.config.HarnessProperties;
+import jobapply.observability.EvalOptions;
 import jobapply.domain.Actor;
 import jobapply.domain.AgentRun;
 import jobapply.domain.ApplicationState;
@@ -144,6 +145,9 @@ public final class ApplicationRunner implements AutoCloseable {
     private final Set<String> stopRequested = ConcurrentHashMap.newKeySet();
     private final RuntimeEvents events;
     private final ExperienceIndex experience;
+    /** 评测模式（C025）：开始申请时定下这次用不用、用哪份设置，回复接着做时沿用；关着时没有这一项。 */
+    private final EvalMode evalMode;
+    private final Map<String, EvalOptions> evalRuns = new ConcurrentHashMap<>();
     /** 运行中（或排队时）用户插的话（C010）：循环下一次调模型之前取走；跑完还剩的写进对话并接着跑。 */
     private final Inbox inbox = new Inbox();
 
@@ -191,6 +195,14 @@ public final class ApplicationRunner implements AutoCloseable {
     /** @param experience 跨工作台经验检索（C022），投递段和后续段共用 */
     public ApplicationRunner(StorageLayout layout, Clock clock, BrowserSession browser, Supplier<ChatModel> mainModel,
                              HarnessProperties limits, RuntimeEvents events, ExperienceIndex experience) {
+        this(layout, clock, browser, mainModel, limits, events, experience, null);
+    }
+
+    /** @param evalMode 评测模式开关（C025）；为 null 时按 {@code settings/eval.yaml}，没有就关 */
+    public ApplicationRunner(StorageLayout layout, Clock clock, BrowserSession browser, Supplier<ChatModel> mainModel,
+                             HarnessProperties limits, RuntimeEvents events, ExperienceIndex experience,
+                             EvalMode evalMode) {
+        this.evalMode = evalMode == null ? new EvalMode(layout, false) : evalMode;
         this.experience = experience;
         this.events = events;
         this.layout = layout;
@@ -308,6 +320,13 @@ public final class ApplicationRunner implements AutoCloseable {
                     new AgentRun.FileSlot("resume", "简历", null, true, null), resume, null))));
         }
         moveTo(run, PrepState.PREPARING, Actor.USER, "开始申请线程");
+        // 评测开关只在新开始的申请上生效，运行中切换不影响它（C025）
+        EvalOptions eval = evalMode.forStart();
+        if (eval == null) {
+            evalRuns.remove(jobId);
+        } else {
+            evalRuns.put(jobId, eval);
+        }
         runs.save(run);
         submit(run);
         return status(jobId);
@@ -735,6 +754,11 @@ public final class ApplicationRunner implements AutoCloseable {
     }
 
     /** 工具调用上限（C018）：申请 Agent 每次运行、对话 Agent 每条消息，设置页改了马上生效。 */
+    /** 评测模式开关（C025，设置页「评测」和命令行评测用）。 */
+    public EvalMode evalMode() {
+        return evalMode;
+    }
+
     public ToolCallLimits toolCallLimits() {
         return toolCalls;
     }
@@ -922,7 +946,7 @@ public final class ApplicationRunner implements AutoCloseable {
         String jobId = run.job();
         // 每次运行再取模型（C006-fix-2 第 6 条）：改了模型设置，下一次运行就用新的
         HarnessLoop loop = new HarnessLoop(mainModel.get(), browser, layout, clock, limits, toolCalls::perRun, experience,
-                this::noteToSession);
+                this::noteToSession).eval(evalRuns.get(jobId));
         // 每轮存盘后发一次 changed：工作台侧栏的「进度」跟着申请状态刷新（C019）
         return loop.run(run, () -> stopRequested(jobId), progressed -> {
             if (!discarded.contains(jobId)) {

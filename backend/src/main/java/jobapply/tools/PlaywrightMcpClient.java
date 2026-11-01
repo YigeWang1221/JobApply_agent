@@ -91,6 +91,49 @@ public final class PlaywrightMcpClient implements AutoCloseable {
             }""";
 
     /**
+     * 评测模式的提交拦截（C025 第 5 节）：在这个会话当前那页（申请自己的标签页）上挂一次 {@code page.route}，之后每次调用
+     * 只取走拦下的记录。非 GET 请求的网址路径或请求体符合提交特征（正则，忽略大小写）时不发出（{@code abort}），记下方法、
+     * 路径、时间和请求体的字段名（JSON 的键、表单的名字，不留值）；其余请求原样放行。拦截记在 Page 对象上，只管这一页，
+     * 用户别的标签页不受影响。参数只有特征的 JSON 字符串。
+     */
+    private static final String INTERCEPT_SUBMITS = """
+            async (page) => {
+              if (!page.__jobapplyEval) {
+                page.__jobapplyEval = [];
+                const pattern = new RegExp(%s, 'i');
+                const names = (body) => {
+                  const out = new Set();
+                  const walk = (value, prefix) => {
+                    if (out.size >= 200 || value === null || typeof value !== 'object') return;
+                    for (const [key, inner] of Object.entries(value)) {
+                      const name = Array.isArray(value) ? prefix : (prefix ? prefix + '.' + key : key);
+                      if (inner !== null && typeof inner === 'object') walk(inner, name);
+                      else if (name) out.add(name);
+                    }
+                  };
+                  try { walk(JSON.parse(body), ''); return [...out]; } catch (e) {}
+                  for (const m of body.matchAll(/name="([^"]+)"/g)) out.add(m[1]);
+                  if (out.size) return [...out];
+                  try { for (const key of new URLSearchParams(body).keys()) out.add(key); } catch (e) {}
+                  return [...out].slice(0, 200);
+                };
+                await page.route('**/*', async (route) => {
+                  const request = route.request();
+                  const method = request.method();
+                  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return route.fallback();
+                  let body = '';
+                  try { body = request.postData() || ''; } catch (e) {}
+                  let path = request.url();
+                  try { path = new URL(request.url()).pathname; } catch (e) {}
+                  if (!pattern.test(path) && !pattern.test(body)) return route.fallback();
+                  page.__jobapplyEval.push({method, path, time: new Date().toISOString(), fields: names(body)});
+                  return route.abort('blockedbyclient');
+                });
+              }
+              return {submits: page.__jobapplyEval.splice(0)};
+            }""";
+
+    /**
      * 目标可见、只是被别的层盖住时（{@link Diagnosis#coveredButVisible()}），系统在同一个 ref 上直接派发一次点击：
      * 按真实点击的顺序派发 pointerdown / mousedown / pointerup / mouseup，再调 {@code element.click()}。事件直接发给目标，
      * 不经过屏幕坐标，所以盖在上面的层收不到。只在点击守卫已经放行这个 ref 之后、由 {@link BrowserSession#act} 调用。
@@ -649,6 +692,26 @@ public final class PlaywrightMcpClient implements AutoCloseable {
     Diagnosis diagnose(String ref) {
         return Diagnosis.parse(send(RUN_CODE, Map.of("code", PageScripts.code(PageScripts.DIAGNOSE,
                 Map.of("target", "aria-ref=" + ref))), "系统检查"));
+    }
+
+    /**
+     * 评测模式（C025）：在当前页上装好提交拦截（装过就不再装），取走这之后拦下的提交请求。不过白名单，模型不能调用。
+     * 每一条是 {@code method}、{@code path}、{@code time}、{@code fields}（字段名）。
+     */
+    List<Map<String, Object>> interceptSubmits(String pattern) {
+        Map<String, Object> found = json(send(RUN_CODE, Map.of("code",
+                INTERCEPT_SUBMITS.formatted(JSON.writeValueAsString(pattern))), "评测拦截"), "评测拦截");
+        List<Map<String, Object>> out = new ArrayList<>();
+        if (found.get("submits") instanceof List<?> list) {
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> map) {
+                    Map<String, Object> typed = new LinkedHashMap<>();
+                    map.forEach((key, value) -> typed.put(String.valueOf(key), value));
+                    out.add(typed);
+                }
+            }
+        }
+        return out;
     }
 
     /** 系统直接点击（{@link #CLICK_THROUGH}），不过白名单，模型不能调用。调用方先确认点击守卫放行了这个 ref。 */

@@ -1354,6 +1354,13 @@ pre.report {
   min-width: 0;
 }
 
+/* 评测模式（C025）的提醒一行 */
+.evalnote {
+  margin: 4px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--warn-ink);
+}
+
 .chathead h1 {
   margin: 0;
   font-size: 15px;

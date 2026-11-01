@@ -1322,3 +1322,62 @@
 - 做法：storage 复制到草稿目录（排除密钥文件）；HEAD 后端在草稿目录单独构建、起在 18080（`--jobapply.storage.root` 指向副本），Vite 在 5199（临时配置，用完已删）；内置浏览器看全局 / Project Dashboard、申请总表、候选池、侧栏、7 个工作台、3 个 Session，对照 `GET /api/jobs`、`GET /api/projects/2026-season3`。
 - 结果：38 个 Job 全部解析，后端日志无解析错误；19 个申请：看板准备中 5、已投递 11、已结束 2（岗位下线），Failures 2（旧 `not_submitted` 1、跳过候选 1），候选池 18，没有漏掉或重复的。已投递处处只写「已投递」，没有「已结束」；岗位下线不进 Failures；时间线 11、每周 6 + 5、待追踪 8 都对。没有后续段运行记录。读完后副本与原 storage 无差异。没发现要修的错位，未改代码。
 - 验证：`frontend/` 里 `npx tsc --noEmit` 退出码 0；没改代码，`mvn -B clean verify`、`npm run build`：未运行（另一路在用 `backend/target`）。服务器已停。未提交。
+
+## 2026-10-31 · C025 评测施工
+
+- 指令：用户确认 C025 计划，「现在开始开发」，一次做完；新增决定：预算每轮 20M、总 200M token（跨命令累计）；固定站点由用户测试时发来，现在不跑真实站点；19 次真实运行的对错由代理标注。在 `C25-benchmark-cases` 分支上改，不提交。
+- 结果：
+  - 后端：`config/EvalProperties`、`persistence/EvalSettingsFile`（`settings/eval.yaml`）、`workflow/EvalMode`、`api/EvalSettingsController`、`observability/EvalOptions`、`observability/EvalRecorder`；`StorageLayout` 加 `evalYaml()`、`evalDir()`；`application.yml` 加 `jobapply.eval.enabled: false`；`ApplicationConfiguration` 传 `EvalMode`；`ApplicationRunner` 开始申请时定下评测设置、`HarnessLoop.eval(...)`；`HarnessLoop` 每步记录、装拦截、结束写 meta，消融 1 / 2a；`PlaywrightMcpClient` 加拦截模板、`OwnerBrowser` / `BrowserSession` 加 `interceptSubmits` 和 `diagnoseTimeouts`（消融 2b）；`ExperienceIndex.keywordOnly`（消融 3）；`ApplyAgent.systemPrompt(boolean)` / `tools(boolean)`、`FillContext.messages(..., skills)`；`observability/package-info` 改说明。
+  - 前端：`pages/EvalSettings.tsx`（设置 →「模型」页签的「评测」卡片）、`Settings.tsx`、`JobPage.tsx`（评测提醒一行）、`api.ts`、`styles.css`。
+  - 命令行：`backend/src/test/java/jobapply/harness/runtime/BenchmarkManualCheck.java`（annotate / run / rescore；组名 retrieval 是实验 3；预算记在 `storage/eval/budget.json`；虚构资料目录第一次 run 时生成）。不新增测试类，不进 verify。
+  - 本地（被 git 忽略）：`storage/eval/baseline/` 19 张标注单（标注者：代理）和 `summary.md`、`storage/eval/cases/` 26 张题卡、`storage/eval/report.md`。
+  - 文档：C025 写回施工记录和三条新决定；新 `plan/reference/benchmark-and-ablation.md`（只有聚合数字和归因）；`dev-plan.md` C025 行。
+- 验证：
+  - `backend/` 里 `JAVA_HOME=…openjdk@25… mvn -B clean verify` 退出码 0（Tests run: 662 + IT 1，Failures 0、Errors 0）。
+  - `frontend/` 里 `npm run build` 退出码 0。
+  - `BenchmarkManualCheck` 的 `annotate`、`rescore` 跑过：19 张标注单、`baseline/summary.md`、`report.md` 产出。基线聚合：19 次运行（13 次有字段），字段 504 条（对 364 / 错 7 / 漏填 42 / 不确定 91），正确率 98.1%、召回 88.1%，ask_user 精确率 96.2%（51 / 53），漏问 4，token 合计 73,801,227。
+  - 拦截脚本用 node 加假的 page 对象跑过逻辑；`EvalRecorder` 用虚构值在 jshell 里跑过一次。真实 Playwright 上的拦截：未运行。
+  - 开关关着时不写 `storage/eval/`：读代码路径确认（`HarnessLoop.eval` 为 null 时不建记录、不调拦截）；施工后 `storage/eval/` 下没有 `app/`。
+  - 虚构资料目录已生成：`run` 跑到选题卡就停（没有「能复现：是」的题卡），没有连浏览器、没有调模型；虚构简历用 `AssetAnalyzer.text` 读回，3 个超链接都在。
+  - `run`（真实模型、真实站点）、三组消融、13 个夹具安全底线、用户本机试设置页开关：未运行。未提交。
+
+## 2026-10-31 · C025 纠正：评审模型 = 用户配置的模型
+
+- 指令：用户纠正，benchmark 里需要模型判断的地方都用用户在 JobApply 里配置的模型，不由 Claude 判；19 次运行重新标注，计入预算，旧标注单直接覆盖。
+- 查到：`storage/settings/models.yaml` 的主模型是 provider `my-model-gate`、模型 `open-deepseek-v4.1-flash`（只看了这两个字段，没读 `.env` / `personal.env`）。`run` 模式本来就用 `ModelRegistry.main()`，没有写死的模型。
+- 改：`BenchmarkManualCheck` 的 `annotate` 加模型评审（`Judge`、`JUDGE_PROMPT`、证据拼装、JSON 解析、每批 20 个字段、每批前查预算并记进 `budget.json` 的 `annotate` 组；参数 `judge`、`runs`；模型出错时标注单写「评审没判完」并带原因）；字段清单带上值（只发给评审模型，不写进标注单）。
+- 验证：`annotate -Djobapply.eval.overwrite=true` 跑完 19 张，2 次运行模型请求失败（Request failed、timeout），把每批从 40 改成 20 后用 `-Djobapply.eval.runs=` 重判，全部判完，没有空格。评审共 243,980 token。`rescore` 新基线：字段 504（对 337 / 错 39 / 漏填 41 / 不确定 87），精确率 89.6%、召回 80.8%，ask_user 精确率 71.2%（37 / 52），漏问 34。`mvn -B clean verify` 退出码 0（662 + IT 1，Failures 0、Errors 0）。未提交。
+
+## 2026-11-01 · C025 再纠正：做题 = 用户配置的主模型，判题 = Claude Code
+
+- 指令：用户再次纠正（以此为准）：做题是 JobApply 用设置页配置的主模型跑投递；判题是 Claude Code 读证据逐格判，不在 app 里调用模型判。上一条（用户配置的模型当评审）是转达错误，改回来。
+- 改：`BenchmarkManualCheck` 撤掉 `Judge`、`JUDGE_PROMPT`、证据拼装、JSON 解析、评审计预算和 `judge` / `runs` 参数；`annotate` 回到只生成标注单；预算逻辑只留给 `run`。
+- 判题：重新生成 19 张空标注单，由 Claude Code 逐格判（标注者：Claude（Claude Code）），覆盖上一轮模型评审的标注。`rescore` 新基线：字段 504（对 364 / 错 7 / 漏填 42 / 不确定 91），精确率 98.1%、召回 88.1%，ask_user 精确率 96.2%（51 / 53），漏问 4。
+- 做题模型：19 次运行的记录里没有模型名（`runs/*.json`、`run-log.jsonl`、`events.jsonl` 都没有这个字段），记「记录中无模型名」。
+- 预算：上一轮错误评审用掉的 243,980 token 留在 `storage/eval/budget.json` 的累计里（`annotate` 组），是一次错误评审的消耗，不扣除。
+- 验证：`mvn -B clean verify` 退出码 0（662 + IT 1，Failures 0、Errors 0）。未提交。
+
+## 2026-11-01 · C025 固定站点：跑之前的只读检查（停在连接）
+
+- 指令：用户给了固定测试站点（一个招聘站的简历档案页，用户已在自己的 Chrome 里打开），要求接手这个标签页开始测试；档案页的保存类请求必须全部拦下，起点不干净或拦不住时先停下报告。
+- 改：`BenchmarkManualCheck` 加 `probe` 用法（只读）：连上用户正在运行的 Chrome，按网址找到已开着的标签页、交给评测会话、取一次快照，只报有值 / 空的输入框个数和字段名、保存 / 提交类按钮，不点、不填、不装拦截。
+- 结果：`probe` 连接 30 秒超时（`Disconnected`：Chrome 在等用户允许这次远程调试连接，或没有响应）；9222 端口在监听。没有读到页面，没有对站点发出任何操作。题卡和 run 都没动，等用户在 Chrome 里点允许后重跑 `probe`。
+- 验证：`mvn -B test-compile` 通过；`mvn -B clean verify` 这一步未运行（只加了测试目录里的手动检查）。未提交。
+- 补记（同日）：用户回复 continue 后又跑了两次 `probe`，仍是 `Disconnected`（MCP 的 `initializeServer` 等 Chrome 超时，`--cdp-timeout` 默认 30 秒，多半是 Chrome 在等这一次新连接的「允许」）。期间顺手修了命令行读 `application.yml` 时时长读不成 `Duration`（Binder 补上 Boot 的转换服务），但连接卡在 MCP 自己的 30 秒，不受它影响。没有读到页面、没有对站点做任何操作。每次命令行启动都是一条新连接，要用户在 30 秒内点允许。
+
+## 2026-11-01 · C025 整套评测只连一次 Chrome
+
+- 指令：不接受每次运行都让用户点一次「允许」；整条命令（只读检查 + baseline + 4 个消融组）共用一条 Chrome 远程调试连接，首次连接等待放宽到约 120 秒。
+- 改：`BenchmarkManualCheck` 加 `suite` 用法：一个进程里一个 `BrowserSession`（和 app 一样一个 MCP 服务进程、一条 CDP 连接，各次运行各开一个会话），先只读检查站点，再依次跑 baseline、full-snapshots、no-skills、no-diagnose、keyword-only（`-Djobapply.eval.groups=` 可只跑其中几组），每组 `times` 次，每次运行核对全部「能复现：是」的题卡（成绩表加每张题卡一栏）。开跑前和每次运行前都只读检查一次，档案页有值就停；跑完一次后遇到验证码 / 限流、要登录、拦截没装上就停；每组 20M、累计 200M。`run` 也改用同一套 `runGroup`。命令行的 MCP 启动参数追加 `--cdp-timeout 120000`（MCP 0.0.83 支持，默认 30000），我们这边等连接放到 150 秒；app 的 `application.yml` 没改。
+- 验证：`mvn -B clean verify` 退出码 0（662 + IT 1，Failures 0、Errors 0）。`suite` 未运行（等用户守在 Chrome 前再启动）。未提交。
+
+## 2026-11-01 · C025 固定站点第一次跑整套（停在第 1 次运行）
+
+- 指令：用户守在 Chrome 前说「开始」；跑 `suite`（只读检查 → baseline → 4 个消融组各 3 次），拦下该标签页所有非 GET 请求（`submit-pattern=.`）。
+- 改：`suite` 只读检查后把页面结构写到 `storage/eval/probe.md`，连接留着等题卡标好（`storage/eval/cases-ready`），免得再连一次；组名 baseline 改成 `all-on`（`storage/eval/baseline/` 是历史标注单，这次跑出的一次运行已挪到 `storage/eval/all-on/`）。
+- 只读检查：用户开着的档案页，4 个文本框都空、没有勾选，起点干净。按页面只标了 3 张通用题卡「能复现：是」（K24 结束时无待填、K25 不误提交、K26 C 级不泄露），其余页面上看不到对应区域，保持原样。
+- 跑：一条连接，用户只点了一次允许。baseline 第 1 次运行 86 次模型调用、91 次工具调用、4,499,146 token，停在等用户：页面报「网络异常」、下拉 / 日期 / 勾选点了就回退、上传不显示文件，Agent 请用户确认登录，整套按「要登录」停下，没有往下跑。
+- 拦截：拦下 449 个请求，全是这页自己的非 GET：日志上报 281 次、档案逐字段自动保存（`…/my/resume/info/update`）56 次、简历上传到对象存储 2 次（另有部分是同一路径的重复）；没有拦截装不上的情况，只有一步因为文件选择框开着、取拦截记录失败一次（拦截本身已装上）。C 级出现 0 次。从页面路由看没有保存请求到达站点；WebSocket 和 Service Worker 发的请求不在 `page.route` 里，看不到。
+- 结论：这张档案页每改一个字段就自动保存，保存失败页面就回退；拦下所有非 GET 时表单填不下去，放行保存又会写进用户真实账号。按规则停下，等用户定。
+- 预算：`budget.json` 累计 4,743,126（含之前错误评审的 243,980）。
+- 验证：`mvn -B test-compile` 通过；`clean verify` 这一步未运行（只改了命令行评测类）。未提交。
