@@ -196,6 +196,7 @@ public final class FollowupRunner implements AutoCloseable {
             } catch (RuntimeException e) {
                 error = rootMessage(e);
                 log.warn("Job {} 的后续段出错：{}", jobId, error);
+                SessionRunner.noteCrash(error, turn -> followups.appendTurn(projectId, jobId, turn));
             }
             // 这次做完：关掉它开的页和 MCP 会话，下一次要用时再开
             browser.leave(FollowupLoop.tabOwner(jobId), BrowserSession.Leave.CLOSE_ALL);

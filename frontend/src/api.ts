@@ -594,7 +594,11 @@ export interface ProcessStep {
 
 export type ChatMessage =
   | { role: "user"; text: string; at: string | null; attachments?: SentAttachment[] | null }
-  | { role: "assistant"; text: string | null; tools: ToolStep[]; steps?: ProcessStep[] | null; at: string | null };
+  | {
+    role: "assistant"; text: string | null; tools: ToolStep[]; steps?: ProcessStep[] | null; at: string | null;
+    // C006-fix-final-reply：report 申请线程回报 / 工作台记下的结果（通知卡）；status 一次运行的结束说明；模型的消息没有
+    kind?: "report" | "status" | null;
+  };
 
 // 现在在做什么（C006-agent）；没有时前端退回「对话里最后一个工具」
 export interface Activity {
