@@ -1332,3 +1332,10 @@
   - Master 回写：`ui.md`（对话排版一段）、`agent-runtime.md`（「每次停下都在对话里留一句现在的状态」；子 Agent 回报在界面上是通知卡）。计划标已确认并写施工记录；`dev-plan.md` 行改状态。
 - 验证：`backend/` 里 `JAVA_HOME=…openjdk@25… JOBAPPLY_APP_CONFIG=/tmp/jobapply-nonexistent-app.yaml mvn -B clean verify` 退出码 0（Tests run: 662 + IT 1，Failures 0、Errors 0）；`frontend/` 里 `npm run build` 退出码 0。没启动应用，没调真实模型，没碰用户的 Chrome。界面截图、真实模型下的提示词效果、用户本机试：未运行。未提交。
 
+
+## 2026-11-04 · C017-fix macOS 最低版本
+
+- 指令：让打包出的 App 在 macOS 14 / 15 / 26 上也能用（原产物在 macOS 26 打不开）。
+- 原因：`appbuild/macos/build.sh` 的 `swiftc` 没指定 `-target`，Swift 外壳的最低版本默认取构建机系统（macOS 27.0），Info.plist 的 `LSMinimumSystemVersion 13.0` 不起作用。
+- 结果：`swiftc` 加 `-target arm64-apple-macos13.0`，与 Info.plist 一致。
+- 验证：`appbuild/macos/build.sh` 重新构建；`vtool -show-build` 看外壳 minos 13.0，内嵌 Java 运行时与 node 的 minos 11.0（App 内所有 Mach-O 最高 11.0）；`hdiutil verify` 退出码 0。在 macOS 14/15/26 真机上打开：未运行。Intel Mac 仍不支持（仅 arm64）。
