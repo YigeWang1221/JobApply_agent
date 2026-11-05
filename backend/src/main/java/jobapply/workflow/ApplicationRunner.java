@@ -813,7 +813,7 @@ public final class ApplicationRunner implements AutoCloseable {
         } catch (RuntimeException e) {
             String message = crashMessage(e);
             log.warn("Job {} 的申请线程出错：{}", jobId, message, e);
-            result = runs.find(jobId).orElse(run).failed(message);
+            result = crashed(runs.find(jobId).orElse(run), message);
         }
         if (discarded.contains(jobId)) {
             synchronized (this) {
@@ -830,7 +830,7 @@ public final class ApplicationRunner implements AutoCloseable {
             settle(result);
         } catch (RuntimeException e) {
             log.warn("Job {} 结束时更新台账出错：{}", jobId, rootMessage(e));
-            result = result.failed(rootMessage(e));
+            result = crashed(result, rootMessage(e));
         }
         // 收拾浏览器（C011-fix 2026-10-24）：停在提交前只留填好的那页，等你、出错时页都留着；都关掉焦点模拟和 MCP 会话
         browser.leave(jobId, AgentRun.READY.equals(result.status()) ? BrowserSession.Leave.KEEP_CURRENT
@@ -898,6 +898,12 @@ public final class ApplicationRunner implements AutoCloseable {
         } catch (RuntimeException e) {
             log.warn("Job {} 没有回报给 Session {}：{}", run.job(), run.session(), rootMessage(e));
         }
+    }
+
+    /** 出错停下：记成失败，对话末尾写一句原因和下一步（C006-fix-final-reply），工作台对话里看得到、刷新后也在。 */
+    private static AgentRun crashed(AgentRun run, String message) {
+        return run.failed(message).noted(AgentRun.Turn.status("出错停下了：" + shorten(message, 300)
+                + " 在下面回复，它会再试。"));
     }
 
     /** 这次运行里已经记为已投递了（申请 Agent 的 mark_submitted）或者结束了（record_outcome）。读不出时当作没有。 */

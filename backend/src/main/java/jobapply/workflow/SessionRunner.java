@@ -12,6 +12,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import jobapply.domain.AgentRun;
 import jobapply.domain.Inbox;
@@ -121,6 +122,18 @@ public final class SessionRunner implements AutoCloseable {
         }
         sessions.appendTurn(projectId, sessionId, note);
         events.changed(sessionId, jobId);
+    }
+
+    /**
+     * 出错停下：对话末尾写一句原因（C006-fix-final-reply），刷新、换一轮后历史里还看得出这一轮是出错停的。写不进只记日志。
+     * 后续段（{@link FollowupRunner}）也用。
+     */
+    static void noteCrash(String error, Consumer<AgentRun.Turn> append) {
+        try {
+            append.accept(AgentRun.Turn.status("出错停下了：" + error + " 可以点「重试」，或者再说一遍要做什么。"));
+        } catch (RuntimeException e) {
+            log.warn("出错说明没有写进对话：{}", rootMessage(e));
+        }
     }
 
     /**
@@ -386,6 +399,7 @@ public final class SessionRunner implements AutoCloseable {
             } catch (RuntimeException e) {
                 error = rootMessage(e);
                 log.warn("Session {} 的对话 Agent 出错：{}", sessionId, error);
+                noteCrash(error, turn -> sessions.appendTurn(projectId, sessionId, turn));
             }
             // 这次做完：关掉调研开的页和 MCP 会话，下一次要用时再开（C011-fix 2026-10-24）
             browser.leave(sessionId, BrowserSession.Leave.CLOSE_ALL);

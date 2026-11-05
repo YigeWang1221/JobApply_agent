@@ -107,6 +107,8 @@ import org.springframework.ai.chat.model.ChatResponse;
 public final class HarnessLoop {
 
     static final String STOPPED = "已按你的要求停下。回复后接着做。";
+    /** 模型只回了空文字时给用户的话。 */
+    static final String BLANK_REPLY = "我没有想好下一步。请看一下页面，告诉我接下来做什么。";
 
     private static final Set<String> TEXT_INPUTS = Set.of("textbox", "searchbox", "spinbutton");
     /** 选下拉没选中时结果里的一个选项（{@code PlaywrightMcpClient.choices} 的写法）。 */
@@ -330,7 +332,8 @@ public final class HarnessLoop {
                 loop.add(AgentRun.Turn.page("系统打开岗位页时浏览器没有回应（" + e.getMessage() + "）。用 browser_navigate 再打开一次"
                         + "岗位链接 " + run.url() + "；一直没有回应时用 ask_user 请用户看一下 Chrome。"));
             } catch (BrowserException.ToolFailed e) {
-                return waiting("读不到当前页面（" + e.getMessage() + "）。确认 Chrome 里这个页面开着，然后回复，我再试一次。");
+                String message = "读不到当前页面（" + e.getMessage() + "）。确认 Chrome 里这个页面开着，然后回复，我再试一次。";
+                return told(waiting(message), message);
             }
             seen(latest);
             if (latest != null) {
@@ -362,13 +365,15 @@ public final class HarnessLoop {
         @Override
         public AgentRun answered(String text, String thinking) {
             loop.reply(AgentRun.Turn.assistant(text, List.of(), thinking));
-            return waiting(text == null || text.isBlank() ? "我没有想好下一步。请看一下页面，告诉我接下来做什么。"
-                    : text.strip());
+            if (text == null || text.isBlank()) {
+                return told(waiting(BLANK_REPLY), BLANK_REPLY);
+            }
+            return waiting(text.strip());
         }
 
         @Override
         public AgentRun stopped() {
-            return waiting(STOPPED);
+            return told(waiting(STOPPED), STOPPED);
         }
 
         /** 每轮之后交给调用方存盘。 */
@@ -1210,7 +1215,9 @@ public final class HarnessLoop {
                     ? SubmitWords.SUBMITTED_NOTICE + "请在 Chrome 里核对投递状态和填写报告。"
                     : "请在 Chrome 里核对页面和填写报告，最终提交由你自己点。要修改时直接回复要改什么。";
             String message = (summary == null ? "能填的都填好了。" : summary) + "\n\n" + tail;
-            return ended(call, "这轮填写结束，交给用户审阅。", current -> current.ready(message, submitted));
+            // summary 是模型自己写的，界面上接在这条消息的文字后面（Views）；这里只补一句现在的状态（C006-fix-final-reply）
+            String note = summary == null ? message : tail;
+            return ended(call, "这轮填写结束，交给用户审阅。", current -> told(current.ready(message, submitted), note));
         }
 
         // ---- 报告 ----
@@ -1425,8 +1432,14 @@ public final class HarnessLoop {
          */
         private AgentRun disconnectedRun(AgentRun current, String reason) {
             log(RunLog.Entry.waiting(run.session(), step(), "reconnect", null, null));
-            return current.waiting("浏览器断开：" + reason + "。请确认 Chrome 开着、chrome://inspect/#remote-debugging 里的远程调试开关已经打开，"
-                    + "然后回复（或者先点页面顶部的「重新连接」），我会接着做。", List.of(), List.of());
+            String message = "浏览器断开：" + reason + "。请确认 Chrome 开着、chrome://inspect/#remote-debugging 里的远程调试开关已经打开，"
+                    + "然后回复（或者先点页面顶部的「重新连接」），我会接着做。";
+            return told(current.waiting(message, List.of(), List.of()), message);
+        }
+
+        /** 这次运行不是以模型的文字结束的：对话末尾补一句现在的状态（C006-fix-final-reply），刷新后也在。 */
+        private AgentRun told(AgentRun ended, String status) {
+            return ended.noted(AgentRun.Turn.status(status));
         }
 
         private AgentRun current() {

@@ -1,41 +1,51 @@
 import type { Activity, ChatMessage, ProcessStep, SentAttachment, StepStatus } from "../api";
 import type { IconName } from "./icons";
 
-// 把后端的消息流整理成「一轮」：用户的一句话 + Agent 为它做的过程（思考、工具调用）+ 最后的回复。
+// 把后端的消息流整理成「一轮」：用户的一句话 + Agent 为它做的事。Agent 写的每一段文字都常显；相邻的思考和工具调用
+// 合成一个可折叠的过程块（C006-fix-final-reply，Claude.ai / deep-agents-ui 的做法）。运行的结束说明是这一轮末尾的状态行；
+// 申请线程的回报单独成一张通知卡，不并进上一轮。
 // 后端有 steps 时照用；没有时用旧的 tools（名字、说明、结果首行）拼出来。思考只在 steps 里真的有时出现
 
 export interface Step extends ProcessStep {
   status: StepStatus;
 }
 
-export type Entry = { kind: "step"; step: Step } | { kind: "note"; text: string };
+// text：Agent 的一段话；ask：ask_user 的原话；steps：折叠的过程；status：系统写的结束说明
+export type Block =
+  | { kind: "text" | "ask" | "status"; text: string }
+  | { kind: "steps"; steps: Step[] };
 
 export interface Turn {
   key: string;
   user: { text: string; at: string | null; attachments: SentAttachment[] } | null;
-  entries: Entry[];
+  blocks: Block[];
   steps: Step[];
-  reply: string | null;
-  replyAt: string | null;
-  // ask_user 的原话（参数里有时），用来把回复里的提问单独标出来
-  ask: string | null;
-  asked: boolean;
-  startedAt: string | null;
-  endedAt: string | null;
+  // 申请线程回报 / 工作台记下的结果：整轮只是一张通知卡
+  notice: { text: string; at: string | null } | null;
+  // 这一轮 Agent 写的全部文字（复制用）和最后一条消息的时间
+  text: string;
+  at: string | null;
 }
+
+type AssistantMessage = Extract<ChatMessage, { role: "assistant" }>;
 
 export function toTurns(messages: ChatMessage[], running: boolean): Turn[] {
   const turns: Turn[] = [];
-  let group: { user: Turn["user"]; items: Extract<ChatMessage, { role: "assistant" }>[] } | null = null;
+  let group: { user: Turn["user"]; items: AssistantMessage[] } | null = null;
   const flush = (live: boolean) => {
     if (group) {
       turns.push(build(group.user, group.items, turns.length, live));
     }
+    group = null;
   };
   for (const message of messages) {
     if (message.role === "user") {
       flush(false);
       group = { user: { text: message.text, at: message.at, attachments: message.attachments ?? [] }, items: [] };
+    } else if (message.kind === "report") {
+      flush(false);
+      turns.push({ key: `${turns.length}-notice-${message.at ?? ""}`, user: null, blocks: [], steps: [],
+        notice: { text: message.text ?? "", at: message.at }, text: message.text ?? "", at: message.at });
     } else {
       group ??= { user: null, items: [] };
       group.items.push(message);
@@ -45,44 +55,62 @@ export function toTurns(messages: ChatMessage[], running: boolean): Turn[] {
   return turns;
 }
 
-function build(user: Turn["user"], items: Extract<ChatMessage, { role: "assistant" }>[], index: number,
-  live: boolean): Turn {
-  let replyAt = -1;
-  items.forEach((m, i) => {
-    if (m.text?.trim()) {
-      replyAt = i;
-    }
-  });
-  const entries: Entry[] = [];
+function build(user: Turn["user"], items: AssistantMessage[], index: number, live: boolean): Turn {
+  const blocks: Block[] = [];
   const steps: Step[] = [];
-  items.forEach((m, i) => {
-    if (i !== replyAt && m.text?.trim()) {
-      entries.push({ kind: "note", text: m.text });
+  const texts: string[] = [];
+  const addSteps = (list: Step[]) => {
+    if (list.length === 0) return;
+    steps.push(...list);
+    const prev = blocks[blocks.length - 1];
+    if (prev?.kind === "steps") {
+      prev.steps.push(...list);
+    } else {
+      blocks.push({ kind: "steps", steps: [...list] });
     }
-    for (const step of stepsOf(m, live)) {
-      entries.push({ kind: "step", step });
-      steps.push(step);
+  };
+  for (const m of items) {
+    const text = m.text?.trim() ?? "";
+    if (m.kind === "status") {
+      if (text) blocks.push({ kind: "status", text });
+      continue;
     }
-  });
-  const askStep = steps.find((s) => s.name === "ask_user");
-  const ask = typeof askStep?.args?.message === "string" ? askStep.args.message.trim() : null;
-  const first = steps.find((s) => s.startedAt)?.startedAt ?? user?.at ?? items[0]?.at ?? null;
-  const lastStep = [...steps].reverse().find((s) => s.endedAt)?.endedAt ?? null;
+    const all = stepsOf(m, live);
+    // 思考在这条消息的文字之前，工具调用在之后
+    addSteps(all.filter((s) => s.kind === "thinking"));
+    if (text) {
+      texts.push(text);
+      blocks.push(...textBlocks(text, all));
+    }
+    addSteps(all.filter((s) => s.kind !== "thinking"));
+  }
+  const last = items[items.length - 1];
   return {
     key: `${index}-${user?.at ?? ""}`,
     user,
-    entries,
+    blocks,
     steps,
-    reply: replyAt >= 0 ? items[replyAt].text : null,
-    replyAt: replyAt >= 0 ? items[replyAt].at : items[items.length - 1]?.at ?? null,
-    ask,
-    asked: !!askStep,
-    startedAt: first,
-    endedAt: lastStep ?? items[items.length - 1]?.at ?? null,
+    notice: null,
+    text: texts.join("\n\n"),
+    at: last?.at ?? null,
   };
 }
 
-function stepsOf(message: Extract<ChatMessage, { role: "assistant" }>, live: boolean): Step[] {
+// 一条消息的文字：调了 ask_user 时，末尾的原话单独标成提问；拿不到原话时整段就是提问
+function textBlocks(text: string, steps: Step[]): Block[] {
+  const askStep = steps.find((s) => s.name === "ask_user");
+  if (!askStep) {
+    return [{ kind: "text", text }];
+  }
+  const ask = typeof askStep.args?.message === "string" ? askStep.args.message.trim() : null;
+  if (ask && text.endsWith(ask)) {
+    const lead = text.slice(0, -ask.length).trim();
+    return lead ? [{ kind: "text", text: lead }, { kind: "ask", text: ask }] : [{ kind: "ask", text: ask }];
+  }
+  return [{ kind: "ask", text }];
+}
+
+function stepsOf(message: AssistantMessage, live: boolean): Step[] {
   if (message.steps && message.steps.length > 0) {
     return message.steps
       .filter((s) => s.kind === "tool" || s.text?.trim())
@@ -215,9 +243,9 @@ export function fallbackActivity(turn: Turn | undefined): Activity | null {
   return pending ? { kind: "tool", name: pending.name, summary: pending.summary, since: pending.startedAt } : null;
 }
 
-// 折叠时的标题：「搜索了 3 次，读了 2 个页面，加了 1 个候选 · 用时 40 秒」
-export function summarize(turn: Turn, live: boolean): string {
-  const count = (test: (s: Step) => boolean) => turn.steps.filter(test).length;
+// 一个过程块折叠时的标题：「搜索了 3 次，读了 2 个页面，加了 1 个候选 · 用时 40 秒」
+export function summarize(steps: Step[], live: boolean): string {
+  const count = (test: (s: Step) => boolean) => steps.filter(test).length;
   const tool = (name: string) => (s: Step) => s.name === name;
   const parts: string[] = [];
   const thinking = count((s) => s.kind === "thinking");
@@ -227,7 +255,7 @@ export function summarize(turn: Turn, live: boolean): string {
   const updated = count(tool("update_lead"));
   const browser = count((s) => !!s.name?.startsWith("browser_") && s.name !== "browser_navigate");
   const known = thinking + searches + pages + added + updated + browser;
-  const other = turn.steps.length - known;
+  const other = steps.length - known;
   if (thinking) parts.push("思考");
   if (searches) parts.push(`搜索了 ${searches} 次`);
   if (pages) parts.push(`读了 ${pages} 个页面`);
@@ -239,7 +267,9 @@ export function summarize(turn: Turn, live: boolean): string {
   let text = parts.join("，") || "过程";
   if (failed) text += `（${failed} 步没成功）`;
   if (live) return `${text} · 进行中`;
-  const took = elapsed(turn.startedAt, turn.endedAt);
+  const from = steps.find((s) => s.startedAt)?.startedAt ?? null;
+  const to = [...steps].reverse().find((s) => s.endedAt)?.endedAt ?? null;
+  const took = elapsed(from, to);
   return took ? `${text} · 用时 ${took}` : text;
 }
 

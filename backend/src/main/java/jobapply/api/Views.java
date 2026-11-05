@@ -152,10 +152,19 @@ final class Views {
 
     /**
      * 一条消息。{@code role} 是 {@code user} 或 {@code assistant}；用户的消息 {@code tools}、{@code steps} 为空，
-     * Agent 的消息 {@code attachments} 为空。
+     * Agent 的消息 {@code attachments} 为空。{@code kind}（C006-fix-final-reply）：模型的消息为 null；
+     * {@link #REPORT} 是申请线程回报 / 工作台记下的结果（通知卡，不并进上一轮）；{@link #STATUS} 是一次运行的结束说明。
      */
     record ChatMessage(String role, String text, List<ToolStep> tools, List<ProcessStep> steps, String at,
-                       List<ChatAttachment> attachments) {
+                       List<ChatAttachment> attachments, String kind) {
+
+        static final String REPORT = "report";
+        static final String STATUS = "status";
+
+        ChatMessage(String role, String text, List<ToolStep> tools, List<ProcessStep> steps, String at,
+                    List<ChatAttachment> attachments) {
+            this(role, text, tools, steps, at, attachments, null);
+        }
     }
 
     /** 用户消息附的文件（C006 附件）；{@code url} 读原文件。 */
@@ -414,6 +423,11 @@ final class Views {
                         if ("ask_user".equals(call.name()) && args.get("message") instanceof String message) {
                             text.append(text.isEmpty() ? "" : "\n\n").append(message.strip());
                         }
+                        // finish 的 summary 是模型写给用户的结果：显示在对话里（C006-fix-final-reply），不只在右栏
+                        if ("finish".equals(call.name()) && args.get("summary") instanceof String summary
+                                && !summary.isBlank()) {
+                            text.append(text.isEmpty() ? "" : "\n\n").append(summary.strip());
+                        }
                         open.put(call.id(), tools.size());
                         tools.add(new ToolStep(call.name(), summary(call.name(), args), null));
                         openSteps.put(call.id(), steps.size());
@@ -442,11 +456,15 @@ final class Views {
                     }
                 }
                 case AgentRun.Turn.NOTE -> {
-                    // 申请线程的回报（C006-fix 第 2 节）显示成一条 Agent 消息；别的 note 只给模型看
-                    if (turn.text() != null && turn.text().startsWith(SessionRunner.REPORT)) {
-                        out.add(new ChatMessage(AgentRun.Turn.ASSISTANT,
-                                turn.text().substring(SessionRunner.REPORT.length()), List.of(), List.of(), timed.at(),
-                                List.of()));
+                    // 申请线程的回报（C006-fix 第 2 节）是一张通知卡，结束说明是这一轮末尾的状态行（C006-fix-final-reply）；
+                    // 别的 note 只给模型看
+                    String prefix = turn.text() == null ? null
+                            : turn.text().startsWith(SessionRunner.REPORT) ? SessionRunner.REPORT
+                            : turn.text().startsWith(AgentRun.Turn.STATUS) ? AgentRun.Turn.STATUS : null;
+                    if (prefix != null) {
+                        out.add(new ChatMessage(AgentRun.Turn.ASSISTANT, turn.text().substring(prefix.length()),
+                                List.of(), List.of(), timed.at(), List.of(),
+                                prefix.equals(SessionRunner.REPORT) ? ChatMessage.REPORT : ChatMessage.STATUS));
                         tools = null;
                         steps = null;
                     }

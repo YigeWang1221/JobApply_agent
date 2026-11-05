@@ -1701,10 +1701,6 @@ pre.report {
   gap: 6px;
 }
 
-.process .note {
-  color: var(--ink-2);
-}
-
 .thought {
   display: flex;
   gap: 8px;
@@ -1910,6 +1906,35 @@ pre.report {
   font-weight: 600;
   color: var(--warn-ink);
   margin-bottom: 4px;
+}
+
+/* 一次运行的结束说明（C006-fix-final-reply）：系统按结束原因写的一句现在的状态，常显在这一轮末尾 */
+.runend {
+  border-left: 2px solid var(--line);
+  padding: 0 0 0 12px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+/* 申请线程回报 / 工作台记下的结果：单独一张卡，按到达时间排在对话里 */
+.noticecard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 13.5px;
+}
+
+.noticecard-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
 }
 
 .sources {

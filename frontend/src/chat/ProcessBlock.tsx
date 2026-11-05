@@ -4,30 +4,29 @@ import { go } from "../route";
 import { JobState } from "../status";
 import { Icon, Spinner } from "./icons";
 import { Markdown } from "./Markdown";
-import { describeTool, fetchPreview, leadOf, searchResults, summarize, type Step, type Turn } from "./process";
+import { describeTool, fetchPreview, leadOf, searchResults, summarize, type Step } from "./process";
 
-// 一轮回复上方的「过程」：默认折叠成一句摘要；运行中展开、实时追加。展开后按时间列出思考和每一步工具调用
-export function ProcessBlock({ turn, live, jobs }: { turn: Turn; live: boolean; jobs: JobView[] }) {
+// 一轮里相邻的思考和工具调用（C006-fix-final-reply：Agent 的文字不进这里，常显在外面）：默认折叠成一句摘要；
+// 运行中最后一块展开、实时追加。展开后按时间列出思考和每一步工具调用
+export function ProcessBlock({ steps, live, jobs }: { steps: Step[]; live: boolean; jobs: JobView[] }) {
   const [open, setOpen] = useState(live);
   useEffect(() => setOpen(live), [live]);
-  if (turn.entries.length === 0) {
+  if (steps.length === 0) {
     return null;
   }
   return (
     <div className={`process${open ? " open" : ""}`}>
       <button className="process-head" aria-expanded={open} onClick={() => setOpen(!open)}>
         {live ? <Spinner /> : <Icon name="chevron" size={14} />}
-        <span>{summarize(turn, live)}</span>
+        <span>{summarize(steps, live)}</span>
       </button>
       {open && (
         <ol className="process-list">
-          {turn.entries.map((entry, i) => (
+          {steps.map((step, i) => (
             <li key={i}>
-              {entry.kind === "note"
-                ? <div className="note"><Markdown text={entry.text} /></div>
-                : entry.step.kind === "thinking"
-                  ? <Thinking text={entry.step.text ?? ""} />
-                  : <ToolCard step={entry.step} jobs={jobs} />}
+              {step.kind === "thinking"
+                ? <Thinking text={step.text ?? ""} />
+                : <ToolCard step={step} jobs={jobs} />}
             </li>
           ))}
         </ol>

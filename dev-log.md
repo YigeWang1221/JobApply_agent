@@ -1322,3 +1322,20 @@
 - 做法：storage 复制到草稿目录（排除密钥文件）；HEAD 后端在草稿目录单独构建、起在 18080（`--jobapply.storage.root` 指向副本），Vite 在 5199（临时配置，用完已删）；内置浏览器看全局 / Project Dashboard、申请总表、候选池、侧栏、7 个工作台、3 个 Session，对照 `GET /api/jobs`、`GET /api/projects/2026-season3`。
 - 结果：38 个 Job 全部解析，后端日志无解析错误；19 个申请：看板准备中 5、已投递 11、已结束 2（岗位下线），Failures 2（旧 `not_submitted` 1、跳过候选 1），候选池 18，没有漏掉或重复的。已投递处处只写「已投递」，没有「已结束」；岗位下线不进 Failures；时间线 11、每周 6 + 5、待追踪 8 都对。没有后续段运行记录。读完后副本与原 storage 无差异。没发现要修的错位，未改代码。
 - 验证：`frontend/` 里 `npx tsc --noEmit` 退出码 0；没改代码，`mvn -B clean verify`、`npm run build`：未运行（另一路在用 `backend/target`）。服务器已停。未提交。
+
+## 2026-11-04 · C006-fix 结果与回报（每段文字常显、停下留状态、回报通知卡）
+
+- 指令：用户确认 `plan/coding/02-core-agent/C006-fix-final-reply.md`（1 选 B：每段文字常显、只折思考和工具调用；2 系统按结束原因写结束说明，`finish` 的 summary 进对话；3 回报单独成通知卡、按到达时间排；4 C024 通知同一种卡），要求一次建完、不提交。
+- 结果：
+  - 后端：`AgentRun`（`Turn.STATUS`、`Turn.status`、`noted`）、`HarnessLoop`（`told`：空回复、停止、开场读不到页面、浏览器断开、finish）、`ApplicationRunner`（`crashed`：出错两处）、`SessionRunner.noteCrash`（Session 出错；`FollowupRunner` 后续段出错也用）、`Views`（`ChatMessage.kind`：report / status；finish 的 summary 拼进文字）、`ResearchAgent` / `ApplyAgent` / `FollowupAgent` 提示词。
+  - 前端：`api.ts`（`kind`）、`chat/process.ts`（`Turn.blocks`、`notice`）、`chat/ProcessBlock.tsx`（只收 steps）、`chat/MessageList.tsx`（按块渲染、`NoticeCard`、结束说明行、出错时不重复原因）、`styles.css`。
+  - Master 回写：`ui.md`（对话排版一段）、`agent-runtime.md`（「每次停下都在对话里留一句现在的状态」；子 Agent 回报在界面上是通知卡）。计划标已确认并写施工记录；`dev-plan.md` 行改状态。
+- 验证：`backend/` 里 `JAVA_HOME=…openjdk@25… JOBAPPLY_APP_CONFIG=/tmp/jobapply-nonexistent-app.yaml mvn -B clean verify` 退出码 0（Tests run: 662 + IT 1，Failures 0、Errors 0）；`frontend/` 里 `npm run build` 退出码 0。没启动应用，没调真实模型，没碰用户的 Chrome。界面截图、真实模型下的提示词效果、用户本机试：未运行。未提交。
+
+
+## 2026-11-04 · C017-fix macOS 最低版本
+
+- 指令：让打包出的 App 在 macOS 14 / 15 / 26 上也能用（原产物在 macOS 26 打不开）。
+- 原因：`appbuild/macos/build.sh` 的 `swiftc` 没指定 `-target`，Swift 外壳的最低版本默认取构建机系统（macOS 27.0），Info.plist 的 `LSMinimumSystemVersion 13.0` 不起作用。
+- 结果：`swiftc` 加 `-target arm64-apple-macos13.0`，与 Info.plist 一致。
+- 验证：`appbuild/macos/build.sh` 重新构建；`vtool -show-build` 看外壳 minos 13.0，内嵌 Java 运行时与 node 的 minos 11.0（App 内所有 Mach-O 最高 11.0）；`hdiutil verify` 退出码 0。在 macOS 14/15/26 真机上打开：未运行。Intel Mac 仍不支持（仅 arm64）。

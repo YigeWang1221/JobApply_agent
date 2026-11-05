@@ -117,6 +117,14 @@ public record AgentRun(
                 files, round, usage, error, conversation, lastPage);
     }
 
+    /** 对话末尾追加一条（结束说明，C006-fix-final-reply）。 */
+    public AgentRun noted(Turn turn) {
+        List<Turn> turns = new ArrayList<>(conversation);
+        turns.add(turn);
+        return new AgentRun(project, job, session, company, title, url, status, message, questions, fileSlots,
+                state, files, round, usage, error, turns, lastPage);
+    }
+
     /** 记下浏览器那边的状态（每轮存盘前由申请循环更新）。 */
     public AgentRun withLastPage(LastPage lastPage) {
         return new AgentRun(project, job, session, company, title, url, status, message, questions, fileSlots,
@@ -171,6 +179,12 @@ public record AgentRun(
         public static final String PAGE = "page";
         public static final String ASSISTANT = "assistant";
         public static final String TOOL = "tool";
+        /**
+         * 结束说明（C006-fix-final-reply）：一次运行不是以模型的文字结束时（停止、浏览器断开、出错、模型只回了空文字、
+         * 工作台 finish），系统按结束原因写的一句现在的状态。存成以它开头的 note；界面显示成这一轮末尾的状态行，
+         * 模型下一次也看得到。
+         */
+        public static final String STATUS = "系统说明（这次运行怎么停下的，不是用户说的话）：";
 
         public Turn {
             calls = calls == null ? List.of() : List.copyOf(calls);
@@ -196,6 +210,11 @@ public record AgentRun(
 
         public static Turn note(String text) {
             return new Turn(NOTE, text, null, null);
+        }
+
+        /** 结束说明（{@link #STATUS}）。 */
+        public static Turn status(String text) {
+            return note(STATUS + text);
         }
 
         public static Turn page(String text) {
