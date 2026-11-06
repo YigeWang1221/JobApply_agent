@@ -124,6 +124,11 @@ public record StorageLayout(Path root) {
         return settingsDir().resolve("workers.yaml");
     }
 
+    /** 查看投递状态的间隔天数（C026，设置页 / Dashboard 写入）。 */
+    public Path checksYaml() {
+        return settingsDir().resolve("checks.yaml");
+    }
+
     /** 工具调用上限（C018，设置页写入）。 */
     public Path toolCallsYaml() {
         return settingsDir().resolve("tool-calls.yaml");

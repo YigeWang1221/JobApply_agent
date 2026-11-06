@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * 工作台的后续段（C022）：读对话和状态、发消息（后台跑，返回 202）、附件、停止。推送和投递段同一条
+ * 工作台的后续段（C022）：读对话和状态、发消息（后台跑，返回 202）、查状态（C026）、附件、停止。推送和投递段同一条
  * {@code GET /api/events?job=<id>}。还没投递时发消息 409。
  */
 @RestController
@@ -67,6 +67,13 @@ public class FollowupController {
     @GetMapping("/attachments/{attachmentId}")
     public ResponseEntity<Resource> attachment(@PathVariable String id, @PathVariable String attachmentId) {
         return Views.attachmentFile(runner.attachments(id), attachmentId);
+    }
+
+    /** 查一次官网上的状态（C026）：往后续段发一条「查状态：」消息，后台跑，返回 202。没投递 / 已结束时 409。 */
+    @PostMapping("/check")
+    public ResponseEntity<FollowupView> check(@PathVariable String id) {
+        runner.check(id);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(view(runner, id));
     }
 
     @PostMapping("/stop")

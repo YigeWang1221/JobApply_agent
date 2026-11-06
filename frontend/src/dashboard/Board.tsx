@@ -1,8 +1,8 @@
 import { useState } from "react";
 import type { JobView } from "../api";
 import { go } from "../route";
-import { OUTCOME, phaseText, RunChip } from "../status";
-import { applications, BOARD_PHASES, lane } from "./metrics";
+import { CheckChip, OUTCOME, phaseText, portalTitle, RunChip, stageText } from "../status";
+import { applications, BOARD_PHASES, lane, md } from "./metrics";
 
 // 一列最多先显示这么多张，多的折起「还有 N 张」（C024-fix）
 const FOLD_AT = 6;
@@ -37,19 +37,27 @@ export function Board({ jobs, showProject }: { jobs: JobView[]; showProject?: bo
               <div key={phase} className="col">
                 <div className="colh"><b>{name}</b><span>{items.length}</span></div>
                 {items.length === 0 && <div className="empty colempty">暂无</div>}
-                {shown.map((job) => (
-                  <button key={job.id} className="bcard line" onClick={() => go({ kind: "job", id: job.id })}
-                    title={[`${job.company} · ${job.title}`, job.city.join("、"), showProject ? job.project : null, job.type,
-                      stateText(job), job.phase === "closed" && job.outcomeReason ? `原因：${job.outcomeReason}` : null]
-                      .filter(Boolean).join("\n")}>
-                    <span className="nm"><b>{job.company}</b> · {job.title}</span>
-                    <span className="st">
-                      <span className="dtext">{stateText(job)}</span>
-                      {job.due && <span className="chip wait">该查看了</span>}
-                      <RunChip job={job} />
-                    </span>
-                  </button>
-                ))}
+                {shown.map((job) => {
+                  // 动态阶段（C026）：和列名不同才写在标题下面（例如「面试中」列里的「二面」）
+                  const stage = stageText(job);
+                  const portal = job.portalCheck?.result === "found" && job.portalCheck.stage
+                    ? `官网：${job.portalCheck.stage}${portalTitle(job) ? `\n${portalTitle(job)}` : ""}` : null;
+                  return (
+                    <button key={job.id} className="bcard line" onClick={() => go({ kind: "job", id: job.id })}
+                      title={[`${job.company} · ${job.title}`, job.city.join("、"), showProject ? job.project : null, job.type,
+                        stateText(job), job.phase === "closed" && job.outcomeReason ? `原因：${job.outcomeReason}` : null,
+                        portal, job.lastCheckedAt ? `最近查看 ${md(job.lastCheckedAt)}` : null]
+                        .filter(Boolean).join("\n")}>
+                      <span className="nm"><b>{job.company}</b> · {job.title}</span>
+                      <span className="st">
+                        <span className="dtext">{stateText(job)}</span>
+                        <CheckChip job={job} />
+                        <RunChip job={job} />
+                      </span>
+                      {job.phase !== "closed" && stage !== name && stage !== stateText(job) && <span className="bstage">{stage}</span>}
+                    </button>
+                  );
+                })}
                 {items.length > FOLD_AT && (
                   <button className="linkbtn colmore" onClick={() => {
                     const next = new Set(unfolded);

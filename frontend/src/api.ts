@@ -82,6 +82,15 @@ export interface Provider {
   models: string[];
   tested: TestRecord[];
   usedBy: string[];
+  headers: ProviderHeader[];
+}
+
+// 自定义请求头（C025）：密钥头的 value 为 null，set 表示 .env 里有没有值
+export interface ProviderHeader {
+  name: string;
+  value: string | null;
+  secret: boolean;
+  set: boolean;
 }
 
 export interface Assignment {
@@ -462,7 +471,46 @@ export interface JobView {
   canReopen: boolean;
   // 后续段（C022）的运行状态：running / idle / interrupted；没投递过（没有后续段）或后端没带时为 null（C024-fix）
   followup?: "running" | "idle" | "interrupted" | null;
+  // 查官网状态（C026）：最近一次查到的、等用户核准的建议、最近核准的官网阶段名、是否在排队 / 在查
+  portalCheck?: PortalCheck | null;
+  proposal?: StatusProposal | null;
+  portalStage?: string | null;
+  checking?: "queued" | "running" | null;
 }
+
+// 查官网状态（C026）：Agent 只记建议，用户在核准列表里核准后才改阶段
+export type PortalCheck = {
+  result: "found" | "needs_login" | "not_found";
+  stage: string | null;
+  quote: string | null;
+  url: string | null;
+  checkedAt: string;
+};
+
+export type StatusProposal = {
+  stage: string | null;
+  quote: string | null;
+  url: string | null;
+  at: string;
+  phase: string | null;
+  outcome: string | null;
+  round: { name: string; type: string; result: string | null } | null;
+};
+
+export type StatusChecks = {
+  queued: string[];
+  running: string[];
+  done: string[];
+  total: number;
+  found: number;
+  needsLogin: number;
+  notFound: number;
+  skipped: { jobId: string; reason: string }[];
+};
+
+export type ProposalResult = { done: string[]; failed: { jobId: string; reason: string }[] };
+
+export type ProjectCheckDays = { days: number | null; global: number; effective: number };
 
 // 用户在工作台里记的两种结果（C024）
 export type OutcomeKind = "apply_failed" | "gave_up";
@@ -726,6 +774,8 @@ export const api = {
   deleteProvider: (id: string) => request<void>("DELETE", `${MODELS}/providers/${encodeURIComponent(id)}`),
   saveKey: (id: string, key: string) =>
     request<{ keyLast4: string }>("PUT", `${MODELS}/providers/${encodeURIComponent(id)}/key`, { key }),
+  saveHeaders: (id: string, headers: { name: string; value: string; secret: boolean }[]) =>
+    request<Provider>("PUT", `${MODELS}/providers/${enc(id)}/headers`, { headers }),
   catalog: (id: string) => request<{ models: string[] }>("POST", `${MODELS}/providers/${encodeURIComponent(id)}/catalog`),
   test: (id: string, model: string) =>
     request<TestResult>("POST", `${MODELS}/providers/${encodeURIComponent(id)}/test`, { model }),
@@ -833,6 +883,20 @@ export const api = {
   followupAttachment: (jobId: string, file: File) =>
     uploadFile<Attachment>(`/api/jobs/${enc(jobId)}/followup/attachments`, file),
   stopFollowup: (jobId: string) => request<FollowupView>("POST", `/api/jobs/${enc(jobId)}/followup/stop`),
+  // 查官网状态（C026）：单个（工作台）、批量排队 / 进度 / 停止、核准 / 驳回建议、查看间隔（全局 / Project）
+  checkStatus: (jobId: string) => request<FollowupView>("POST", `/api/jobs/${enc(jobId)}/followup/check`),
+  statusChecks: () => request<StatusChecks>("GET", "/api/status-checks"),
+  startStatusChecks: (jobIds: string[]) => request<StatusChecks>("POST", "/api/status-checks", { jobIds }),
+  stopStatusChecks: () => request<StatusChecks>("POST", "/api/status-checks/stop"),
+  approveProposals: (jobIds: string[]) => request<ProposalResult>("POST", "/api/status-proposals/approve", { jobIds }),
+  rejectProposals: (jobIds: string[]) => request<ProposalResult>("POST", "/api/status-proposals/reject", { jobIds }),
+  checkSettings: () => request<{ days: number; defaultDays: number }>("GET", "/api/settings/checks"),
+  saveCheckSettings: (days: number) =>
+    request<{ days: number; defaultDays: number }>("PUT", "/api/settings/checks", { days }),
+  projectCheckDays: (projectId: string) =>
+    request<ProjectCheckDays>("GET", `/api/projects/${enc(projectId)}/check-days`),
+  saveProjectCheckDays: (projectId: string, days: number | null) =>
+    request<ProjectCheckDays>("PUT", `/api/projects/${enc(projectId)}/check-days`, { days }),
   // 没有主人的标签页（只给界面看）；把其中一个交给这个申请：标签页变了或者有主人了时 409
   freeTabs: () => request<{ tabs: BrowserTab[] }>("GET", "/api/browser/tabs"),
   handOverTab: (jobId: string, tab: BrowserTab) =>

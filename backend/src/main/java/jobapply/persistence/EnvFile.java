@@ -104,8 +104,15 @@ public final class EnvFile {
     }
 
     public synchronized void set(String name, String value) {
+        setUnchecked(name, checkValue(value));
+    }
+
+    /** 不做 Key 的检查（{@link PersonalEnv} 自己检查过值，允许 {@code =} 和 {@code #}，C025）。值不能含换行。 */
+    synchronized void setUnchecked(String name, String checked) {
         requireName(name);
-        String checked = checkValue(value);
+        if (checked.chars().anyMatch(c -> c == '\n' || c == '\r' || c == 0)) {
+            throw new IllegalArgumentException("值不能含换行");
+        }
         List<String> lines = new ArrayList<>();
         boolean replaced = false;
         for (String line : lines()) {

@@ -7,6 +7,21 @@ import { GROUPS } from "./ImportReview";
 
 const SECTION_IDS = ["directions", "skills", "highlights", "positioning"];
 
+// 单值事实的组合框建议（C025）：按键名末段认，仍可手填
+const SUGGESTIONS: Record<string, string[]> = {
+  gender: ["男", "女"],
+  degree: ["大专", "本科", "硕士", "博士"],
+  political_status: ["群众", "共青团员", "中共预备党员", "中共党员"],
+  study_mode: ["全日制", "非全日制"],
+  marital_status: ["未婚", "已婚"],
+};
+
+function suggestionsFor(key: string): { name: string; options: string[] } | null {
+  const name = (key.split(".").pop() ?? "").toLowerCase();
+  const options = SUGGESTIONS[name];
+  return options ? { name, options } : null;
+}
+
 // 「资料」页的「事实与画像」：事实层按组浏览，项目卡中英对照修改，生成和确认画像（C004-A-2）
 export default function Profile() {
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -54,7 +69,7 @@ export default function Profile() {
 }
 
 function Unreviewed({ reviewed, lang, present }: { reviewed: string[]; lang: "zh" | "en"; present: boolean }) {
-  return present && !reviewed.includes(lang) ? <span className="warn small"> 未审阅</span> : null;
+  return present && !reviewed.includes(lang) ? <> <span className="chip wait">未审阅</span></> : null;
 }
 
 function FactRow({ fact, onSaved }: { fact: ProfileFact; onSaved: () => void }) {
@@ -66,6 +81,8 @@ function FactRow({ fact, onSaved }: { fact: ProfileFact; onSaved: () => void }) 
   const changed = fact.value !== null ? value !== fact.value : zh !== (fact.zh ?? "") || en !== (fact.en ?? "");
   const unreviewed = fact.value === null && ((!!fact.zh && !fact.reviewed.includes("zh"))
     || (!!fact.en && !fact.reviewed.includes("en")));
+  const suggest = fact.value !== null ? suggestionsFor(fact.key) : null;
+  const listId = suggest ? `fact-options-${fact.key}` : undefined;
 
   async function save(body: Parameters<typeof api.editFact>[1]) {
     try {
@@ -81,8 +98,13 @@ function FactRow({ fact, onSaved }: { fact: ProfileFact; onSaved: () => void }) 
     <div className="provider">
       <div className="provider-head">
         <div>
-          <strong className="mono">{fact.key}</strong>
-          {fact.class === "B" && <span className="muted small"> · 个人信息（B 级）</span>}
+          <div className="fact-head">
+            <span className="mono small">{fact.key}</span>
+            <span className={fact.class === "B" ? "chip inp" : "chip muted"}>
+              {fact.class === "B" ? "个人信息（B 级）" : "A"}
+            </span>
+            {unreviewed && <span className="chip wait">未审阅</span>}
+          </div>
           <div className="muted small">
             {fact.source ?? "—"}{fact.sourceDeleted && "（来源已删除）"}
             {fact.claim && ` · 论断 ${fact.claim}`}{fact.confirmedAt && ` · ${fact.confirmedAt} 确认`}
@@ -90,7 +112,14 @@ function FactRow({ fact, onSaved }: { fact: ProfileFact; onSaved: () => void }) 
         </div>
       </div>
       {fact.value !== null ? (
-        <div className="row"><input value={value} onChange={(e) => setValue(e.target.value)} /></div>
+        <div className="row">
+          <input value={value} list={listId} onChange={(e) => setValue(e.target.value)} />
+          {suggest && (
+            <datalist id={listId}>
+              {suggest.options.map((option) => <option key={option} value={option} />)}
+            </datalist>
+          )}
+        </div>
       ) : (
         <div className="form-grid bilingual">
           <label><span className="muted small">中文<Unreviewed reviewed={fact.reviewed} lang="zh" present={!!fact.zh} /></span>
@@ -101,7 +130,7 @@ function FactRow({ fact, onSaved }: { fact: ProfileFact; onSaved: () => void }) 
       )}
       <div className="row">
         {changed && (
-          <button onClick={() => void save(fact.value !== null ? { value } : { zh, en })}>保存</button>
+          <button className="primary" onClick={() => void save(fact.value !== null ? { value } : { zh, en })}>保存</button>
         )}
         {!changed && unreviewed && (
           <button onClick={() => void save({ reviewed: [fact.zh && "zh", fact.en && "en"].filter(Boolean) as string[] })}>
@@ -183,7 +212,7 @@ function CardView({ card, onSaved }: { card: ProfileCard; onSaved: () => void })
         )))}
       </div>
       <div className="row">
-        {changed && <button onClick={() => void save(false)}>保存</button>}
+        {changed && <button className="primary" onClick={() => void save(false)}>保存</button>}
         <button onClick={() => void save(true)}>{changed ? "保存并标为已审阅" : "标为已审阅"}</button>
       </div>
       {error && <p className="error">{error}</p>}
@@ -306,8 +335,8 @@ function Summary({ profile, onSaved }: { profile: ProfileData; onSaved: () => vo
       )}
       <div className="row">
         <button disabled={busy} onClick={() => void generate()}>{busy && !candidate ? "生成中…" : "生成画像"}</button>
-        {candidate && <button disabled={busy} onClick={() => void confirm()}>确认替换</button>}
-        {candidate && <button disabled={busy} onClick={() => setCandidate(null)}>放弃</button>}
+        {candidate && <button className="primary" disabled={busy} onClick={() => void confirm()}>确认替换</button>}
+        {candidate && <button className="ghost" disabled={busy} onClick={() => setCandidate(null)}>放弃</button>}
       </div>
       {error && <p className="error">{error}</p>}
     </section>

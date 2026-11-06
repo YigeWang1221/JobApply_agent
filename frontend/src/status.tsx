@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { api, errorText, type JobView, type OutcomeKind, type RoundView } from "./api";
+import {
+  api, errorText, type JobView, type OutcomeKind, type RoundView, type StatusProposal,
+} from "./api";
 import { toast } from "./toast";
 
 // 状态的中文说法和小标签，几个页面共用。三个领域各管各的（C024-fix，tracking.md「三个领域的状态」）：
@@ -193,6 +195,94 @@ export function phaseText(job: JobView): string {
   return PHASE[job.phase ?? ""] ?? labelText(job.label);
 }
 
+// 官网状态检查（C026）：这次查的结果
+export const PORTAL: Record<string, string> = {
+  found: "已查到",
+  needs_login: "要手动登录",
+  not_found: "没找到状态页",
+};
+
+// 查看时间：本地时间 MM-DD HH:mm
+export function checkedTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return iso;
+  }
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;
+}
+
+// 动态阶段（C026）：结束了写结局；有轮次写最新一轮的叫法（公司 / 官网自己的，例如「OA2」「一面」）；否则写阶段
+export function stageText(job: JobView): string {
+  if (job.phase === "closed") {
+    return phaseText(job);
+  }
+  const rounds = job.rounds ?? [];
+  if (job.phase !== "prep" && rounds.length > 0) {
+    return rounds[rounds.length - 1].name;
+  }
+  return phaseText(job);
+}
+
+// 官网状态检查的小 chip（C026）：查状态中 → 待核准 → 要手动登录 → 没找到状态页 → 该查看了；都没有就不挂
+export function CheckChip({ job }: { job: JobView }) {
+  const check = job.portalCheck ?? null;
+  const when = check ? `\n查看于 ${checkedTime(check.checkedAt)}` : "";
+  if (job.checking) {
+    return <span className="chip rev">{job.checking === "running" ? "查状态中" : "排队查状态"}</span>;
+  }
+  if (job.proposal) {
+    const quote = job.proposal.quote ? `\n「${job.proposal.quote}」` : "";
+    return <span className="chip wait" title={`${proposalText(job.proposal)}${quote}`}>待核准</span>;
+  }
+  if (job.phase !== "closed" && check?.result === "needs_login") {
+    return <span className="chip wait" title={`官网要登录，Agent 不替你登录；在 Chrome 里登录后再查${when}`}>要手动登录</span>;
+  }
+  if (job.phase !== "closed" && check?.result === "not_found") {
+    return <span className="chip bad" title={`Agent 没找到这份申请的状态页${when}`}>没找到状态页</span>;
+  }
+  if (job.due) {
+    return <span className="chip wait">该查看了</span>;
+  }
+  return null;
+}
+
+// 官网上看到的阶段（C026）：悬停看原话和查看时间
+export function portalTitle(job: JobView): string | undefined {
+  const check = job.portalCheck;
+  if (!check || check.result !== "found") {
+    return undefined;
+  }
+  return [check.quote ? `「${check.quote}」` : null, `查看于 ${checkedTime(check.checkedAt)}`]
+    .filter(Boolean).join("\n");
+}
+
+const ROUND_TYPE: Record<string, string> = {
+  "screen-call": "电话初筛", oa: "OA", "written-test": "笔试", assessment: "测评", technical: "技术面", coding: "编程面",
+  "system-design": "系统设计面", behavioral: "行为面", manager: "主管面", hr: "HR 面", final: "终面", "offer-call": "Offer 沟通",
+  other: "其它",
+};
+
+// 建议的改动（不带官网的叫法）：记一轮「笔试」/ 面试中 / 被拒
+export function proposalAction(p: StatusProposal): string {
+  if (p.outcome) {
+    return OUTCOME[p.outcome] ?? p.outcome;
+  }
+  if (p.round) {
+    const result = p.round.result && p.round.result !== "pending" ? ` · ${ROUND_RESULT[p.round.result] ?? p.round.result}` : "";
+    return `记一轮「${p.round.name || ROUND_TYPE[p.round.type] || p.round.type}」${result}`;
+  }
+  if (p.phase) {
+    return PHASE[p.phase] ?? p.phase;
+  }
+  return "不改阶段";
+}
+
+// 官网状态建议的一句话（C026）：「官网：笔试中 → 记一轮「笔试」」
+export function proposalText(p: StatusProposal): string {
+  return `官网：${p.stage ?? "—"} → ${proposalAction(p)}`;
+}
+
 const APPLICATION_CHIP: Record<string, string> = {
   queued: "rev",
   running: "rev",
@@ -273,22 +363,30 @@ export function VerifiedChip({ verified }: { verified: JobView["verified"] }) {
 
 // 一个 Job 现在走到哪：候选状态，或者申请的阶段和 prep 状态。
 // compact（右栏列表，C023-A）：只显示一个 chip，申请线程还在动时显示它的状态，否则显示阶段；另一个放进 title
-export function JobState({ job, compact }: { job: JobView; compact?: boolean }) {
+// noCheck：调用方自己挂了 CheckChip（工作台头部），这里不再重复
+export function JobState({ job, compact, noCheck }: { job: JobView; compact?: boolean; noCheck?: boolean }) {
   if (job.leadStatus !== "converted") {
     return <LeadChip status={job.leadStatus} />;
   }
-  const phase = phaseText(job);
+  const phase = stageText(job);
+  const check = noCheck ? null : <CheckChip job={job} />;
   if (compact) {
     const app = job.application && job.application !== "done" ? job.application : null;
     const both = app ? `${phase} · ${APPLICATION[app] ?? app}` : phase;
-    return app
-      ? <span className={`chip ${APPLICATION_CHIP[app] ?? ""}`} title={both}>{APPLICATION[app] ?? app}</span>
-      : <span className="chip" title={both}>{phase}</span>;
+    return (
+      <>
+        {app
+          ? <span className={`chip ${APPLICATION_CHIP[app] ?? ""}`} title={both}>{APPLICATION[app] ?? app}</span>
+          : <span className="chip" title={both}>{phase}</span>}
+        {check}
+      </>
+    );
   }
   return (
     <>
       <span className="chip">{phase}</span>
       <RunChip job={job} />
+      {check}
     </>
   );
 }

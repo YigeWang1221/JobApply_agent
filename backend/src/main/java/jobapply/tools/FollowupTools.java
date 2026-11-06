@@ -19,6 +19,8 @@ public final class FollowupTools {
     public static final String RECORD_STATUS = "record_status";
     public static final String RECORD_ROUND = "record_round";
     public static final String SAVE_REVIEW = "save_review";
+    /** 查状态（C026）：只记下官网上看到的，阶段变化只是建议，等用户核准。 */
+    public static final String RECORD_PORTAL_CHECK = "record_portal_check";
     /** 投递失败 / 不投了（C024）：工作台两段都有，由 {@code WorkbenchTools} 执行。 */
     public static final String RECORD_OUTCOME = "record_outcome";
     public static final String READ_RESUME = ControlTools.READ_RESUME;
@@ -91,6 +93,30 @@ public final class FollowupTools {
                     "result":{"type":"string","enum":["pending","passed","failed","cancelled"]},\
                     "result_source":{"type":"string","enum":["user","portal","email","recruiter"]},\
                     "note":{"type":"string","description":"the user's words"}}}"""),
+            definition(RECORD_PORTAL_CHECK,
+                    "Record what a status check (a message starting with 查状态：) found on the careers portal. Read "
+                            + "only: never log in, type credentials or submit. result: found (you saw this "
+                            + "application's status), needs_login (login form / captcha / password field; stop there) "
+                            + "or not_found (no status page found). With found: stage = the portal's own label as shown "
+                            + "(e.g. 筛选通过, 笔试中, Under Review), quote = a short original text, url = the page. "
+                            + "When it differs from the current stage, also propose phase / outcome / round (round "
+                            + "reuses record_round's types, e.g. {name: OA2, type: oa}). This is only a proposal: the "
+                            + "user approves it; nothing changes until then. Never call record_status or record_round "
+                            + "in a status check.",
+                    """
+                    {"type":"object","properties":{\
+                    "result":{"type":"string","enum":["found","needs_login","not_found"]},\
+                    "stage":{"type":"string","description":"the portal's own stage label"},\
+                    "quote":{"type":"string","description":"short original text from the page"},\
+                    "url":{"type":"string"},\
+                    "phase":{"type":"string","enum":["screening","assessment","interview","offer"]},\
+                    "outcome":{"type":"string","enum":["rejected","accepted","declined","withdrawn","posting_closed"]},\
+                    "round":{"type":"object","properties":{\
+                    "name":{"type":"string","description":"the portal's name for it, e.g. OA2, 一面"},\
+                    "type":{"type":"string","enum":["screen-call","oa","written-test","assessment","technical",\
+                    "coding","system-design","behavioral","manager","hr","final","offer-call","other"]},\
+                    "result":{"type":"string","enum":["pending","passed","failed"]}},"required":["name","type"]}},\
+                    "required":["result"]}"""),
             definition(SAVE_REVIEW,
                     "Write the review of one round (record_round it first) as rounds/<seq>-<type>.md, from what the "
                             + "user told you: what happened, each question with topics and a canonical id, the user's "
@@ -142,7 +168,7 @@ public final class FollowupTools {
                     {"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}"""),
             ControlTools.REMEMBER_DEFINITION);
 
-    private static final Set<String> NAMES = Set.of(RECORD_STATUS, RECORD_ROUND, SAVE_REVIEW, READ_RESUME, READ_JD,
+    private static final Set<String> NAMES = Set.of(RECORD_STATUS, RECORD_ROUND, RECORD_PORTAL_CHECK, SAVE_REVIEW, READ_RESUME, READ_JD,
             ASK_USER, READ_SKILL, REMEMBER);
 
     private FollowupTools() {

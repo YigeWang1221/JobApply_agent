@@ -245,6 +245,10 @@ C004-B 做出来的是「Java 写死的流程，中间加了 LLM」：
 - 两段都有 `record_outcome(kind: apply_failed | gave_up, reason)`（用户确认，2026-10-31，C024）：只在用户明确说了时记，reason 是用户原话；用户没说原因先 `ask_user` 问。Agent 自己在页面上看到像是投不成时不记，用 `ask_user` 把页面原文给用户，由用户决定。执行和工作台按钮是同一个 `JobLedger.recordOutcome`，记下后往 Session 写一条系统通知（不唤醒模型）。Session Agent 不带这个工具。
 - 后续段只在投递过之后才有（`applied_at` 或投递证据在，或者在投递以后的阶段）；准备中就结束的申请没有后续段（C024）。
 - Session 对话 Agent 只管找岗位、调研和候选池，不再带后续工具。
+- **查状态**（用户确认，2026-11-05，C026）：
+  - 后续段多一种运行：系统写一条以「查状态：」开头的消息开场，单个或批量都是这样开始；批量排队，并发用设置页的 N / 每站 M。
+  - 工具 `record_portal_check(result, stage, quote, url, phase?, outcome?, round?)`，只记建议，用户核准后才改阶段。
+  - 遇到登录不 `ask_user`，记 `needs_login` 后停下。查状态时不调 `record_status` / `record_round`。
 
 ## 8. 运行时的结构规则（用户确认，2026-10-23）
 

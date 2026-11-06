@@ -2,6 +2,19 @@ import { useEffect, useState } from "react";
 import { api, errorText, type ToolCallSettings as Settings } from "../api";
 import { toast } from "../toast";
 
+// 组合框的建议项：可选也可手填整数
+function Suggestions({ id, defaultValue }: { id: string; defaultValue: number }) {
+  return (
+    <datalist id={id}>
+      <option value="不限" />
+      <option value="50" />
+      <option value="100" />
+      <option value="200" />
+      <option value={`默认（${defaultValue}）`} />
+    </datalist>
+  );
+}
+
 // 设置页「工具调用上限」（C018）：申请每次运行、对话每条消息最多几次工具调用。留空或 0 = 不限。保存后马上生效
 export default function ToolCallSettings() {
   const [current, setCurrent] = useState<Settings | null>(null);
@@ -20,10 +33,12 @@ export default function ToolCallSettings() {
     api.toolCallSettings().then(show, (e) => setError(errorText(e)));
   }, []);
 
-  // 留空 = 0 = 不限；不是非负整数时为 null
+  // 留空 / 0 /「不限」= 0 = 不限；「默认（N）」= N；不是非负整数时为 null
   function parse(text: string): number | null {
     const value = text.trim();
-    if (value === "") return 0;
+    if (value === "" || value === "不限") return 0;
+    const preset = /^默认[（(]\s*(\d+)\s*[）)]$/.exec(value);
+    if (preset) return Number(preset[1]);
     return /^\d+$/.test(value) ? Number(value) : null;
   }
 
@@ -60,21 +75,23 @@ export default function ToolCallSettings() {
       <div className="form-grid">
         <label>
           申请：每次运行最多几次（默认 {current.defaultPerRun}）
-          <input type="text" inputMode="numeric" placeholder="不限" value={perRun}
+          <input type="text" inputMode="numeric" placeholder="不限" value={perRun} list="tool-call-run-options"
             onChange={(e) => setPerRun(e.target.value)} />
+          <Suggestions id="tool-call-run-options" defaultValue={current.defaultPerRun} />
         </label>
         <label>
           对话：每条消息最多几次（默认 {current.defaultPerMessage}）
-          <input type="text" inputMode="numeric" placeholder="不限" value={perMessage}
+          <input type="text" inputMode="numeric" placeholder="不限" value={perMessage} list="tool-call-message-options"
             onChange={(e) => setPerMessage(e.target.value)} />
+          <Suggestions id="tool-call-message-options" defaultValue={current.defaultPerMessage} />
         </label>
       </div>
       <p className="muted small">
         Agent 每点一下、读一次页面、搜一次都算一次工具调用。到了上限，Agent 停下来总结做到哪了，回复「继续」接着做。
-        留空或填 0 就是不限。改了马上生效，正在跑的下一步就按新数字算。
+        留空、填 0 或选「不限」就是不限。改了马上生效，正在跑的下一步就按新数字算。
       </p>
       <p className="muted">现在：申请 {label(current.perRun)}，对话 {label(current.perMessage)}</p>
-      <button disabled={busy || !dirty} onClick={() => save(run ?? 0, message ?? 0)}>保存</button>{" "}
+      <button className="primary" disabled={busy || !dirty} onClick={() => save(run ?? 0, message ?? 0)}>保存</button>{" "}
       <button disabled={busy || (current.perRun === current.defaultPerRun && current.perMessage === current.defaultPerMessage)}
         onClick={() => save(current.defaultPerRun, current.defaultPerMessage)}>
         恢复默认

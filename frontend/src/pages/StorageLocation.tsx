@@ -80,7 +80,7 @@ function ChooseFolder({ initial, onDone }: { initial: string; onDone?: () => voi
         </p>
       )}
       {error && <p className="error">{error}</p>}
-      <button onClick={save} disabled={busy || !check?.ok || check.path !== path.trim()}>确定</button>
+      <button className="primary" onClick={save} disabled={busy || !check?.ok || check.path !== path.trim()}>确定</button>
     </div>
   );
 }
@@ -93,14 +93,13 @@ function FirstRun({ storage }: { storage: AppStorage }) {
       <section className="card">
         <h2>选数据位置</h2>
         <p className="muted">JobApply 的 Project、申请记录、资料和设置都放在这个文件夹里。以后可以在设置页更改。</p>
-        <label>
-          <input type="radio" checked={mode === "default"} onChange={() => setMode("default")} />
-          默认：{storage.defaultRoot}
-        </label>
-        <label>
-          <input type="radio" checked={mode === "custom"} onChange={() => setMode("custom")} />
-          选择文件夹…（可以选仓库里已有的 storage/）
-        </label>
+        <div className="seg storage-mode" role="group" aria-label="数据位置">
+          <button type="button" aria-pressed={mode === "default"} onClick={() => setMode("default")}>默认位置</button>
+          <button type="button" aria-pressed={mode === "custom"} onClick={() => setMode("custom")}>选择文件夹…</button>
+        </div>
+        <p className="muted small">
+          {mode === "default" ? <>默认：<code>{storage.defaultRoot}</code></> : "可以选仓库里已有的 storage/"}
+        </p>
         <ChooseFolder key={mode} initial={mode === "default" ? storage.defaultRoot : ""} />
       </section>
     </div>

@@ -140,7 +140,8 @@ public class ProjectController {
     private List<Views.JobView> jobViews(String id) {
         LocalDate today = LocalDate.now(clock);
         // 侧栏的点要看后续段在不在跑（C024-fix）
-        return jobs.list(id).stream().map(job -> Views.job(job, applications, null, today, followups.statusOf(job)))
+        return jobs.list(id).stream().map(job -> Views.job(job, applications, null, today, followups.statusOf(job),
+                        followups.checkingOf(job.id())))
                 .toList();
     }
 
@@ -148,7 +149,8 @@ public class ProjectController {
     private List<Views.JobView> jobsWithEvents(String id) {
         LocalDate today = LocalDate.now(clock);
         return jobs.list(id).stream()
-                .map(job -> Views.job(job, applications, ledger.events(id, job.id()), today, followups.statusOf(job)))
+                .map(job -> Views.job(job, applications, ledger.events(id, job.id()), today, followups.statusOf(job),
+                        followups.checkingOf(job.id())))
                 .toList();
     }
 

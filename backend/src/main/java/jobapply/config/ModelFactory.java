@@ -2,6 +2,7 @@ package jobapply.config;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import org.springframework.ai.anthropic.AnthropicChatModel;
 import org.springframework.ai.anthropic.AnthropicChatOptions;
 import org.springframework.ai.chat.model.ChatModel;
@@ -30,11 +31,17 @@ public final class ModelFactory {
     /**
      * 一个可调用的端点。{@link #toString()} 不带 Key。
      *
-     * @param apiKey 解析好的 Key；不需要 Key 时为 null
+     * @param apiKey  解析好的 Key；不需要 Key 时为 null
+     * @param headers 解析好的自定义请求头（C025），没有时为空
      */
-    public record Endpoint(String format, String baseUrl, String apiKey, String model) {
+    public record Endpoint(String format, String baseUrl, String apiKey, String model, Map<String, String> headers) {
+
+        public Endpoint(String format, String baseUrl, String apiKey, String model) {
+            this(format, baseUrl, apiKey, model, Map.of());
+        }
 
         public Endpoint {
+            headers = headers == null ? Map.of() : Map.copyOf(headers);
             if (!"openai".equals(format) && !"anthropic".equals(format)) {
                 throw new IllegalArgumentException("接口格式只能是 openai 或 anthropic");
             }
@@ -52,7 +59,7 @@ public final class ModelFactory {
         @Override
         public String toString() {
             return "Endpoint[format=" + format + ", baseUrl=" + baseUrl + ", model=" + model + ", key="
-                    + (apiKey == null ? "无" : "已设置") + "]";
+                    + (apiKey == null ? "无" : "已设置") + ", headers=" + headers.keySet() + "]";
         }
     }
 
@@ -71,6 +78,7 @@ public final class ModelFactory {
                     .model(endpoint.model())
                     .timeout(timeout)
                     .maxRetries(maxRetries)
+                    .customHeaders(endpoint.headers())
                     .build()).build();
         }
         return OpenAiChatModel.builder().options(OpenAiChatOptions.builder()
@@ -80,6 +88,7 @@ public final class ModelFactory {
                 .model(endpoint.model())
                 .timeout(timeout)
                 .maxRetries(maxRetries)
+                .customHeaders(endpoint.headers())
                 .build()).build();
     }
 

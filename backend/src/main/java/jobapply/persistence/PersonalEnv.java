@@ -53,11 +53,11 @@ public final class PersonalEnv {
         if (trimmed.isEmpty()) {
             throw new IllegalArgumentException("值不能为空");
         }
-        if (trimmed.length() > MAX_VALUE_LENGTH || trimmed.chars().anyMatch(
-                c -> c == '\n' || c == '\r' || c == '=' || c == '#' || c == 0)) {
-            throw new IllegalArgumentException("值不能超过 " + MAX_VALUE_LENGTH + " 个字符，不能含换行、= 或 #");
+        // 中文等任何 Unicode 都可以；= 和 # 也可以（一行按 KEY= 前缀切开，没有行内注释，C025）
+        if (trimmed.length() > MAX_VALUE_LENGTH || trimmed.chars().anyMatch(c -> c == '\n' || c == '\r' || c == 0)) {
+            throw new IllegalArgumentException("值不能超过 " + MAX_VALUE_LENGTH + " 个字符，不能含换行");
         }
-        file.set(key, trimmed);
+        file.setUnchecked(key, trimmed);
     }
 
     /** 清掉一个值。没有时什么也不做。 */

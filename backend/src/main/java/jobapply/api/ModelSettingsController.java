@@ -30,6 +30,9 @@ public class ModelSettingsController {
     public record KeyRequest(String key) {
     }
 
+    public record HeadersRequest(List<ModelSettingsService.HeaderInput> headers) {
+    }
+
     public record TestRequest(String model) {
     }
 
@@ -61,6 +64,11 @@ public class ModelSettingsController {
     @PutMapping(path = "/providers/{id}/key", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, String> key(@PathVariable String id, @RequestBody KeyRequest request) {
         return Map.of("keyLast4", settings.setKey(id, request.key()));
+    }
+
+    @PutMapping(path = "/providers/{id}/headers", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ModelSettingsService.ProviderView headers(@PathVariable String id, @RequestBody HeadersRequest request) {
+        return settings.setHeaders(id, request.headers());
     }
 
     @PostMapping("/providers/{id}/catalog")

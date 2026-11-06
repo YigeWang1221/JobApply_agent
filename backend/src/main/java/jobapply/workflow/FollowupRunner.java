@@ -1,8 +1,13 @@
 package jobapply.workflow;
 
 import java.time.Clock;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -14,9 +19,11 @@ import jobapply.domain.Job;
 import jobapply.domain.JobBucket;
 import jobapply.domain.LiveRuns;
 import jobapply.domain.Phase;
+import jobapply.harness.policies.BrowserToolPolicy;
 import jobapply.harness.runtime.FollowupLoop;
 import jobapply.persistence.AttachmentStore;
 import jobapply.persistence.FollowupRepository;
+import jobapply.persistence.JobLedger;
 import jobapply.persistence.JobRepository;
 import jobapply.persistence.SessionRepository;
 import jobapply.persistence.StorageLayout;
@@ -43,6 +50,21 @@ public final class FollowupRunner implements AutoCloseable {
     public record Status(String status, String error) {
     }
 
+    /** 查状态时发进后续段的那条用户消息（C026）；FollowupAgent 按「查状态：」开头认出来。 */
+    static final String CHECK_TEXT = "查状态：去官网的候选人中心 / 我的申请页看这份申请现在的状态，用 record_portal_check 记下"
+            + "（只读，不登录）。";
+
+    /**
+     * 批量查状态的进度（C026）：排队的、在查的、查完的（按顺序），这一批一共几个，查完的里面查到 / 要手动登录 / 没找到状态页
+     * 各几个，没放进来的和原因。一批查完后数字留着，下一次 {@link #checkMany} 时清零。
+     */
+    public record StatusChecks(List<String> queued, List<String> running, List<String> done, int total, int found,
+                               int needsLogin, int notFound, List<Skipped> skipped) {
+
+        public record Skipped(String jobId, String reason) {
+        }
+    }
+
     private final StorageLayout layout;
     private final Clock clock;
     private final BrowserSession browser;
@@ -61,6 +83,19 @@ public final class FollowupRunner implements AutoCloseable {
     private final LiveRuns running = new LiveRuns();
     private final Set<String> stopRequested = new HashSet<>();
     private final Inbox inbox = new Inbox();
+    // ---- 查状态（C026），都在 this 上同步 ----
+    private final LinkedHashSet<String> checkQueue = new LinkedHashSet<>();
+    private final LinkedHashSet<String> checkRunning = new LinkedHashSet<>();
+    /** 单个查状态（工作台按钮）在跑的，不算进批量的数字和上限。 */
+    private final Set<String> singleChecks = new HashSet<>();
+    /** 开始查之前 portal_check 的 checked_at：查完后不一样才算这次记下了结果。 */
+    private final Map<String, String> checkedBefore = new HashMap<>();
+    private final List<String> checkDone = new ArrayList<>();
+    private final List<StatusChecks.Skipped> checkSkipped = new ArrayList<>();
+    private int checkTotal;
+    private int checkFound;
+    private int checkNeedsLogin;
+    private int checkNotFound;
 
     /** 事件日志、工具调用上限和 {@code applications} 共用。 */
     public FollowupRunner(StorageLayout layout, Clock clock, BrowserSession browser, Supplier<ChatModel> mainModel,
@@ -116,6 +151,239 @@ public final class FollowupRunner implements AutoCloseable {
         }
         followups.appendTurn(job.project(), jobId, turn);
         submit(job, session);
+    }
+
+    /**
+     * 查一次这份申请在官网上的状态（C026，工作台按钮）：往后续段发一条「查状态：」消息，在后台跑。还没投递、已经结束时 409；
+     * 正在跑时插进这次运行，和 {@link #send} 一样。
+     */
+    public synchronized void check(String jobId) {
+        Job job = job(jobId);
+        String problem = uncheckable(job);
+        if (problem != null) {
+            throw new ApplicationException.Conflict("Job " + jobId + " " + problem + "，不能查状态");
+        }
+        String session = sessionOf(job);
+        if (checkQueue.contains(jobId)) {
+            // 已经在批量查状态里排着，轮到时就查
+            return;
+        }
+        AgentRun.Turn turn = AgentRun.Turn.user(CHECK_TEXT, List.of());
+        if (running.contains(jobId)) {
+            inbox.put(jobId, turn);
+            events.changed(null, jobId);
+            return;
+        }
+        followups.appendTurn(job.project(), jobId, turn);
+        singleChecks.add(jobId);
+        submit(job, session);
+    }
+
+    /**
+     * 批量查状态（C026，看板按钮，只查看板当前筛出来的）：按顺序排队，同时在查的不超过申请线程的上限 N，同一个网站上
+     * 不超过 M（{@link ApplicationRunner#concurrency()}，和申请线程分开数）。不存在、没投递、已结束、已经在排或在查、
+     * 后续段正在跑的跳过并写明原因。上一批还没查完时接在后面；查完了就从零开始一批。
+     */
+    public synchronized StatusChecks checkMany(List<String> jobIds) {
+        if (checkQueue.isEmpty() && checkRunning.isEmpty()) {
+            checkDone.clear();
+            checkSkipped.clear();
+            checkTotal = 0;
+            checkFound = 0;
+            checkNeedsLogin = 0;
+            checkNotFound = 0;
+        }
+        for (String jobId : jobIds == null ? List.<String>of() : jobIds.stream().distinct().toList()) {
+            String reason = queueProblem(jobId);
+            if (reason != null) {
+                checkSkipped.add(new StatusChecks.Skipped(jobId, reason));
+                continue;
+            }
+            checkQueue.add(jobId);
+            checkTotal++;
+            events.changed(null, jobId);
+        }
+        dispatchChecks();
+        return checks();
+    }
+
+    /** 停下批量查状态：排队的不查了，在查的请它停下（在当前这一次工具调用之后）。 */
+    public synchronized StatusChecks stopChecks() {
+        List<String> dropped = List.copyOf(checkQueue);
+        checkQueue.clear();
+        checkTotal -= dropped.size();
+        dropped.forEach(jobId -> events.changed(null, jobId));
+        for (String jobId : List.copyOf(checkRunning)) {
+            try {
+                stop(jobId);
+            } catch (RuntimeException e) {
+                log.warn("Job {} 的查状态没能停下：{}", jobId, rootMessage(e));
+            }
+        }
+        return checks();
+    }
+
+    /** 批量查状态现在的进度。 */
+    public synchronized StatusChecks checks() {
+        return new StatusChecks(List.copyOf(checkQueue), List.copyOf(checkRunning), List.copyOf(checkDone), checkTotal,
+                checkFound, checkNeedsLogin, checkNotFound, List.copyOf(checkSkipped));
+    }
+
+    /** 这个 Job 的查状态：{@code queued} / {@code running}；没在查时为 null。 */
+    public synchronized String checkingOf(String jobId) {
+        if (checkQueue.contains(jobId)) {
+            return "queued";
+        }
+        return checkRunning.contains(jobId) || singleChecks.contains(jobId) ? "running" : null;
+    }
+
+    /** 核准这份申请等着的官网状态建议（C026）：按建议改阶段 / 记一轮。没有建议时由台账报错。 */
+    public void approve(String jobId) {
+        Job job = job(jobId);
+        ledger().approveProposal(job.project(), jobId, sessionOf(job));
+    }
+
+    /** 驳回这份申请等着的官网状态建议（C026）：阶段不变。 */
+    public void reject(String jobId) {
+        Job job = job(jobId);
+        ledger().rejectProposal(job.project(), jobId, sessionOf(job));
+    }
+
+    private JobLedger ledger() {
+        return new JobLedger(layout, clock, events::changed);
+    }
+
+    /** 不能查状态的原因；能查时为 null。 */
+    private static String uncheckable(Job job) {
+        if (!open(job)) {
+            return "还没有投递（" + job.status().label() + "）";
+        }
+        if (job.status().phase() == Phase.CLOSED) {
+            return "已经结束（" + job.status().label() + "）";
+        }
+        return null;
+    }
+
+    /** 放不进批量查状态的原因；能放时为 null。 */
+    private String queueProblem(String jobId) {
+        if (checkQueue.contains(jobId)) {
+            return "已经在排队";
+        }
+        if (checkRunning.contains(jobId) || singleChecks.contains(jobId)) {
+            return "正在查";
+        }
+        Optional<Job> found;
+        try {
+            found = find(jobId);
+        } catch (RuntimeException e) {
+            return "读不出：" + rootMessage(e);
+        }
+        if (found.isEmpty()) {
+            return "Job 不存在";
+        }
+        String problem = uncheckable(found.get());
+        if (problem != null) {
+            return problem;
+        }
+        if (running.contains(jobId)) {
+            return "后续段正在跑";
+        }
+        try {
+            sessionOf(found.get());
+        } catch (RuntimeException e) {
+            return rootMessage(e);
+        }
+        return null;
+    }
+
+    /** 按顺序放排队的出去查，直到到了同时 N 个；同一个网站已经有 M 个在查的先跳过，等前面的查完。 */
+    private void dispatchChecks() {
+        ApplicationRunner.Concurrency limits = applications.concurrency();
+        Map<String, Integer> perSite = new HashMap<>();
+        Map<String, String> siteOf = new HashMap<>();
+        for (String jobId : checkRunning) {
+            String site = site(jobId);
+            siteOf.put(jobId, site);
+            perSite.merge(Objects.toString(site, ""), 1, Integer::sum);
+        }
+        for (String jobId : List.copyOf(checkQueue)) {
+            if (checkRunning.size() >= limits.workers()) {
+                break;
+            }
+            String site = site(jobId);
+            String key = Objects.toString(site, "");
+            if (site != null && perSite.getOrDefault(key, 0) >= limits.perSite()) {
+                continue;
+            }
+            checkQueue.remove(jobId);
+            try {
+                Job job = job(jobId);
+                String problem = uncheckable(job);
+                if (problem != null) {
+                    throw new ApplicationException.Conflict(problem);
+                }
+                String session = sessionOf(job);
+                checkedBefore.put(jobId, checkedAt(job));
+                checkRunning.add(jobId);
+                perSite.merge(key, 1, Integer::sum);
+                AgentRun.Turn turn = AgentRun.Turn.user(CHECK_TEXT, List.of());
+                if (running.contains(jobId)) {
+                    // 期间用户在这个工作台发了消息：插进那次运行，跑完时一起算查完
+                    inbox.put(jobId, turn);
+                } else {
+                    followups.appendTurn(job.project(), jobId, turn);
+                    submit(job, session);
+                }
+            } catch (RuntimeException e) {
+                checkRunning.remove(jobId);
+                checkedBefore.remove(jobId);
+                checkDone.add(jobId);
+                checkSkipped.add(new StatusChecks.Skipped(jobId, rootMessage(e)));
+                log.warn("Job {} 没能开始查状态：{}", jobId, rootMessage(e));
+            }
+            events.changed(null, jobId);
+        }
+    }
+
+    /** 一次后续段运行彻底跑完（插话也处理完了）时：是查状态的就记进这一批的数字，再放下一个出去。在 this 上调用。 */
+    private void checkFinished(Job job) {
+        String jobId = job.id();
+        singleChecks.remove(jobId);
+        if (!checkRunning.remove(jobId)) {
+            return;
+        }
+        checkDone.add(jobId);
+        String before = checkedBefore.remove(jobId);
+        try {
+            Job now = jobs.load(job.project(), jobId);
+            String at = checkedAt(now);
+            if (at != null && !at.equals(before) && now.extra().get("portal_check") instanceof Map<?, ?> check) {
+                switch (String.valueOf(check.get("result"))) {
+                    case "found" -> checkFound++;
+                    case "needs_login" -> checkNeedsLogin++;
+                    case "not_found" -> checkNotFound++;
+                    default -> {
+                    }
+                }
+            }
+        } catch (RuntimeException e) {
+            log.warn("Job {} 查状态的结果没读出来：{}", jobId, rootMessage(e));
+        }
+        dispatchChecks();
+    }
+
+    private static String checkedAt(Job job) {
+        return job.extra().get("portal_check") instanceof Map<?, ?> check && check.get("checked_at") != null
+                ? String.valueOf(check.get("checked_at")) : null;
+    }
+
+    /** 这个 Job 投递网址所在的网站（{@link BrowserToolPolicy#siteOf}）；读不出时为 null（不限这个网站）。 */
+    private String site(String jobId) {
+        try {
+            return find(jobId).map(job -> BrowserToolPolicy.siteOf(job.posting().url())).orElse(null);
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /** 请正在跑的后续段停下（在当前这一次工具调用之后）。没在跑时什么都不做。 */
@@ -218,6 +486,13 @@ public final class FollowupRunner implements AutoCloseable {
                         again = true;
                     } catch (RuntimeException e) {
                         log.warn("Job {} 后续段没有接着处理运行中插的话：{}", jobId, rootMessage(e));
+                    }
+                }
+                if (!again) {
+                    try {
+                        checkFinished(job);
+                    } catch (RuntimeException e) {
+                        log.warn("Job {} 查状态收尾出错：{}", jobId, rootMessage(e));
                     }
                 }
             }

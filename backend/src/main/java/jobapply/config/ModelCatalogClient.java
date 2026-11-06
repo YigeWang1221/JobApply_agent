@@ -10,6 +10,7 @@ import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -52,6 +53,14 @@ public final class ModelCatalogClient {
      * @param apiKey 解析好的 Key；本地模型为 null
      */
     public Result list(String format, String baseUrl, String apiKey) {
+        return list(format, baseUrl, apiKey, Map.of());
+    }
+
+    /**
+     * @param apiKey  解析好的 Key；本地模型为 null
+     * @param headers 解析好的自定义请求头（C025）
+     */
+    public Result list(String format, String baseUrl, String apiKey, Map<String, String> headers) {
         URI uri;
         try {
             String base = baseUrl.strip().replaceAll("/+$", "");
@@ -61,6 +70,11 @@ public final class ModelCatalogClient {
         }
         HttpRequest.Builder request = HttpRequest.newBuilder(uri).timeout(timeout).GET()
                 .header("Accept", "application/json");
+        try {
+            headers.forEach(request::header);
+        } catch (IllegalArgumentException e) {
+            return new Failed("自定义请求头不被允许（例如 Host、Connection 这类由客户端自己管的头）");
+        }
         if ("anthropic".equals(format)) {
             request.header("anthropic-version", ANTHROPIC_VERSION);
             if (apiKey != null) {
@@ -77,13 +91,13 @@ public final class ModelCatalogClient {
         } catch (ConnectException e) {
             return new Failed("连不上 " + uri.getHost() + (uri.getPort() > 0 ? ":" + uri.getPort() : ""));
         } catch (IOException e) {
-            return new Failed(redact("请求失败：" + e.getMessage(), apiKey));
+            return new Failed(redact(redact("请求失败：" + e.getMessage(), apiKey), headers));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return new Failed("请求被中断");
         }
         if (response.statusCode() / 100 != 2) {
-            return new Failed("HTTP " + response.statusCode() + errorMessage(response.body(), apiKey));
+            return new Failed("HTTP " + response.statusCode() + errorMessage(response.body(), apiKey, headers));
         }
         try {
             JsonNode data = JSON.readTree(response.body()).path("data");
@@ -104,7 +118,7 @@ public final class ModelCatalogClient {
     }
 
     /** 先遮住 Key 再截断，免得截断处留下半个 Key。 */
-    private static String errorMessage(String body, String apiKey) {
+    private static String errorMessage(String body, String apiKey, Map<String, String> headers) {
         if (body == null || body.isBlank()) {
             return "";
         }
@@ -118,8 +132,19 @@ public final class ModelCatalogClient {
         if (message.isBlank()) {
             message = body;
         }
-        message = redact(message, apiKey).replaceAll("\\s+", " ").strip();
+        message = redact(redact(message, apiKey), headers).replaceAll("\\s+", " ").strip();
         return "：" + (message.length() > MAX_REASON ? message.substring(0, MAX_REASON) + "…" : message);
+    }
+
+    /** 自定义请求头的值同样遮住（其中可能有密钥）。 */
+    static String redact(String text, Map<String, String> headers) {
+        String out = text;
+        for (String value : headers.values()) {
+            if (value.length() >= 8) {
+                out = redact(out, value);
+            }
+        }
+        return out;
     }
 
     /** 对方的错误信息里偶尔会回显 Key，统一遮住。 */

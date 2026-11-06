@@ -117,3 +117,20 @@ export function closedAt(job: JobView): string | null {
   const closed = (job.events ?? []).filter((e) => e.type === "closed");
   return closed.length ? dayOf(closed[closed.length - 1].at) : null;
 }
+
+// 查官网状态（C026）：投递以后、还没结束的申请才查
+export const CHECKABLE_PHASES = new Set(["applied", "screening", "assessment", "interview", "offer"]);
+
+export function checkable(job: JobView): boolean {
+  return job.leadStatus === "converted" && CHECKABLE_PHASES.has(job.phase ?? "");
+}
+
+const PHASE_ORDER: Record<string, number> = { prep: 0, applied: 1, screening: 2, assessment: 3, interview: 4, offer: 5, closed: 6 };
+
+// 阶段筛选的排序：先按阶段，再按最近一轮的序号（OA1 在 OA2 前面）
+export function stageOrder(job: JobView): number {
+  const phase = PHASE_ORDER[job.phase ?? ""] ?? 7;
+  const rounds = job.rounds ?? [];
+  const seq = rounds.length ? rounds[rounds.length - 1].seq : 0;
+  return phase * 1000 + seq;
+}

@@ -34,6 +34,11 @@ public final class ModelPresets {
             new Preset("moonshot", "Moonshot / Kimi", "openai", "https://api.moonshot.cn/v1", true, null),
             new Preset("zhipu", "智谱 GLM", "openai", "https://open.bigmodel.cn/api/paas/v4/", true, null),
             new Preset("openrouter", "OpenRouter", "openai", "https://openrouter.ai/api/v1", true, "一个 Key 接很多模型"),
+            // OpenCode Go 订阅（C025，opencode.ai/docs/go，2026-11-05）：GLM、Kimi、DeepSeek、MiMo 等走 OpenAI 兼容端点
+            new Preset("opencode-go", "OpenCode Go", "openai", "https://opencode.ai/inference/go/openai/v1", true,
+                    "OpenCode 的订阅；Key 在 OpenCode Console 里复制。只有走 Chat Completions 的模型能用（GLM、Kimi、"
+                            + "DeepSeek、MiMo 等）；Qwen、MiniMax M3、Claude 走 Anthropic 端点，GPT、Grok、Gemini 走别的接口，"
+                            + "这里用不了"),
             new Preset("ollama", "Ollama / LM Studio（本地）", "openai", "http://localhost:11434/v1", false,
                     "不需要 Key，数据不出本机；LM Studio 的默认地址是 http://localhost:1234/v1"),
             new Preset(CUSTOM, "自定义", null, null, true, "公司内网网关、自建代理等；两种接口格式任选"));

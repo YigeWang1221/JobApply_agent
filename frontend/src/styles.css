@@ -3723,3 +3723,377 @@ button.tbar-h:hover:not(:disabled) {
     text-align: left;
   }
 }
+
+/* ---- C025-d 设置 · 运行与资料 ---- */
+.fact-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.seg.storage-mode {
+  display: inline-flex;
+  margin: 4px 0;
+}
+
+.seg.storage-mode button {
+  font-size: var(--fs-sm);
+  padding: 4px 12px;
+}
+
+/* ---- C025-c 设置 · 敏感信息 ---- */
+/* 值框不是密码框（密码框会关掉输入法），用 CSS 圆点遮罩 */
+.pkey-input.masked {
+  -webkit-text-security: disc;
+}
+
+.pkeys {
+  display: flex;
+  flex-direction: column;
+  margin: 12px 0 4px;
+  border-top: 1px solid var(--line);
+}
+
+.pkey {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.pkey-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.pkey-name .muted {
+  font-size: var(--fs-sm);
+}
+
+.pkey-code {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.pkey-edit,
+.pkey-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.pkey-edit > .pkey-input,
+.pkey-edit > .pkey-secret {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.pkey-secret {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pkey-secret .pkey-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+button.pkey-eye {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 6px;
+}
+
+.pkey-add {
+  margin-top: 16px;
+}
+
+.pkey-add-row > input,
+.pkey-add-row > .pkey-secret {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+/* ---- C025-a 设置 · 模型 ---- */
+.ms-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.seg.ms-seg {
+  align-self: flex-start;
+}
+
+.seg.ms-seg button {
+  font-size: var(--fs-sm);
+  padding: 4px 12px;
+}
+
+.ms-advanced {
+  margin: 8px 0;
+  font-size: var(--fs-sm);
+}
+
+.ms-advanced > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  user-select: none;
+}
+
+.ms-advanced[open] > summary {
+  margin-bottom: 8px;
+}
+
+.ms-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.ms-panel {
+  position: relative;
+  margin: 8px 0;
+  max-width: 520px;
+}
+
+button.ms-panel-head {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  text-align: left;
+}
+
+.ms-panel-body {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--ink) 14%, transparent);
+  padding: 8px;
+}
+
+.ms-panel-body > input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ms-panel-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.ms-panel-list li {
+  padding: 2px 0;
+}
+
+.ms-panel-list label {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+}
+
+.ms-selected li {
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.ms-selected .ms-remove {
+  margin-left: auto;
+}
+
+.ms-test-error {
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ms-headers-table {
+  border-collapse: collapse;
+  width: 100%;
+  max-width: 640px;
+}
+
+.ms-headers-table th {
+  text-align: left;
+  font-weight: 500;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  padding: 2px 4px;
+}
+
+.ms-headers-table td {
+  padding: 2px 4px;
+  vertical-align: middle;
+}
+
+.ms-headers-table td input:not([type="checkbox"]) {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ms-footnote {
+  margin-top: 12px;
+}
+
+/* C026-C 查状态条、核准列表 */
+.checkbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cbrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cblabel {
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 28px;
+}
+
+.cbchip {
+  cursor: pointer;
+}
+
+.cbchip[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+.cbdue {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-left: 6px;
+}
+
+.cbgap {
+  flex: 1;
+}
+
+.cbprog {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.cbdays {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.cbdays input {
+  width: 48px;
+}
+
+.cbquote {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.li.approval {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.li.approval .acts {
+  align-items: center;
+}
+
+/* C026-D：官网状态（动态阶段、官网叫法、最近查看来源、工作台「查状态」和待核准建议） */
+.portalstage {
+  display: inline-block;
+  max-width: 12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  color: var(--ink-2);
+}
+
+.checksrc {
+  margin-left: 4px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.bcard.line .bstage {
+  flex: 1 1 100%;
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portalbar {
+  max-width: 720px;
+  margin: 0 auto 8px;
+}
+
+.portalbar > .row {
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.proposalcard {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 8px;
+  background: var(--accent-wash);
+}
+
+.proposalcard p {
+  margin: 0 0 8px;
+}
+
+.proposalcard .row {
+  flex-wrap: wrap;
+  gap: 8px;
+}

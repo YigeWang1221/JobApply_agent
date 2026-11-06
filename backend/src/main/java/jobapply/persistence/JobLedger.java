@@ -12,6 +12,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import jobapply.domain.Actor;
 import jobapply.domain.ApplicationStateMachine;
 import jobapply.domain.Evidence;
@@ -40,6 +42,7 @@ public final class JobLedger {
     private final ProjectRepository projects;
     private final SessionRepository sessions;
     private final TrackerWriter tracker;
+    private final CheckSettingsFile checkSettings;
     private final EventLog eventLog = new EventLog();
     private final Listener listener;
     /** 这个线程在锁里写完、还没通知的变化（{@link #publish}）。 */
@@ -47,6 +50,7 @@ public final class JobLedger {
 
     /** 投递以后默认多少天提醒一次去看状态（3–5 天取中间，C007）。 */
     public static final int DEFAULT_CHECK_DAYS = 4;
+    private static final String CHECK_DAYS_KEY = "check_every_days";
 
     /** 每次写完台账（文件都写好以后）收到是哪个 Session、哪个 Job（C006-fix：事件日志的 {@code changed}）。 */
     public interface Listener {
@@ -68,6 +72,7 @@ public final class JobLedger {
         this.projects = new ProjectRepository(layout, clock);
         this.sessions = new SessionRepository(layout, clock);
         this.tracker = new TrackerWriter(layout, clock);
+        this.checkSettings = new CheckSettingsFile(layout);
     }
 
     public Job addLead(String projectId, String sessionId, Actor actor, JobPosting posting, String jdSnapshot) {
@@ -223,6 +228,7 @@ public final class JobLedger {
         Map<String, Object> times = new LinkedHashMap<>();
         times.put("applied_at", now);
         times.put("next_check_at", LocalDate.now(clock).plusDays(checkEveryDays(projectId)).toString());
+        times.put("next_check_pinned", false);
         Job next = current.withStatus(applied).withExtra(times);
 
         jobs.update(next);
@@ -298,6 +304,8 @@ public final class JobLedger {
         times.put("last_checked_at", Timestamps.now(clock));
         times.put("next_check_at", nextStatus.phase() == Phase.CLOSED ? null : LocalDate.now(clock)
                 .plusDays(nextCheckInDays != null ? nextCheckInDays : checkEveryDays(projectId)).toString());
+        // 用户给了天数的不跟着间隔改（C026 改间隔时重排会跳过它）
+        times.put("next_check_pinned", nextCheckInDays != null && nextStatus.phase() != Phase.CLOSED);
         Job next = current.withStatus(nextStatus).withExtra(times);
         JobEvent event = event(sessionId, Actor.USER, type, status, nextStatus, said, null);
 
@@ -381,6 +389,7 @@ public final class JobLedger {
                 changes.put("reopen_to", null);
                 if (alreadyApplied(reopened)) {
                     changes.put("next_check_at", LocalDate.now(clock).plusDays(checkEveryDays(projectId)).toString());
+                    changes.put("next_check_pinned", false);
                 }
                 Job next = current.withStatus(reopened).withExtra(changes);
                 JobEvent event = event(sessionId, Actor.USER, JobEvent.Type.REOPENED, status, reopened, said, null);
@@ -425,23 +434,347 @@ public final class JobLedger {
     }
 
     /**
-     * 多少天提醒一次去看投递状态：Project 的 {@code preferences.md} frontmatter 里的 {@code check_every_days}，
-     * 没有或写错时用 {@link #DEFAULT_CHECK_DAYS}。
+     * 多少天提醒一次去看投递状态（C026）：Project 的 {@code preferences.md} frontmatter 里的 {@code check_every_days}
+     * → 全局 {@code settings/checks.yaml} → {@link #DEFAULT_CHECK_DAYS}。写错的当没有。
      */
     public int checkEveryDays(String projectId) {
-        Path file = layout.preferences(projectId);
-        if (Files.exists(file)) {
-            Object value = FrontmatterFile.read(file).frontmatter().get("check_every_days");
-            try {
-                int days = value == null ? 0 : Integer.parseInt(value.toString().strip());
-                if (days >= 1 && days <= 90) {
-                    return days;
+        return projectCheckDays(projectId).orElseGet(() -> globalCheckDays().orElse(DEFAULT_CHECK_DAYS));
+    }
+
+    /** 全局的查看间隔（{@code settings/checks.yaml}）；没设过时为空。 */
+    public Optional<Integer> globalCheckDays() {
+        return checkSettings.read();
+    }
+
+    /** 改全局的查看间隔，然后按新间隔重排所有 Project 里没有固定日期的申请。 */
+    public void setGlobalCheckDays(int days) {
+        try {
+            synchronized (StorageLock.WRITES) {
+                CheckSettingsFile.require(days);
+                checkSettings.write(days);
+                boolean any = false;
+                for (String projectId : layout.projectIds()) {
+                    any |= rescheduleLocked(projectId);
                 }
-            } catch (NumberFormatException e) {
-                // 写错了就用默认值
+                if (any) {
+                    tracker.writeGlobal();
+                }
+            }
+        } finally {
+            publish();
+        }
+    }
+
+    /** 这个 Project 自己设的查看间隔（{@code preferences.md} 的 {@code check_every_days}）；没设或写错时为空。 */
+    public Optional<Integer> projectCheckDays(String projectId) {
+        Path file = layout.preferences(projectId);
+        if (!Files.exists(file)) {
+            return Optional.empty();
+        }
+        Object value = FrontmatterFile.read(file).frontmatter().get(CHECK_DAYS_KEY);
+        try {
+            int days = value == null ? 0 : Integer.parseInt(value.toString().strip());
+            return CheckSettingsFile.valid(days) ? Optional.of(days) : Optional.empty();
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * 改这个 Project 的查看间隔（C026）：写进或删掉 {@code preferences.md} frontmatter 的 {@code check_every_days}
+     * （没有文件时新建，正文不动），{@code days} 为 null 时回到全局。然后按新间隔重排这个 Project 的申请。
+     */
+    public void setProjectCheckDays(String projectId, Integer days) {
+        try {
+            synchronized (StorageLock.WRITES) {
+                if (!projects.exists(projectId)) {
+                    throw new IllegalArgumentException("Project 不存在：" + projectId);
+                }
+                if (days != null) {
+                    CheckSettingsFile.require(days);
+                }
+                Path file = layout.preferences(projectId);
+                boolean exists = Files.exists(file);
+                if (exists || days != null) {
+                    FrontmatterFile.Document doc = exists ? FrontmatterFile.read(file)
+                            : new FrontmatterFile.Document(Map.of(), "");
+                    Map<String, Object> frontmatter = new LinkedHashMap<>(doc.frontmatter());
+                    if (days == null) {
+                        frontmatter.remove(CHECK_DAYS_KEY);
+                    } else {
+                        frontmatter.put(CHECK_DAYS_KEY, days);
+                    }
+                    FrontmatterFile.write(file, new FrontmatterFile.Document(frontmatter, doc.body()));
+                    StorageWrites.changed(file);
+                }
+                if (rescheduleLocked(projectId)) {
+                    tracker.writeGlobal();
+                }
+            }
+        } finally {
+            publish();
+        }
+    }
+
+    /**
+     * 按现在的间隔重排一个 Project 里已投递、没结束、没有固定日期（{@code next_check_pinned}）的申请：
+     * {@code next_check_at = (last_checked_at ?? applied_at) 那天 + 间隔}。只写变了的；有变化时重新生成本 Project 的台账
+     * （全局台账由调用方写一次），每个变了的 Job 通知一次。返回有没有变化。
+     */
+    private boolean rescheduleLocked(String projectId) {
+        int days = checkEveryDays(projectId);
+        boolean any = false;
+        for (Job job : jobs.list(projectId)) {
+            if (!alreadyApplied(job.status()) || pinned(job)) {
+                continue;
+            }
+            LocalDate base = HiringRound.day(job.extraString("last_checked_at"));
+            if (base == null) {
+                base = HiringRound.day(job.extraString("applied_at"));
+            }
+            if (base == null) {
+                continue;
+            }
+            String next = base.plusDays(days).toString();
+            if (next.equals(job.extraString("next_check_at"))) {
+                continue;
+            }
+            Map<String, Object> changes = new LinkedHashMap<>();
+            changes.put("next_check_at", next);
+            jobs.update(job.withExtra(changes));
+            pending.get().add(new Change(null, job.id()));
+            any = true;
+        }
+        if (any) {
+            tracker.writeProject(projectId);
+        }
+        return any;
+    }
+
+    private static boolean pinned(Job job) {
+        Object value = job.extra().get("next_check_pinned");
+        return Boolean.TRUE.equals(value) || "true".equalsIgnoreCase(String.valueOf(value));
+    }
+
+    /**
+     * 官网上看到的状态变化建议（C026）：只是建议，用户核准（{@link #approveProposal}）以后才改阶段。{@code round} 的键是
+     * name、type、result（都可以为空）；三项都为空时是「没有变化」。
+     */
+    public record Proposal(Phase phase, Outcome outcome, Map<String, String> round) {
+
+        public boolean empty() {
+            return phase == null && outcome == null && (round == null || round.values().stream()
+                    .allMatch(v -> v == null || v.isBlank()));
+        }
+    }
+
+    /**
+     * 后续 Agent 查一次官网的结果（C026）。{@code result}：{@code found}（查到了）/ {@code needs_login}（要用户自己登录）/
+     * {@code not_found}（没找到状态页）。{@code stage} 是官网自己的说法，{@code quote} 是页面上的一小段原文。
+     */
+    public record PortalCheck(String result, String stage, String quote, String url, Proposal proposal) {
+    }
+
+    private static final Set<String> PORTAL_RESULTS = Set.of("found", "needs_login", "not_found");
+    private static final Set<String> PROPOSED_RESULTS = Set.of("pending", "passed", "failed");
+
+    /**
+     * 记下一次查官网（C026）：只对已投递、没结束的申请。写 {@code portal_check}；查到了（found）时更新
+     * {@code last_checked_at}，{@code next_check_at} 推到 {@link #checkEveryDays} 天后（固定日期的不动），建议和现在不一样
+     * 时写进 {@code status_proposal} 等用户核准，没有变化时清掉旧建议。要登录、没找到时旧建议和查看日期都不动。
+     * 不改阶段。事件记一条 {@code status_checked}（actor agent）。
+     */
+    public Job recordPortalCheck(String projectId, String jobId, String sessionId, PortalCheck check) {
+        try {
+            synchronized (StorageLock.WRITES) {
+                require(check, "check");
+                if (check.result() == null || !PORTAL_RESULTS.contains(check.result())) {
+                    throw new IllegalArgumentException("result 只能是 found / needs_login / not_found");
+                }
+                requireProjectAndSession(projectId, sessionId);
+                Job current = jobs.load(projectId, jobId);
+                if (!alreadyApplied(current.status())) {
+                    throw new IllegalArgumentException("只有已投递、还没结束的申请才查官网状态，" + jobId + " 现在是 "
+                            + current.status().label());
+                }
+                Proposal proposal = normalized(current, check.proposal());
+                String now = Timestamps.now(clock);
+                String stage = blankToNull(check.stage());
+                String quote = blankToNull(check.quote());
+                String url = blankToNull(check.url());
+                Map<String, Object> portal = new LinkedHashMap<>();
+                portal.put("result", check.result());
+                portal.put("stage", stage);
+                portal.put("quote", quote);
+                portal.put("url", url);
+                portal.put("checked_at", now);
+                Map<String, Object> changes = new LinkedHashMap<>();
+                changes.put("portal_check", portal);
+                if ("found".equals(check.result())) {
+                    changes.put("last_checked_at", now);
+                    if (!pinned(current)) {
+                        changes.put("next_check_at", LocalDate.now(clock).plusDays(checkEveryDays(projectId)).toString());
+                    }
+                    changes.put("status_proposal", proposal == null ? null : proposalMap(stage, quote, url, now, proposal));
+                }
+                Job next = current.withExtra(changes);
+                String said = "官网（" + check.result() + "）：" + described(stage, quote);
+                JobEvent event = event(sessionId, Actor.AGENT, JobEvent.Type.STATUS_CHECKED, current.status(),
+                        current.status(), said, null);
+
+                jobs.update(next);
+                appendEvent(next, event);
+                afterChange(projectId, sessionId, jobId);
+                return next;
+            }
+        } finally {
+            publish();
+        }
+    }
+
+    /**
+     * 用户核准官网状态建议（C026）：按用户自己说的走已有的路（actor user）：有轮次时记一轮（{@code result_source=portal}），
+     * 有结果时结束，否则改阶段。然后清掉 {@code status_proposal}，{@code portal_stage} 记下官网的说法。
+     */
+    public Job approveProposal(String projectId, String jobId, String sessionId) {
+        try {
+            synchronized (StorageLock.WRITES) {
+                requireProjectAndSession(projectId, sessionId);
+                Job current = jobs.load(projectId, jobId);
+                Map<?, ?> proposal = pendingProposal(current);
+                String stage = stringOf(proposal.get("stage"));
+                String note = "核准官网状态：" + (stage == null ? "" : stage)
+                        + (stringOf(proposal.get("quote")) == null ? "" : "「" + stringOf(proposal.get("quote")) + "」");
+                String phase = stringOf(proposal.get("phase"));
+                String outcome = stringOf(proposal.get("outcome"));
+                if (proposal.get("round") instanceof Map<?, ?> round && stringOf(round.get("name")) != null) {
+                    Map<String, String> fields = new LinkedHashMap<>();
+                    fields.put("name", stringOf(round.get("name")));
+                    fields.put("type", stringOf(round.get("type")));
+                    fields.put("result", stringOf(round.get("result")));
+                    fields.put("result_source", "portal");
+                    recordRoundLocked(projectId, jobId, sessionId, null, fields, note);
+                } else if (outcome != null) {
+                    recordStatusLocked(projectId, jobId, sessionId, null, Outcome.of(outcome), note, null);
+                } else if (phase != null) {
+                    recordStatusLocked(projectId, jobId, sessionId, Phase.of(phase), null, note, null);
+                }
+                Map<String, Object> changes = new LinkedHashMap<>();
+                changes.put("status_proposal", null);
+                changes.put("portal_stage", stage);
+                Job next = jobs.load(projectId, jobId).withExtra(changes);
+                jobs.update(next);
+                afterChange(projectId, sessionId, jobId);
+                return next;
+            }
+        } finally {
+            publish();
+        }
+    }
+
+    /** 用户驳回官网状态建议（C026）：清掉 {@code status_proposal}，不改阶段；事件记一条 {@code status_checked}（actor user）。 */
+    public Job rejectProposal(String projectId, String jobId, String sessionId) {
+        try {
+            synchronized (StorageLock.WRITES) {
+                requireProjectAndSession(projectId, sessionId);
+                Job current = jobs.load(projectId, jobId);
+                Map<?, ?> proposal = pendingProposal(current);
+                Map<String, Object> changes = new LinkedHashMap<>();
+                changes.put("status_proposal", null);
+                Job next = current.withExtra(changes);
+                JobEvent event = event(sessionId, Actor.USER, JobEvent.Type.STATUS_CHECKED, current.status(),
+                        current.status(), "驳回官网状态建议：" + described(stringOf(proposal.get("stage")),
+                                stringOf(proposal.get("quote"))), null);
+
+                jobs.update(next);
+                appendEvent(next, event);
+                afterChange(projectId, sessionId, jobId);
+                return next;
+            }
+        } finally {
+            publish();
+        }
+    }
+
+    private static Map<?, ?> pendingProposal(Job job) {
+        if (job.extra().get("status_proposal") instanceof Map<?, ?> map) {
+            return map;
+        }
+        throw new IllegalArgumentException(job.id() + " 没有待核准的官网状态");
+    }
+
+    /**
+     * 校验建议，和现在一样的（同一阶段、没有轮次和结果；或者同名同类型、结果没变的已有轮次）当作没有变化，返回 null。
+     * 结果不能是用户自己记的（投递失败 / 不投了）、ghosted、not_submitted；阶段只能往投递后的阶段改，结束用结果。
+     */
+    private static Proposal normalized(Job job, Proposal proposal) {
+        if (proposal == null || proposal.empty()) {
+            return null;
+        }
+        Outcome outcome = proposal.outcome();
+        if (outcome != null && (outcome.userMarked() || outcome == Outcome.GHOSTED || outcome == Outcome.NOT_SUBMITTED)) {
+            throw new IllegalArgumentException("官网建议的结果只能是 rejected / accepted / declined / withdrawn / posting_closed");
+        }
+        Phase phase = proposal.phase();
+        if (phase == Phase.PREP || phase == Phase.CLOSED) {
+            throw new IllegalArgumentException("phase 只能是 screening / assessment / interview / offer（结束用 outcome）");
+        }
+        Map<String, String> round = null;
+        if (proposal.round() != null && proposal.round().values().stream().anyMatch(v -> v != null && !v.isBlank())) {
+            String name = blankToNull(proposal.round().get("name"));
+            String type = blankToNull(proposal.round().get("type"));
+            String result = blankToNull(proposal.round().get("result"));
+            if (name == null) {
+                throw new IllegalArgumentException("round 要有 name（官网上这一轮的叫法）");
+            }
+            if (type == null || !HiringRound.TYPES.contains(type)) {
+                throw new IllegalArgumentException("round.type 只能是 "
+                        + String.join(" / ", HiringRound.TYPES.stream().sorted().toList()));
+            }
+            if (result != null && !PROPOSED_RESULTS.contains(result)) {
+                throw new IllegalArgumentException("round.result 只能是 pending / passed / failed");
+            }
+            boolean known = HiringRound.of(job).stream().anyMatch(r -> r.name().equalsIgnoreCase(name)
+                    && r.type().equals(type) && (result == null || result.equals(r.result())));
+            if (!known) {
+                round = new LinkedHashMap<>();
+                round.put("name", name);
+                round.put("type", type);
+                round.put("result", result);
             }
         }
-        return DEFAULT_CHECK_DAYS;
+        if (phase == job.status().phase()) {
+            phase = null;
+        }
+        Proposal kept = new Proposal(phase, outcome, round);
+        return kept.empty() ? null : kept;
+    }
+
+    private static Map<String, Object> proposalMap(String stage, String quote, String url, String at,
+            Proposal proposal) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("stage", stage);
+        map.put("quote", quote);
+        map.put("url", url);
+        map.put("at", at);
+        map.put("phase", proposal.phase() == null ? null : proposal.phase().value());
+        map.put("outcome", proposal.outcome() == null ? null : proposal.outcome().value());
+        map.put("round", proposal.round() == null ? null : new LinkedHashMap<>(proposal.round()));
+        return map;
+    }
+
+    private static String described(String stage, String quote) {
+        String text = (stage == null ? "" : stage) + (stage != null && quote != null ? " · " : "")
+                + (quote == null ? "" : quote);
+        return text.isEmpty() ? "（没有内容）" : text;
+    }
+
+    private static String stringOf(Object value) {
+        return value == null ? null : blankToNull(value.toString());
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.strip();
     }
 
     /**
@@ -586,6 +919,8 @@ public final class JobLedger {
         LocalDate base = roundDay != null && roundDay.isAfter(today) ? roundDay : today;
         changes.put("next_check_at", nextStatus.phase() == Phase.CLOSED ? null
                 : base.plusDays(checkEveryDays(projectId)).toString());
+        // 从还没到的那一轮算的，改间隔时不重排（C026）
+        changes.put("next_check_pinned", nextStatus.phase() != Phase.CLOSED && base.isAfter(today));
         Job next = current.withStatus(nextStatus).withExtra(changes);
         JobEvent roundEvent = event(sessionId, Actor.USER, JobEvent.Type.ROUND_RECORDED, status, status,
                 said.toString(), null);

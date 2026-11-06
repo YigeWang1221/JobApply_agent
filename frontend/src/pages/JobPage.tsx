@@ -16,9 +16,10 @@ import { useAttachments } from "../chat/useAttachments";
 import { useLiveUpdates } from "../chat/useLiveUpdates";
 import { ResizablePanel } from "../ResizeHandle";
 import { go } from "../route";
+import { dayOf, md } from "../dashboard/metrics";
 import {
-  APPLICATION, JobState, OUTCOME, OutcomeDialog, phaseText, ROUND_CHIP, ROUND_RESULT, RoundProgress, SubmitConfirm,
-  VerifiedChip,
+  APPLICATION, CheckChip, JobState, OUTCOME, OutcomeDialog, phaseText, PORTAL, proposalAction, ROUND_CHIP, ROUND_RESULT,
+  RoundProgress, stageText, SubmitConfirm, VerifiedChip,
 } from "../status";
 import { toast } from "../toast";
 
@@ -234,7 +235,16 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
             <h1>{job.company} · {job.title}</h1>
             <span className="muted small headmeta">
               {[job.city.join("、"), job.type, job.site].filter(Boolean).join(" · ")}
-              {followup && <span title="投递以后，工作台接着是后续段">阶段：{phaseText(job)}</span>}
+              {followup && (
+                <span title="投递以后，工作台接着是后续段">
+                  阶段：{stageText(job)} <CheckChip job={job} />
+                </span>
+              )}
+              {followup && job.phase !== "closed" && (job.lastCheckedAt || job.nextCheckAt) && (
+                <span title="最近一次查看申请状态，和下次该查看的日子">
+                  最近查看 {md(job.lastCheckedAt)}{checkSource(job) && `（${checkSource(job)}）`} · 下次 {md(job.nextCheckAt)}
+                </span>
+              )}
               {job.resumeChoice?.file && <span title="对话 Agent 按这个岗位排名选定的简历">拟用简历：{job.resumeChoice.file}</span>}
               {job.url && <a href={job.url} target="_blank" rel="noreferrer">岗位链接</a>}
               {job.officialUrl && <a href={job.officialUrl} target="_blank" rel="noreferrer">官方链接</a>}
@@ -280,7 +290,7 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
           </div>
           <div className="row nowrap">
             <VerifiedChip verified={job.verified} />
-            <JobState job={job} compact />
+            <JobState job={job} compact noCheck />
             {!status && (
               <button className="primary" disabled={busy || !canStart}
                 title={!canStart ? "这个岗位现在不能开始申请" : undefined}
@@ -301,7 +311,8 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
               inserted={followup.inserted ?? []} error={followup.error}
               activity={sse.activity !== undefined ? sse.activity : followup.activity}
               onStop={() => void call(() => api.stopFollowup(job.id))}
-              before={<FillSegment steps={steps} job={job} />}
+              before={<FillSegment steps={steps} job={job}
+                check={<PortalCheckBar job={job} running={followupRunning} busy={busy} call={call} />} />}
               empty={
                 <p className="muted small">现在是「{phaseText(job)}」。在这里接着聊：收到的笔试 / OA 题、面试准备、面完的情况。
                   Agent 会把轮次和复盘记下来，题目进题库，别的工作台以后也用得上。</p>
@@ -407,7 +418,7 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
 }
 
 // 后续段上面的投递段（C022）：只读，默认折起来；下面一条分隔线「已投递 · 后续」
-function FillSegment({ steps, job }: { steps: JobDetail["steps"]; job: JobDetail["job"] }) {
+function FillSegment({ steps, job, check }: { steps: JobDetail["steps"]; job: JobDetail["job"]; check?: ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -420,7 +431,78 @@ function FillSegment({ steps, job }: { steps: JobDetail["steps"]; job: JobDetail
         </section>
       )}
       <div className="segdivider"><span>已投递 · 后续</span></div>
+      {check}
     </>
+  );
+}
+
+// 最近查看的来源（C026）：官网查到的那天就是最近查看的那天写「官网」，否则是你说的
+function checkSource(job: JobView): string | null {
+  if (!job.lastCheckedAt) {
+    return null;
+  }
+  const check = job.portalCheck;
+  return check?.result === "found" && dayOf(check.checkedAt) === dayOf(job.lastCheckedAt) ? "官网" : "你说的";
+}
+
+// 后续段头部的「查状态」（C026）：让后续 Agent 去官网看一眼，只记建议；有建议时你在这里核准 / 驳回
+function PortalCheckBar({ job, running, busy, call }: {
+  job: JobView;
+  running: boolean;
+  busy: boolean;
+  call: (action: () => Promise<unknown>) => Promise<boolean>;
+}) {
+  const open = job.phase !== "prep" && job.phase !== "closed";
+  const proposal = job.proposal ?? null;
+  if (!open && !proposal) {
+    return null;
+  }
+  return (
+    <div className="portalbar">
+      {open && (
+        <div className="row">
+          <button disabled={busy || running || !!job.checking}
+            title="让 Agent 打开官网的申请状态页看一眼；它不替你登录，看到变化只记成建议，等你核准"
+            onClick={() => void call(() => api.checkStatus(job.id))}>
+            {job.checking === "running" ? "查状态中…" : job.checking === "queued" ? "排队查状态…" : "查状态"}
+          </button>
+          {job.portalCheck && (
+            <span className="muted small">
+              上次：{job.portalCheck.result === "found" ? `官网显示「${job.portalCheck.stage ?? "—"}」` : PORTAL[job.portalCheck.result]}
+              {" · "}{shortTime(job.portalCheck.checkedAt)}
+            </span>
+          )}
+        </div>
+      )}
+      {proposal && (
+        <div className="proposalcard" role="group" aria-label="官网状态建议">
+          <p>
+            官网显示：<b>{proposal.stage ?? "—"}</b>
+            {proposal.quote && <span className="muted">「{proposal.quote}」</span>}
+            {" → "}建议 <b>{proposalAction(proposal)}</b>
+            {proposal.url && <> · <a href={proposal.url} target="_blank" rel="noreferrer">状态页</a></>}
+          </p>
+          <div className="row">
+            <button className="primary" disabled={busy}
+              onClick={() => void call(async () => {
+                const result = await api.approveProposals([job.id]);
+                if (result.failed.length > 0) {
+                  throw new Error(result.failed[0].reason);
+                }
+                toast(`${job.company} · ${job.title}：已按官网更新`);
+              })}>核准</button>
+            <button disabled={busy}
+              onClick={() => void call(async () => {
+                const result = await api.rejectProposals([job.id]);
+                if (result.failed.length > 0) {
+                  throw new Error(result.failed[0].reason);
+                }
+                toast(`${job.company} · ${job.title}：已驳回这条建议`);
+              })}>驳回</button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
