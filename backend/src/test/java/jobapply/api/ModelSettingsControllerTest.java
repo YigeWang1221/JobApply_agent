@@ -205,17 +205,20 @@ class ModelSettingsControllerTest {
     }
 
     @Test
-    void deletingAProviderInUseIsAConflictAndDeletingRemovesItsKey() {
-        putProvider("gw", server.openAiBase(), List.of("fake-small"));
+    void deletingAProviderInUseClearsItsAssignmentsAndRemovesItsKey() {
+        putProvider("gw", server.openAiBase(), List.of("fake-small", "fake-large"));
         record(api.putJson(BASE + "/providers/gw/key", Map.of("key", KEY)));
-        record(api.putJson(BASE + "/assignments", Map.of("auxiliary", Map.of("provider", "gw", "model", "fake-small"))));
+        record(api.putJson(BASE + "/assignments", Map.of("auxiliary", Map.of("provider", "gw", "model", "fake-small"),
+                "crossCheck", Map.of("provider", "gw", "model", "fake-large"))));
 
-        LocalApi.Response inUse = record(api.delete(BASE + "/providers/gw"));
-        assertThat(inUse.status()).isEqualTo(409);
-        assertThat(inUse.get("error")).asString().contains("auxiliary");
+        // 去掉正被使用的模型：保存成功，那条分配清掉
+        assertThat(putProvider("gw", server.openAiBase(), List.of("fake-large")).status()).isEqualTo(200);
+        assertThat(record(api.get(BASE)).get("assignments")).asInstanceOf(
+                org.assertj.core.api.InstanceOfAssertFactories.MAP).doesNotContainKey("auxiliary").containsKey("cross_check");
 
-        record(api.putJson(BASE + "/assignments", Map.of()));
         assertThat(record(api.delete(BASE + "/providers/gw")).status()).isEqualTo(204);
+        assertThat(record(api.get(BASE)).get("assignments")).asInstanceOf(
+                org.assertj.core.api.InstanceOfAssertFactories.MAP).isEmpty();
         assertThat(new EnvFile(root.resolve("storage/settings/.env"), name -> null).has("GW_API_KEY")).isFalse();
         assertThat(record(api.delete(BASE + "/providers/gw")).status()).isEqualTo(404);
     }

@@ -144,30 +144,30 @@ public final class ModelSettingsFile {
             return new Settings(next, assignments, assignmentsExtra, extra);
         }
 
-        /**
-         * 删掉提供方。
-         *
-         * @throws InUseException 它正被某个用途使用
-         */
+        /** 删掉提供方，连同指向它的用途分配（C025-fix：清掉的用途由用户重新分配）。 */
         public Settings withoutProvider(String id) {
-            List<String> usages = usagesOf(id);
-            if (!usages.isEmpty()) {
-                throw new InUseException(id, usages);
-            }
-            return new Settings(providers.stream().filter(p -> !p.id().equals(id)).toList(), assignments,
-                    assignmentsExtra, extra);
+            return new Settings(providers.stream().filter(p -> !p.id().equals(id)).toList(),
+                    assignmentsWhere(a -> !a.provider().equals(id)), assignmentsExtra, extra);
+        }
+
+        /** 去掉指向这个提供方、但模型不在 {@code models} 里的用途分配（C025-fix）。 */
+        public Settings withoutAssignmentsOutside(String providerId, List<String> models) {
+            return new Settings(providers, assignmentsWhere(a -> !a.provider().equals(providerId)
+                    || models.contains(a.model())), assignmentsExtra, extra);
+        }
+
+        private Map<String, Assignment> assignmentsWhere(java.util.function.Predicate<Assignment> keep) {
+            Map<String, Assignment> kept = new LinkedHashMap<>();
+            assignments.forEach((usage, a) -> {
+                if (keep.test(a)) {
+                    kept.put(usage, a);
+                }
+            });
+            return kept;
         }
 
         public Settings withAssignments(Map<String, Assignment> next) {
             return new Settings(providers, next, assignmentsExtra, extra);
-        }
-    }
-
-    /** 提供方正被某个用途使用，不能删除。 */
-    public static final class InUseException extends RuntimeException {
-
-        public InUseException(String id, List<String> usages) {
-            super("提供方 " + id + " 正被用作 " + String.join("、", usages) + "，先修改用途分配再删除");
         }
     }
 

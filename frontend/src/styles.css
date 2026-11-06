@@ -4097,3 +4097,12 @@ button.ms-panel-head {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* C025-fix：提供方卡片的错误放在删除按钮旁 */
+.ms-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 60%;
+  text-align: right;
+}

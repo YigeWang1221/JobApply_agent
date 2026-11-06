@@ -101,14 +101,14 @@ class ModelSettingsFileTest {
     }
 
     @Test
-    void refusesToDeleteAProviderInUse() {
-        Settings settings = Settings.empty().withProvider(provider("deepseek-main"))
-                .withAssignments(Map.of(ModelSettingsFile.AUXILIARY, new Assignment("deepseek-main", "fake-small")));
+    void deletingAProviderInUseClearsItsAssignments() {
+        Settings settings = Settings.empty().withProvider(provider("deepseek-main")).withProvider(provider("other"))
+                .withAssignments(Map.of(ModelSettingsFile.AUXILIARY, new Assignment("deepseek-main", "fake-small"),
+                        ModelSettingsFile.CROSS_CHECK, new Assignment("other", "fake-small")));
 
-        assertThatThrownBy(() -> settings.withoutProvider("deepseek-main"))
-                .isInstanceOf(ModelSettingsFile.InUseException.class)
-                .hasMessageContaining("auxiliary");
-        assertThat(settings.withAssignments(Map.of()).withoutProvider("deepseek-main").providers()).isEmpty();
+        Settings next = settings.withoutProvider("deepseek-main");
+        assertThat(next.providers()).extracting(ModelSettingsFile.Provider::id).containsExactly("other");
+        assertThat(next.assignments()).containsOnlyKeys(ModelSettingsFile.CROSS_CHECK);
     }
 
     @Test

@@ -1360,3 +1360,10 @@
   - `styles.css` 末尾追加 C026-C、C026-D 两节。
   - Master 回写：workflow 第 8 段、tracking「unknown 规则」、memory `job.md` 字段、agent-runtime 7.9、ui 新小节。
 - 验证（工作区，含同时施工的 C025）：`frontend/` `npm run build` 退出码 0；`backend/` `mvn -B clean verify` 退出码 0（单元 662、IT 1，Failures 0）。真实模型、真实 Chrome 下查状态，浏览器里看界面：未运行。未提交。
+
+## 2026-11-05 · C025-fix 模型设置删不掉
+
+- 指令：用户确认：删提供方 / 去掉模型时把相关用途分配清掉，让用户重新设；清用途不被主模型工具调用检查挡住；页面标出谁在用。
+- 根因：`ModelSettingsFile.Settings.withoutProvider` 在用即抛 `InUseException`（409）；`ModelSettingsService.upsertProvider` 去掉在用模型也 409；`assign` 主模型没变也查测试；前端错误在卡片底部、`usedBy` 未显示、× 只改本地。旧版和 C025 版相同。
+- 结果：后端 `ModelSettingsFile`（`withoutProvider` 清分配、新增 `withoutAssignmentsOutside`、删 `InUseException`）、`ModelSettingsService`（`upsertProvider`、`deleteProvider`、`assign` 只查新主模型）、`ApiErrors`（去掉 `InUseException`）；前端 `ModelSettings.tsx`（用作 chip、确认框、错误在删除旁、× 立即保存、清空用途提示）、`styles.css`（C025-fix 一节）；测试 `ModelSettingsFileTest`、`ModelSettingsControllerTest` 改为断言清分配。细节见计划。
+- 验证：`frontend/` `npm run build` 退出码 0；`backend/` `mvn -B clean verify` 退出码 0（单元 662、IT 1，Failures 0）。浏览器里删除：未运行。未提交。

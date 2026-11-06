@@ -8,7 +8,6 @@ import jobapply.domain.IllegalTransitionException;
 import jobapply.memory.ImportRunner;
 import jobapply.memory.StructuredCall;
 import jobapply.persistence.EnvFile;
-import jobapply.persistence.ModelSettingsFile;
 import jobapply.tools.GitHubPublicReader;
 import jobapply.workflow.ApplicationException;
 import org.slf4j.Logger;
@@ -58,7 +57,7 @@ class ApiErrors {
         return error(HttpStatus.NOT_FOUND, e.getMessage());
     }
 
-    @ExceptionHandler({SettingsException.Conflict.class, ModelSettingsFile.InUseException.class,
+    @ExceptionHandler({SettingsException.Conflict.class,
             ModelRegistry.NotConfiguredException.class})
     ResponseEntity<Map<String, String>> settingConflict(RuntimeException e) {
         return error(HttpStatus.CONFLICT, e.getMessage());

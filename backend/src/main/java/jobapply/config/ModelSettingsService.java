@@ -105,13 +105,8 @@ public final class ModelSettingsService {
                 endpointChanged ? List.of() : old.map(p -> p.tested().stream()
                         .filter(t -> cleanModels.contains(t.model())).toList()).orElse(List.of()),
                 old.map(Provider::headers).orElse(Map.of()), old.map(Provider::extra).orElse(Map.of()));
-        Settings next = settings.withProvider(provider);
-        for (String usage : next.usagesOf(id)) {
-            String model = next.assignment(usage).orElseThrow().model();
-            if (!cleanModels.contains(model)) {
-                throw new SettingsException.Conflict("模型 " + model + " 正被用作 " + usage + "，先修改用途分配");
-            }
-        }
+        // 去掉的模型正被某个用途使用时，清掉那条分配，由用户重新分配（C025-fix）
+        Settings next = settings.withProvider(provider).withoutAssignmentsOutside(id, cleanModels);
         file.write(next, (old.isPresent() ? "修改" : "添加") + "提供方 " + id);
         registry.reload();
         return view(next, provider);
@@ -145,16 +140,11 @@ public final class ModelSettingsService {
         }
     }
 
-    /** 删除提供方，同时删掉 .env 里对应的那一行。正被某个用途使用时拒绝。 */
+    /** 删除提供方，同时删掉 .env 里对应的那一行；指向它的用途分配一起清掉（C025-fix）。 */
     public synchronized void deleteProvider(String id) {
         Settings settings = file.read();
         Provider provider = require(settings, id);
-        Settings next;
-        try {
-            next = settings.withoutProvider(id);
-        } catch (ModelSettingsFile.InUseException e) {
-            throw new SettingsException.Conflict(e.getMessage());
-        }
+        Settings next = settings.withoutProvider(id);
         file.write(next, "删除提供方 " + id);
         for (String name : EnvFile.placeholders(provider.apiKey())) {
             if (EnvFile.isValidName(name)) {
@@ -276,14 +266,20 @@ public final class ModelSettingsService {
         return result;
     }
 
-    /** 分配用途。主模型必须通过了工具调用测试。保存后立即生效（热替换）。 */
+    /**
+     * 分配用途。新分配的主模型必须通过了工具调用测试；主模型没变或清空时不查（C025-fix：清别的用途不被旧测试结果挡住）。
+     * 保存后立即生效（热替换）。
+     */
     public synchronized Map<String, Assignment> assign(Assignment main, Assignment auxiliary, Assignment crossCheck) {
         Settings settings = file.read();
         Map<String, Assignment> next = new LinkedHashMap<>();
         put(settings, next, ModelSettingsFile.MAIN, main);
         put(settings, next, ModelSettingsFile.AUXILIARY, auxiliary);
         put(settings, next, ModelSettingsFile.CROSS_CHECK, crossCheck);
-        if (main != null) {
+        boolean mainChanged = main != null && settings.assignment(ModelSettingsFile.MAIN)
+                .map(old -> !old.provider().equals(main.provider()) || !old.model().equals(main.model()))
+                .orElse(true);
+        if (mainChanged) {
             Provider provider = settings.provider(main.provider()).orElseThrow();
             boolean passed = provider.testOf(main.model())
                     .map(t -> t.ok() && t.tools()).orElse(false);

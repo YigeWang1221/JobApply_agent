@@ -12,12 +12,17 @@ const USAGES: { usage: Usage; label: string; hint: string }[] = [
 const PRIVACY =
   "填表与对话时，A / B 级信息（简历内容、联系方式等）会发送给所选的模型供应商；C 级信息（证件、工作授权、薪资等）永不发送。";
 
+const USAGE_LABEL: Record<Usage, string> = { main: "主模型", auxiliary: "辅助模型", cross_check: "交叉核验" };
+const usageNames = (usages: Usage[]) => usages.map((u) => USAGE_LABEL[u] ?? u).join("、");
+
 type Format = "openai" | "anthropic";
 const FORMAT_LABEL: Record<Format, string> = { openai: "OpenAI 兼容", anthropic: "Anthropic" };
 
 export default function ModelSettings() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 刚因删除提供方 / 模型而清掉的用途（C025-fix）：用途分配里提示重新选
+  const [cleared, setCleared] = useState<Usage[]>([]);
 
   const reload = useCallback(async () => {
     try {
@@ -42,11 +47,14 @@ export default function ModelSettings() {
         <h2>模型提供方</h2>
         {settings.providers.length === 0 && <p className="muted">还没有提供方。先在下面添加一个。</p>}
         {settings.providers.map((provider) => (
-          <ProviderCard key={provider.id} provider={provider} presets={settings.presets} onChanged={reload} />
+          <ProviderCard key={provider.id} provider={provider} presets={settings.presets}
+            assignments={settings.assignments} onChanged={reload}
+            onCleared={(usages) => setCleared((old) => [...new Set([...old, ...usages])])} />
         ))}
       </section>
       <AddProvider presets={settings.presets} existing={settings.providers.map((p) => p.id)} onAdded={reload} />
-      <Assignments settings={settings} onSaved={reload} />
+      <Assignments settings={settings} cleared={cleared}
+        onSaved={() => { setCleared([]); void reload(); }} />
     </>
   );
 }
@@ -142,7 +150,13 @@ function AddProvider({ presets, existing, onAdded }: { presets: Preset[]; existi
   );
 }
 
-function ProviderCard({ provider, presets, onChanged }: { provider: Provider; presets: Preset[]; onChanged: () => void }) {
+function ProviderCard({ provider, presets, assignments, onChanged, onCleared }: {
+  provider: Provider;
+  presets: Preset[];
+  assignments: Settings["assignments"];
+  onChanged: () => void;
+  onCleared: (usages: Usage[]) => void;
+}) {
   const preset = presets.find((p) => p.id === provider.preset);
   const [key, setKey] = useState("");
   const [catalog, setCatalog] = useState<string[] | null>(null);
@@ -182,22 +196,51 @@ function ProviderCard({ provider, presets, onChanged }: { provider: Provider; pr
       toast(`拉到 ${models.length} 个模型`);
     });
 
-  const saveModels = () =>
+  // 指向这个提供方、某个模型的用途
+  const usagesOf = (model: string) =>
+    (Object.keys(USAGE_LABEL) as Usage[]).filter((u) => assignments[u]?.provider === provider.id && assignments[u]?.model === model);
+  const providerUsages = provider.usedBy as Usage[];
+
+  // 保存模型选择；去掉的模型正被用途使用时，后端会清掉那条分配（C025-fix），这里先说一声
+  const persistModels = (models: string[], message: string) =>
     run(async () => {
+      const lost = provider.models.filter((m) => !models.includes(m)).flatMap(usagesOf);
+      if (lost.length > 0 && !window.confirm(`会一起清掉用途分配里的${usageNames(lost)}，之后要重新分配。继续？`)) {
+        setSelected(provider.models);
+        return;
+      }
       await api.saveProvider(provider.id, {
         preset: provider.preset,
         format: provider.format,
         baseUrl: provider.baseUrl,
-        models: selected,
+        models,
       });
-      toast("模型选择已保存");
+      if (lost.length > 0) {
+        onCleared(lost);
+      }
+      toast(message);
       onChanged();
     });
 
+  const saveModels = () => persistModels(selected, "模型选择已保存");
+
+  // 已保存的模型点 ×：立即保存，免得只在页面上消失、刷新后又回来
+  function removeModel(model: string) {
+    const next = selected.filter((m) => m !== model);
+    if (provider.models.includes(model)) {
+      void persistModels(next, `已移除 ${model}`); // 成功后重新加载；失败时模型留在列表里，错误显示在删除按钮旁
+    } else {
+      setSelected(next);
+    }
+  }
+
   const remove = () =>
     run(async () => {
-      if (window.confirm(`删除提供方 ${provider.id}？它在 .env 里的 Key 也会一起删掉。`)) {
+      const also = providerUsages.length > 0 ? `\n用途分配里的${usageNames(providerUsages)}也会清空，之后要重新分配。` : "";
+      if (window.confirm(`删除提供方 ${provider.id}？它在 .env 里的 Key 也会一起删掉。${also}`)) {
         await api.deleteProvider(provider.id);
+        onCleared(providerUsages);
+        toast(`已删除 ${provider.id}`);
         onChanged();
       }
     });
@@ -247,10 +290,14 @@ function ProviderCard({ provider, presets, onChanged }: { provider: Provider; pr
         <div>
           <strong>{provider.id}</strong>{" "}
           <span className="chip muted">{preset?.label ?? provider.preset}</span>{" "}
-          <span className="chip">{FORMAT_LABEL[provider.format]}</span>
+          <span className="chip">{FORMAT_LABEL[provider.format]}</span>{" "}
+          {providerUsages.length > 0 && <span className="chip good">用作 {usageNames(providerUsages)}</span>}
           <div className="mono muted small">{provider.baseUrl}</div>
         </div>
-        <button className="danger btn-xs" disabled={busy} onClick={remove}>删除</button>
+        <div className="ms-head-actions">
+          {error && <span className="error small">{error}</span>}
+          <button className="danger btn-xs" disabled={busy} onClick={remove}>删除</button>
+        </div>
       </div>
 
       <div className="row">
@@ -296,8 +343,9 @@ function ProviderCard({ provider, presets, onChanged }: { provider: Provider; pr
                   </button>
                 ) : <span className="chip inp">未保存</span>}
                 <TestSummary result={tests[model]} record={provider.tested.find((t) => t.model === model)} />
-                <button className="ghost btn-xs ms-remove" title="移除" aria-label={`移除 ${model}`}
-                  onClick={() => toggle(model)}>×</button>
+                {saved && usagesOf(model).length > 0 && <span className="chip">用作 {usageNames(usagesOf(model))}</span>}
+                <button className="ghost btn-xs ms-remove" title="移除" aria-label={`移除 ${model}`} disabled={busy}
+                  onClick={() => removeModel(model)}>×</button>
               </li>
             );
           })}
@@ -306,7 +354,6 @@ function ProviderCard({ provider, presets, onChanged }: { provider: Provider; pr
       {(dirty || provider.models.length > 0) && (
         <button className={dirty ? "primary" : undefined} disabled={busy || !dirty} onClick={saveModels}>保存模型选择</button>
       )}
-      {error && <p className="error">{error}</p>}
 
       <details className="ms-advanced">
         <summary>高级 · 自定义请求头{provider.headers.length > 0 ? `（${provider.headers.length}）` : ""}</summary>
@@ -483,7 +530,7 @@ function TestSummary({ result, record }: { result?: TestResult; record?: Provide
   return null;
 }
 
-function Assignments({ settings, onSaved }: { settings: Settings; onSaved: () => void }) {
+function Assignments({ settings, cleared, onSaved }: { settings: Settings; cleared: Usage[]; onSaved: () => void }) {
   const [values, setValues] = useState<Record<Usage, string>>(() => initial(settings));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -532,6 +579,9 @@ function Assignments({ settings, onSaved }: { settings: Settings; onSaved: () =>
                 ))}
               </select>
               <span className="muted small">{hint}</span>
+              {cleared.includes(usage) && !settings.assignments[usage] && (
+                <span className="error small">随删除清空了，请重新选一个再保存</span>
+              )}
             </label>
           </div>
         ))}
