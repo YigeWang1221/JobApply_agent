@@ -1367,3 +1367,7 @@
 - 根因：`ModelSettingsFile.Settings.withoutProvider` 在用即抛 `InUseException`（409）；`ModelSettingsService.upsertProvider` 去掉在用模型也 409；`assign` 主模型没变也查测试；前端错误在卡片底部、`usedBy` 未显示、× 只改本地。旧版和 C025 版相同。
 - 结果：后端 `ModelSettingsFile`（`withoutProvider` 清分配、新增 `withoutAssignmentsOutside`、删 `InUseException`）、`ModelSettingsService`（`upsertProvider`、`deleteProvider`、`assign` 只查新主模型）、`ApiErrors`（去掉 `InUseException`）；前端 `ModelSettings.tsx`（用作 chip、确认框、错误在删除旁、× 立即保存、清空用途提示）、`styles.css`（C025-fix 一节）；测试 `ModelSettingsFileTest`、`ModelSettingsControllerTest` 改为断言清分配。细节见计划。
 - 验证：`frontend/` `npm run build` 退出码 0；`backend/` `mvn -B clean verify` 退出码 0（单元 662、IT 1，Failures 0）。浏览器里删除：未运行。未提交。
+
+## 2026-11-05 · C025-fix 用户本机试
+
+- 在 18080（后端）+ 5173（Vite 临时配置）启动界面，用户在「设置 → 模型」试过删除，回复「OK了」。服务已停，临时配置已删。
