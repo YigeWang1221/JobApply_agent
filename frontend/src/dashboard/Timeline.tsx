@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { localDay, type JobView } from "../api";
 import { go } from "../route";
-import { labelText, OUTCOME, phaseText, ROUND_RESULT, RoundProgress, RunChip } from "../status";
+import {
+  CheckChip, checkedTime, labelText, OUTCOME, PORTAL, proposalText, ROUND_RESULT, RoundProgress, RunChip, stageText,
+} from "../status";
 import { applications, dayOf, daysBetween, FUNNEL_LEVELS, lane, md, reached } from "./metrics";
 
 // 先显示最近活动的这么多份，多的折起「更早 N 份」
@@ -73,7 +75,7 @@ export function Timeline({ jobs }: { jobs: JobView[] }) {
                     title={FUNNEL_LEVELS.map((name, i) => `${i < level ? "●" : "○"} ${name}`).join("\n")}>
                     {FUNNEL_LEVELS.map((name, i) => <i key={name} className={i < level ? "on" : ""} />)}
                   </span>
-                  <span className="stage"><RunChip job={job} /><span className="chip">{phaseText(job)}</span></span>
+                  <span className="stage"><RunChip job={job} /><CheckChip job={job} /><span className="chip">{stageText(job)}</span></span>
                   <span className="dates num">
                     {last === applied ? `投递 ${md(applied)}`
                       : `${md(applied)} → ${job.phase === "closed" ? "结束" : "最近"} ${md(last)}`}
@@ -141,6 +143,26 @@ function Detail({ job }: { job: JobView }) {
                   </li>
                 ))}
               </ol>
+            </dd>
+          </>
+        )}
+        {job.portalCheck && (
+          <>
+            <dt>官网状态</dt>
+            <dd>
+              {job.portalCheck.result === "found" ? (job.portalCheck.stage ?? "—") : PORTAL[job.portalCheck.result]}
+              {job.portalCheck.quote && <span className="muted"> 「{job.portalCheck.quote}」</span>}
+              <span className="muted"> · {checkedTime(job.portalCheck.checkedAt)}</span>
+              {job.portalCheck.url && <> · <a href={job.portalCheck.url} target="_blank" rel="noreferrer">状态页</a></>}
+            </dd>
+          </>
+        )}
+        {job.proposal && (
+          <>
+            <dt>待核准</dt>
+            <dd>
+              {proposalText(job.proposal)}
+              {job.proposal.quote && <span className="muted"> 「{job.proposal.quote}」</span>}
             </dd>
           </>
         )}

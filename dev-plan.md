@@ -67,6 +67,8 @@
 | [C023](plan/coding/04-refinement/C023-ui-polish-resizable.md) | UI 增量：视觉打磨（侧栏、图标、按钮层级、chip、字号对比、对齐）；左右栏可拖拽伸缩并记住宽度；C 候选池先公司再地点、名字不完全一样时由模型归并；D 表格横向滚动、工作台对话样式与 Session 一致；E 工作台右栏进度与报告分层折叠 | A–E 已施工，等用户在浏览器里看（2026-10-31） |
 | [C024](plan/coding/04-refinement/C024-manual-outcome-reason.md) | 投递结果不再按 case 写死：工作台选「投递失败 / 不投了」+ 手动写原因，记进工作台和 Session，Dashboard 与台账显示，可撤销；模型可用同一工具记下 | 已施工，等用户在本机试（2026-10-31） |
 | [C024-fix](plan/coding/04-refinement/C024-fix-status-and-timeline.md) | 「结束」一词跨领域重复（投递段结束被显示成申请已结束）：状态按运行 / 申请 / 候选分清用词；Dashboard 的 Failures 放跳过 / 投递失败 / 不投了；时间线每份申请一条圆角长条、点开看详情 | 已施工，等用户在本机试（2026-10-31） |
+| [C025](plan/coding/04-refinement/C025-settings-ui-polish.md) | 设置页打磨：敏感信息值能输入中文（密码框禁了输入法）；模型 / 运行 / 敏感信息 / 资料事实里该选的字段换下拉、组合框、分段开关，样式对齐 C023 | 已施工，等用户在本机试（2026-11-05；`npm run build` 0；`mvn verify` 在隔离副本里 0，工作区因 C026 施工中未通过） |
+| [C026](plan/coding/04-refinement/C026-portal-status-check.md) | 投递状态交给 Agent 查：Dashboard 按当前筛选出的申请「查状态」，跑后续段（只读、用户 Chrome 的登录态），识别门户状态并记下；要手动登录的记下、不再查；查看间隔天数可设，状态显示跟着改；状态变化进「核准列表」由用户核准；阶段按官网动态（复用轮次） | 已施工，等用户在本机试（2026-11-05；`npm run build` 0、工作区 `mvn -B clean verify` 0，含 C025；真实 Chrome 未跑） |
 
 ## 参考（不是施工步骤）
 

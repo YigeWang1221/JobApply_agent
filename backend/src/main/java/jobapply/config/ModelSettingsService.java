@@ -20,10 +20,30 @@ import jobapply.persistence.ModelSettingsFile.Settings;
  */
 public final class ModelSettingsService {
 
-    /** 页面上看到的提供方：没有 Key 本身。 */
+    /** 页面上看到的提供方：没有 Key 本身，密钥请求头也没有值。 */
     public record ProviderView(String id, String preset, String format, String baseUrl, String keyVariable,
                                boolean keySet, String keyLast4, List<String> models,
-                               List<ModelSettingsFile.TestResult> tested, List<String> usedBy) {
+                               List<ModelSettingsFile.TestResult> tested, List<String> usedBy,
+                               List<HeaderView> headers) {
+    }
+
+    /**
+     * 一个自定义请求头（C025）。
+     *
+     * @param value  明文值或用户自己写的占位符；密钥请求头为 null
+     * @param secret 值存在 .env 里（yaml 里是 {@code ${<提供方>_HEADER_<名字>}}）
+     * @param set    密钥请求头的值在 .env 里有没有
+     */
+    public record HeaderView(String name, String value, boolean secret, boolean set) {
+    }
+
+    /**
+     * 页面发来的请求头。
+     *
+     * @param value  新的值；密钥请求头留空表示沿用已有的值
+     * @param secret 值写进 .env，yaml 里只写占位符
+     */
+    public record HeaderInput(String name, String value, boolean secret) {
     }
 
     public record View(List<ProviderView> providers, Map<String, Assignment> assignments,
@@ -84,7 +104,7 @@ public final class ModelSettingsService {
                 old.map(Provider::apiKey).orElse(null), cleanModels,
                 endpointChanged ? List.of() : old.map(p -> p.tested().stream()
                         .filter(t -> cleanModels.contains(t.model())).toList()).orElse(List.of()),
-                old.map(Provider::extra).orElse(Map.of()));
+                old.map(Provider::headers).orElse(Map.of()), old.map(Provider::extra).orElse(Map.of()));
         Settings next = settings.withProvider(provider);
         for (String usage : next.usagesOf(id)) {
             String model = next.assignment(usage).orElseThrow().model();
@@ -141,7 +161,69 @@ public final class ModelSettingsService {
                 env.remove(name);
             }
         }
+        provider.headers().keySet().forEach(header -> removeSecretHeader(provider, header));
         registry.reload();
+    }
+
+    /**
+     * 整张替换自定义请求头（C025）。密钥请求头的值写进 .env，yaml 里只写占位符；去掉的密钥请求头，.env 里那一行一起删。
+     * 错误信息里不带值。
+     */
+    public synchronized ProviderView setHeaders(String id, List<HeaderInput> inputs) {
+        Settings settings = file.read();
+        Provider provider = require(settings, id);
+        Map<String, String> next = new LinkedHashMap<>();
+        Map<String, String> secrets = new LinkedHashMap<>();
+        for (HeaderInput input : inputs == null ? List.<HeaderInput>of() : inputs) {
+            String name = input.name() == null ? "" : input.name().strip();
+            if (!ModelSettingsFile.isValidHeaderName(name)) {
+                throw new IllegalArgumentException("请求头名字只允许字母、数字和 -，不超过 64 个字符：" + name);
+            }
+            if (next.keySet().stream().anyMatch(name::equalsIgnoreCase)) {
+                throw new IllegalArgumentException("请求头 " + name + " 重复了");
+            }
+            String value = input.value() == null ? "" : input.value().strip();
+            if (input.secret()) {
+                String variable = ModelSettingsFile.headerEnvName(id, name);
+                if (value.isEmpty()) {
+                    if (!secretPlaceholder(id, name).equals(provider.headers().get(name)) || !env.has(variable)) {
+                        throw new IllegalArgumentException("密钥请求头 " + name + " 还没有值");
+                    }
+                } else {
+                    ModelSettingsFile.requireHeaderValue(name, value);
+                    secrets.put(variable, value);
+                }
+                next.put(name, secretPlaceholder(id, name));
+            } else {
+                ModelSettingsFile.requireHeaderValue(name, value);
+                for (String variable : EnvFile.placeholders(value)) {
+                    if (!EnvFile.isValidName(variable)) {
+                        throw new IllegalArgumentException("请求头 " + name + " 里的占位符变量名不合法");
+                    }
+                }
+                next.put(name, value);
+            }
+        }
+        secrets.forEach(env::set);
+        Provider updated = new Provider(provider.id(), provider.preset(), provider.format(), provider.baseUrl(),
+                provider.apiKey(), provider.models(), provider.tested(), next, provider.extra());
+        Settings written = settings.withProvider(updated);
+        file.write(written, "提供方 " + id + " 的自定义请求头");
+        provider.headers().keySet().stream().filter(header -> !secretPlaceholder(id, header).equals(next.get(header)))
+                .forEach(header -> removeSecretHeader(provider, header));
+        registry.reload();
+        return view(written, updated);
+    }
+
+    private static String secretPlaceholder(String id, String header) {
+        return "${" + ModelSettingsFile.headerEnvName(id, header) + "}";
+    }
+
+    /** 这个请求头原来是密钥请求头时，删掉 .env 里的那一行。 */
+    private void removeSecretHeader(Provider provider, String header) {
+        if (secretPlaceholder(provider.id(), header).equals(provider.headers().get(header))) {
+            env.remove(ModelSettingsFile.headerEnvName(provider.id(), header));
+        }
     }
 
     /** 把 Key 写进 .env，yaml 里只写占位符。返回末四位。 */
@@ -154,7 +236,8 @@ public final class ModelSettingsService {
         String placeholder = ModelSettingsFile.placeholder(id);
         if (!placeholder.equals(provider.apiKey())) {
             file.write(settings.withProvider(new Provider(provider.id(), provider.preset(), provider.format(),
-                    provider.baseUrl(), placeholder, provider.models(), provider.tested(), provider.extra())),
+                    provider.baseUrl(), placeholder, provider.models(), provider.tested(), provider.headers(),
+                    provider.extra())),
                     "提供方 " + id + " 的 Key 改为占位符 " + placeholder);
         }
         registry.reload();
@@ -165,7 +248,8 @@ public final class ModelSettingsService {
     public List<String> catalog(String id) {
         Provider provider = require(file.read(), id);
         String key = resolvedKey(provider);
-        ModelCatalogClient.Result result = catalog.list(provider.format(), env.resolve(provider.baseUrl()), key);
+        ModelCatalogClient.Result result = catalog.list(provider.format(), env.resolve(provider.baseUrl()), key,
+                ModelRegistry.headers(provider, env));
         return switch (result) {
             case ModelCatalogClient.Models models -> models.ids();
             case ModelCatalogClient.Failed failed -> throw new SettingsException.Upstream(
@@ -236,7 +320,17 @@ public final class ModelSettingsService {
         return new ProviderView(provider.id(), provider.preset(), provider.format(), provider.baseUrl(),
                 variables.isEmpty() ? ModelSettingsFile.envName(provider.id()) : variables.getFirst(),
                 key != null, key == null ? null : last4(key), provider.models(), provider.tested(),
-                settings.usagesOf(provider.id()));
+                settings.usagesOf(provider.id()), headerViews(provider));
+    }
+
+    private List<HeaderView> headerViews(Provider provider) {
+        return provider.headers().entrySet().stream().map(entry -> {
+            boolean secret = secretPlaceholder(provider.id(), entry.getKey()).equals(entry.getValue());
+            return secret
+                    ? new HeaderView(entry.getKey(), null, true,
+                            env.has(ModelSettingsFile.headerEnvName(provider.id(), entry.getKey())))
+                    : new HeaderView(entry.getKey(), entry.getValue(), false, true);
+        }).toList();
     }
 
     private String resolvedKey(Provider provider) {

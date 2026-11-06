@@ -1339,3 +1339,24 @@
 - 原因：`appbuild/macos/build.sh` 的 `swiftc` 没指定 `-target`，Swift 外壳的最低版本默认取构建机系统（macOS 27.0），Info.plist 的 `LSMinimumSystemVersion 13.0` 不起作用。
 - 结果：`swiftc` 加 `-target arm64-apple-macos13.0`，与 Info.plist 一致。
 - 验证：`appbuild/macos/build.sh` 重新构建；`vtool -show-build` 看外壳 minos 13.0，内嵌 Java 运行时与 node 的 minos 11.0（App 内所有 Mach-O 最高 11.0）；`hdiutil verify` 退出码 0。在 macOS 14/15/26 真机上打开：未运行。Intel Mac 仍不支持（仅 arm64）。
+
+
+## 2026-11-05 · C025 设置页打磨
+
+- 指令：用户回答 C025 待定 1–5（拆 4 个子页签；预设保留下拉；基本信息只做 5 个下拉；遮罩 + 眼睛；OpenCode Go 只加 OpenAI 格式，并支持提供方自定义请求头），要求一次建完、不提交。
+- 根因（敏感信息打不了中文）：值框是 `type="password"`，macOS 下密码框强制安全输入、输入法不可用；后端读写本来就是 UTF-8。
+- 结果：前端 `Settings.tsx`、`ModelSettings.tsx`、`PersonalSettings.tsx`、`Profile.tsx`、`WorkerSettings.tsx`、`ToolCallSettings.tsx`、`StorageLocation.tsx`、`api.ts`、`styles.css`（追加 C025-a/c/d 三节）；后端 `ModelSettingsFile`（`headers`）、`ModelSettingsService`（`setHeaders`）、`ModelSettingsController`（`PUT …/headers`）、`ModelFactory`、`ModelRegistry`、`ModelCatalogClient`、`ModelPresets`（`opencode-go`）、`PersonalEnv` / `EnvFile`（值允许 `=`、`#`）。Master 回写 `ui.md`（预设表、自定义请求头）。细节见计划施工记录。
+- 验证：`frontend/` `npm run build` 退出码 0。工作区 `backend/` `mvn -B clean verify` 退出码 1（C026 施工中的 `FollowupLoop.java` 编译不过，非本步文件）；草稿目录副本（C026 的 5 个文件还原为 HEAD）`mvn -B clean verify` 退出码 0（662 + IT 1，Failures 0）。浏览器 / App 里看、拼音输入、真实模型带请求头：未运行。未提交。
+
+## 2026-11-05 · C026 查状态（官网门户）+ 核准列表 + 查看间隔
+
+- 指令：用户确认 C026（核准列表、不查邮箱、并发沿用 N / M、间隔全局 + Project、阶段按官网动态、过程写进后续段也反映在 Dashboard），要求一次建完；后来又要求拆成并行子代理。编号先和设置页打磨对调（C025 ↔ C026）。
+- 结果：四个子代理按事先定好的接口约定，各改各的文件，主代理合龙。
+  - 后端 A：`FollowupRunner`（查状态队列、核准 / 驳回）、`FollowupController`、新 `StatusCheckController`、`FollowupAgent`、`FollowupTools`、`FollowupLoop`。
+  - 后端 B：`JobLedger`（`recordPortalCheck`、`approveProposal`、`rejectProposal`、间隔与重排、`next_check_pinned`）、`Views`、`JobController`、`ProjectController`、新 `CheckSettingsController`、`TrackerWriter`、`CheckSettingsFile`、`StorageLayout.checksYaml`、`ViewsWorkspacesTest`（构造参数）。
+  - 前端 C：`api.ts`、`Dashboard.tsx`、新 `CheckBar.tsx`、新 `Approvals.tsx`、`FollowUps.tsx`、`metrics.ts`、`ProjectPage.tsx`。
+  - 前端 D：`status.tsx`、`AppsTable.tsx`、`Board.tsx`、`Timeline.tsx`、`JobPage.tsx`。
+  - 主代理：新 `pages/CheckSettings.tsx`，挂在 `Settings.tsx` 的「运行」子页签。
+  - `styles.css` 末尾追加 C026-C、C026-D 两节。
+  - Master 回写：workflow 第 8 段、tracking「unknown 规则」、memory `job.md` 字段、agent-runtime 7.9、ui 新小节。
+- 验证（工作区，含同时施工的 C025）：`frontend/` `npm run build` 退出码 0；`backend/` `mvn -B clean verify` 退出码 0（单元 662、IT 1，Failures 0）。真实模型、真实 Chrome 下查状态，浏览器里看界面：未运行。未提交。

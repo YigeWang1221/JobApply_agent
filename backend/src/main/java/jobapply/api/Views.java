@@ -66,7 +66,44 @@ final class Views {
                    String application, String appliedAt, String lastCheckedAt, String nextCheckAt,
                    boolean pageLooksSubmitted, List<PhaseEvent> events, boolean due, String bucket,
                    boolean canStart, Map<?, ?> resumeChoice, List<RoundView> rounds, String outcomeReason,
-                   String closedAt, boolean canReopen, String followup) {
+                   String closedAt, boolean canReopen, String followup, PortalCheckView portalCheck,
+                   ProposalView proposal, String portalStage, String checking) {
+    }
+
+    /** 最近一次查官网（C026，job.md 的 {@code portal_check}）。{@code result}：found / needs_login / not_found。 */
+    record PortalCheckView(String result, String stage, String quote, String url, String checkedAt) {
+    }
+
+    /** 等用户核准的官网状态建议（C026，job.md 的 {@code status_proposal}）。 */
+    record ProposalView(String stage, String quote, String url, String at, String phase, String outcome,
+                        ProposedRound round) {
+    }
+
+    /** 建议记的一轮：官网上的叫法、类型（{@link HiringRound#TYPES}）、结果（pending / passed / failed 或空）。 */
+    record ProposedRound(String name, String type, String result) {
+    }
+
+    static PortalCheckView portalCheck(Job job) {
+        if (!(job.extra().get("portal_check") instanceof Map<?, ?> map)) {
+            return null;
+        }
+        return new PortalCheckView(text(map, "result"), text(map, "stage"), text(map, "quote"), text(map, "url"),
+                text(map, "checked_at"));
+    }
+
+    static ProposalView proposal(Job job) {
+        if (!(job.extra().get("status_proposal") instanceof Map<?, ?> map)) {
+            return null;
+        }
+        ProposedRound round = map.get("round") instanceof Map<?, ?> r && text(r, "name") != null
+                ? new ProposedRound(text(r, "name"), text(r, "type"), text(r, "result")) : null;
+        return new ProposalView(text(map, "stage"), text(map, "quote"), text(map, "url"), text(map, "at"),
+                text(map, "phase"), text(map, "outcome"), round);
+    }
+
+    private static String text(Map<?, ?> map, String key) {
+        Object value = map.get(key);
+        return value == null || value.toString().isBlank() ? null : value.toString();
     }
 
     /**
@@ -205,15 +242,16 @@ final class Views {
      * 可以开始申请线程：还没有申请线程、状态允许（{@link jobapply.domain.JobStatus#canStartApplication}）、有岗位链接。
      */
     static JobView job(Job job, ApplicationRunner applications, LocalDate today) {
-        return job(job, applications, null, today, null);
+        return job(job, applications, null, today, null, null);
     }
 
     /**
      * 带阶段变化的 JobView（Project 主页、全局页的列表用）；{@code history} 是这个 Job 的全部事件（另带候选「不投」那一条）。
      * {@code followup} 是后续段的运行状态（C024-fix，{@link jobapply.workflow.FollowupRunner#statusOf}），不知道时为 null。
+     * {@code checking} 是查官网状态在排队还是在跑（C026，{@code queued} / {@code running}），不在查时为 null。
      */
     static JobView job(Job job, ApplicationRunner applications, List<JobEvent> history, LocalDate today,
-                       String followup) {
+                       String followup, String checking) {
         List<PhaseEvent> events = history == null ? null : history.stream()
                 .filter(Views::dashboardEvent)
                 .map(e -> new PhaseEvent(e.at(), e.type().value(), e.to()))
@@ -242,7 +280,9 @@ final class Views {
                 // C024：结束的原因（用户写的原话）、时间，能不能撤销（用户记的投递失败 / 不投了）
                 job.status().phase() == Phase.CLOSED ? job.extraString("outcome_reason") : null,
                 job.status().phase() == Phase.CLOSED ? job.extraString("closed_at") : null,
-                JobLedger.canReopen(job), followup);
+                JobLedger.canReopen(job), followup,
+                // C026：最近一次查官网、等核准的建议、核准过的官网说法、在不在查
+                portalCheck(job), proposal(job), job.extraString("portal_stage"), checking);
     }
 
     /**

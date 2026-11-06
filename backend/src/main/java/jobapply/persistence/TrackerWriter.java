@@ -129,7 +129,7 @@ public final class TrackerWriter {
             Map<String, String> lastActivity) {
         StringBuilder out = new StringBuilder(GENERATED).append("\n# 申请总表 · ").append(projectId).append("\n\n");
         table(out, List.of("#", "公司", "岗位", "类型", "城市", "投递日", "阶段", "进度", "下一件事", "最近动态", "最近核验",
-                "下次查看", "同步", "下一步", "结束原因"));
+                "下次查看", "官网状态", "同步", "下一步", "结束原因"));
         for (Job job : applications) {
             row(out, List.of(
                     String.valueOf(numbers.get(job.id())),
@@ -144,6 +144,7 @@ public final class TrackerWriter {
                     cell(shortDate(lastActivity.get(job.id()))),
                     cell(shortDate(job.extraString("last_checked_at"))),
                     cell(shortDate(job.extraString("next_check_at"))),
+                    cell(portal(job)),
                     cell(sync(job, lastActivity.get(job.id()))),
                     cell(job.extraString("next_action")),
                     cell(job.status().phase() == Phase.CLOSED ? job.extraString("outcome_reason") : null)));
@@ -211,6 +212,27 @@ public final class TrackerWriter {
         List<Job> sorted = new ArrayList<>(jobs);
         sorted.sort(Comparator.comparing((Job job) -> normalize(job.posting().company())).thenComparing(Job::id));
         return sorted;
+    }
+
+    /**
+     * 「官网状态」（C026）：核准过的官网说法（{@code portal_stage}），没有时用最近一次查到的；有待核准的建议时加「（待核准）」，
+     * 最近一次要登录 / 没找到时写明。
+     */
+    private static String portal(Job job) {
+        String check = nested(job, "portal_check", "result");
+        String stage = job.extraString("portal_stage");
+        if (stage == null && "found".equals(check)) {
+            stage = nested(job, "portal_check", "stage");
+        }
+        StringBuilder text = new StringBuilder(stage == null ? "" : stage);
+        if (job.extra().get("status_proposal") instanceof Map<?, ?>) {
+            text.append("（待核准）");
+        } else if ("needs_login".equals(check)) {
+            text.append(text.isEmpty() ? "要登录" : "（要登录）");
+        } else if ("not_found".equals(check)) {
+            text.append(text.isEmpty() ? "没找到状态页" : "（没找到状态页）");
+        }
+        return text.isEmpty() ? null : text.toString();
     }
 
     /** 「进度」：一轮一个圆点（● 通过、◐ 进行中或待结果、✕ 未通过、⊘ 取消），后面是最新一轮的名称和结果。 */
@@ -300,6 +322,8 @@ public final class TrackerWriter {
             new Column("applied_at", row -> row.job().extraString("applied_at")),
             new Column("last_checked_at", row -> row.job().extraString("last_checked_at")),
             new Column("next_check_at", row -> row.job().extraString("next_check_at")),
+            new Column("portal_check", row -> nested(row.job(), "portal_check", "result")),
+            new Column("portal_stage", row -> row.job().extraString("portal_stage")),
             new Column("sync", Row::sync),
             new Column("next_action", row -> row.job().extraString("next_action")),
             new Column("blocker", row -> row.job().extraString("blocker")),

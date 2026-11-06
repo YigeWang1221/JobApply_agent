@@ -2,6 +2,7 @@ package jobapply.config;
 
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import jobapply.persistence.EnvFile;
@@ -85,6 +86,14 @@ public final class ModelRegistry {
     /** 解析占位符，得到可调用的端点。 */
     static ModelFactory.Endpoint endpoint(ModelSettingsFile.Provider provider, String model, EnvFile env) {
         String key = provider.apiKey() == null || provider.apiKey().isBlank() ? null : env.resolve(provider.apiKey());
-        return new ModelFactory.Endpoint(provider.format(), env.resolve(provider.baseUrl()), key, model);
+        return new ModelFactory.Endpoint(provider.format(), env.resolve(provider.baseUrl()), key, model,
+                headers(provider, env));
+    }
+
+    /** 自定义请求头（C025），值里的占位符 {@code ${变量名}} 和 Key 一样解析。 */
+    static Map<String, String> headers(ModelSettingsFile.Provider provider, EnvFile env) {
+        Map<String, String> resolved = new LinkedHashMap<>();
+        provider.headers().forEach((name, value) -> resolved.put(name, env.resolve(value)));
+        return resolved;
     }
 }

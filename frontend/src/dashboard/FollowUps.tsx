@@ -1,11 +1,12 @@
 import { localDay, type JobView } from "../api";
 import { writeDraft } from "../chat/draft";
 import { go } from "../route";
-import { labelText, PHASE } from "../status";
+import { labelText, PHASE, PORTAL } from "../status";
 import { applications, dayOf, daysBetween, md } from "./metrics";
 
 // 待追踪（C007「该查看了」）：已投递、到了下次查看日子的申请。「我看了」打开它的工作台，后续段的第一句已经填好（C022）
-export function FollowUps({ jobs, showProject }: { jobs: JobView[]; showProject?: boolean }) {
+// C026：标题旁写查看间隔（每 N 天）；查过官网的行带上最近一次的结果
+export function FollowUps({ jobs, showProject, everyDays }: { jobs: JobView[]; showProject?: boolean; everyDays?: number | null }) {
   const today = localDay();
   const due = applications(jobs).filter((j) => j.due);
   const since = (job: JobView) => dayOf(job.lastCheckedAt) ?? dayOf(job.appliedAt);
@@ -20,6 +21,7 @@ export function FollowUps({ jobs, showProject }: { jobs: JobView[]; showProject?
       <div className="ph">
         <h2>待追踪</h2>
         <span className="chip wait">到了下次查看的日子</span>
+        {everyDays ? <span className="chip">每 {everyDays} 天</span> : null}
       </div>
       {due.length === 0
         ? <p className="empty">没有该查看的申请。</p>
@@ -37,6 +39,15 @@ export function FollowUps({ jobs, showProject }: { jobs: JobView[]; showProject?
                         job.lastCheckedAt ? `上次查看 ${md(job.lastCheckedAt)}` : `投递 ${md(job.appliedAt)} · 还没查看过`,
                         PHASE[job.phase ?? ""] ?? labelText(job.label)].filter(Boolean).join(" · ")}
                     </small>
+                    {job.portalCheck && (
+                      <small className="cbquote" title={job.portalCheck.quote ?? undefined}>
+                        {job.portalCheck.result === "needs_login"
+                          ? `官网 ${md(job.portalCheck.checkedAt)}：要你自己登录后看`
+                          : [`官网 ${md(job.portalCheck.checkedAt)}：${PORTAL[job.portalCheck.result] ?? job.portalCheck.result}`,
+                            job.portalCheck.stage, job.portalCheck.quote ? `「${job.portalCheck.quote}」` : null]
+                            .filter(Boolean).join(" · ")}
+                      </small>
+                    )}
                   </div>
                   <button className="linkbtn" title="去邮箱或官网看看，看完在它的工作台里告诉 Agent"
                     onClick={() => open(job)}>我看了</button>

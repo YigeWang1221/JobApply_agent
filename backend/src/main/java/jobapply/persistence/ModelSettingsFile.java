@@ -4,6 +4,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -28,7 +29,9 @@ public final class ModelSettingsFile {
 
     private static final Pattern ID = Pattern.compile("[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?");
     private static final Set<String> PROVIDER_KEYS = Set.of(
-            "id", "preset", "format", "base_url", "api_key", "models", "tested");
+            "id", "preset", "format", "base_url", "api_key", "models", "tested", "headers");
+    private static final Pattern HEADER_NAME = Pattern.compile("[A-Za-z0-9][A-Za-z0-9-]{0,63}");
+    static final int MAX_HEADER_VALUE = 1024;
 
     /** 最近一次「测试连接」的结果。{@code error} 是失败原因（不含 Key），成功时为 null。 */
     public record TestResult(String model, boolean ok, boolean tools, long latencyMs, String at, String error) {
@@ -37,16 +40,25 @@ public final class ModelSettingsFile {
     /**
      * 一个提供方。
      *
-     * @param apiKey 占位符 {@code ${变量名}}；本地模型不需要 Key 时为 null
-     * @param extra  未识别的字段
+     * @param apiKey  占位符 {@code ${变量名}}；本地模型不需要 Key 时为 null
+     * @param headers 自定义请求头（C025）：名字 → 值，值可以是占位符 {@code ${变量名}}（密钥值在 .env），按写入顺序
+     * @param extra   未识别的字段
      */
     public record Provider(String id, String preset, String format, String baseUrl, String apiKey,
-                           List<String> models, List<TestResult> tested, Map<String, Object> extra) {
+                           List<String> models, List<TestResult> tested, Map<String, String> headers,
+                           Map<String, Object> extra) {
 
         public Provider {
             models = models == null ? List.of() : List.copyOf(models);
             tested = tested == null ? List.of() : List.copyOf(tested);
+            headers = headers == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(headers));
             extra = extra == null ? Map.of() : Map.copyOf(extra);
+        }
+
+        /** 没有自定义请求头的提供方。 */
+        public Provider(String id, String preset, String format, String baseUrl, String apiKey,
+                        List<String> models, List<TestResult> tested, Map<String, Object> extra) {
+            this(id, preset, format, baseUrl, apiKey, models, tested, Map.of(), extra);
         }
 
         public Optional<TestResult> testOf(String model) {
@@ -58,7 +70,7 @@ public final class ModelSettingsFile {
             List<TestResult> next = new ArrayList<>(tested.stream()
                     .filter(old -> !old.model().equals(result.model())).toList());
             next.add(result);
-            return new Provider(id, preset, format, baseUrl, apiKey, models, next, extra);
+            return new Provider(id, preset, format, baseUrl, apiKey, models, next, headers, extra);
         }
     }
 
@@ -181,6 +193,26 @@ public final class ModelSettingsFile {
         return requireId(providerId).toUpperCase(Locale.ROOT).replace('-', '_') + "_API_KEY";
     }
 
+    /** 请求头名字：字母、数字、-，不超过 64 个字符。 */
+    public static boolean isValidHeaderName(String name) {
+        return name != null && HEADER_NAME.matcher(name).matches();
+    }
+
+    /** 请求头的值：不超过 1024 个字符，不能含换行和 NUL。错误信息里不带值。 */
+    public static void requireHeaderValue(String name, String value) {
+        if (value == null || value.isBlank() || value.length() > MAX_HEADER_VALUE
+                || value.chars().anyMatch(c -> c == '\n' || c == '\r' || c == 0)) {
+            throw new IllegalArgumentException("请求头 " + name + " 的值不能为空、不能超过 " + MAX_HEADER_VALUE
+                    + " 个字符、不能含换行");
+        }
+    }
+
+    /** 密钥请求头在 .env 里的变量名：{@code <提供方>_HEADER_<名字>}，大写，{@code -} 换成 {@code _}。 */
+    public static String headerEnvName(String providerId, String header) {
+        return requireId(providerId).toUpperCase(Locale.ROOT).replace('-', '_') + "_HEADER_"
+                + header.toUpperCase(Locale.ROOT).replace('-', '_');
+    }
+
     public static String placeholder(String providerId) {
         return "${" + envName(providerId) + "}";
     }
@@ -254,6 +286,9 @@ public final class ModelSettingsFile {
                 tested.add(entry);
             }
             out.put("tested", tested);
+            if (!provider.headers().isEmpty()) {
+                out.put("headers", new LinkedHashMap<>(provider.headers()));
+            }
             out.putAll(provider.extra());
             providers.add(out);
         }
@@ -292,10 +327,19 @@ public final class ModelSettingsFile {
                     entry.get("latency_ms") instanceof Number n ? n.longValue() : 0L,
                     string(entry.get("at")), string(entry.get("error"))));
         }
+        Map<String, String> headers = new LinkedHashMap<>();
+        if (map.get("headers") != null) {
+            map(file, map.get("headers"), "headers").forEach((name, value) -> {
+                if (!isValidHeaderName(name) || value == null) {
+                    throw new StorageFormatException(file.toString(), "提供方 " + id + " 的请求头不合法：" + name);
+                }
+                headers.put(name, String.valueOf(value));
+            });
+        }
         Map<String, Object> extra = new LinkedHashMap<>(map);
         extra.keySet().removeAll(PROVIDER_KEYS);
         return new Provider(id, string(map.get("preset")), string(map.get("format")), string(map.get("base_url")),
-                string(map.get("api_key")), models, tested, extra);
+                string(map.get("api_key")), models, tested, headers, extra);
     }
 
     @SuppressWarnings("unchecked")

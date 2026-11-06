@@ -319,6 +319,11 @@ authorization: { scope: job | batch:<id>, granted_at: ..., covers: [select, mate
 evidence:
   submitted: { kind: success-page | history-record, text: "<官网原文>", official_time: ..., local_time: ..., verified_at: ... }
 last_checked_at: 2026-10-22T10:00:00-04:00
+# C026：官网查状态的最近结果、待核准的建议、核准过的官网阶段名、下次查看是否按明确日期钉住
+portal_check: { result: found | needs_login | not_found, stage: <官网阶段原文>, quote: <原文>, url: ..., checked_at: ... }
+status_proposal: { stage, quote, url, at, phase?, outcome?, round?: { name, type, result } }   # 没有时为空
+portal_stage: <核准过的官网阶段名>
+next_check_pinned: false
 next_action: <下一步>
 blocker: <阻塞原因>
 ```

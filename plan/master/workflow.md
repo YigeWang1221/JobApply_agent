@@ -250,6 +250,11 @@ user_submitting / verification_pending → 有证据 → phase=applied（用户�
 6. **投递后追踪与复盘**：在 Session 对话里更新轮次，起草复盘并由用户确认；生成轮次表、题库、按公司汇总、`dashboard.md` 快照；静默检测。
 7. **前端**：类 Claude 界面，包括 Project / Session 侧栏、对话区、状态和报告面板、Project Dashboard。
 8. **状态查询**（用户改，2026-10-23）：不让 Chrome MCP 登录官网或读邮箱去查。维护一张查看时间表（`next_check_at`，大约每 3–5 天），到时在应用里提醒用户去看邮箱 / 官网；用户在 Session 对话里反馈，Agent 更新阶段和 `last_checked_at`。投递成功由用户在对话里说或点确认记下。施工见 [C007-after-submit.md](../coding/03-features/C007-after-submit.md)。
+   - **C026 改（用户确认，2026-11-05）**：
+     - 用户在 Dashboard 点「查状态」时，Agent 只对当前筛选出的申请（工作台里也能单个查）在用户的 Chrome 里**只读**查官网门户。不查邮箱，不在后台自动跑。
+     - 遇到要登录的，记「要手动登录」，以后批量查默认跳过；不登录、不输入、不提交。
+     - 查到的状态只是**建议**，用户在「核准列表」里核准后才改阶段。
+     - 查看间隔由用户设天数：全局一个值，Project 可以单独设。施工见 [C026-portal-status-check.md](../coding/04-refinement/C026-portal-status-check.md)。
 
 ## 待用户决定
 

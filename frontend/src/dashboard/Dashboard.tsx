@@ -1,10 +1,12 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { api, errorText, type JobView, type SessionSummary } from "../api";
 import { go } from "../route";
 import { LEAD } from "../status";
 import { toast } from "../toast";
+import { Approvals } from "./Approvals";
 import { AppsTable } from "./AppsTable";
 import { Board } from "./Board";
+import { applyFilter, CheckBar, useCheckFilter } from "./CheckBar";
 import { Failures, failureCount } from "./Failures";
 import { FollowUps } from "./FollowUps";
 import { Funnel } from "./Funnel";
@@ -57,9 +59,11 @@ export function TabBar({ tab, onChange }: { tab: Tab; onChange: (tab: Tab) => vo
  * @param sessions 范围内的 Session（新的在前）：显示「发现于哪个 Session」，开始申请时找最近的 Session
  * @param recent   Project 主页在 KPI 下面放的「最近的 Session」
  * @param onTab    换页签（候选池里「Failures n」跳回 Dashboard 用）
+ * @param projectId Project 主页传（C026：查看间隔改这个 Project 的）；全局页不传
  */
-export function TabBody({ tab, jobs, showProject, projectTitle, sessions, reload, recent, onTab }: {
+export function TabBody({ tab, jobs, showProject, projectTitle, sessions, reload, recent, onTab, projectId }: {
   tab: Tab;
+  projectId?: string;
   onTab?: (tab: Tab) => void;
   jobs: JobView[];
   showProject?: boolean;
@@ -69,6 +73,13 @@ export function TabBody({ tab, jobs, showProject, projectTitle, sessions, reload
   reload: () => Promise<void>;
   recent?: ReactNode;
 }) {
+  // C026：查状态条的筛选只筛申请；看板、申请总表、待追踪、核准列表、时间线吃筛过的，KPI / 漏斗 / 每周节奏不筛
+  const [filter, setFilter] = useCheckFilter();
+  const [everyDays, setEveryDays] = useState<number | null>(null);
+  const filtered = useMemo(() => applyFilter(jobs, filter), [jobs, filter]);
+  const checkBar = (
+    <CheckBar jobs={jobs} filtered={filtered} filter={filter} onFilter={setFilter} projectId={projectId} onDays={setEveryDays} />
+  );
   // 动作出错时显示后端的原话，成功后重新读一遍
   async function act(action: () => Promise<unknown>, done: string, then?: () => void): Promise<boolean> {
     try {
@@ -123,11 +134,18 @@ export function TabBody({ tab, jobs, showProject, projectTitle, sessions, reload
     );
   }
   if (tab === "apps") {
-    return <AppsTable jobs={jobs} showProject={showProject} onPostingClosed={(job) => void postingClosed(job)} />;
+    return (
+      <>
+        {checkBar}
+        <AppsTable jobs={filtered} showProject={showProject} onPostingClosed={(job) => void postingClosed(job)} />
+      </>
+    );
   }
   return (
     <>
+      {checkBar}
       <Kpis jobs={jobs} />
+      <Approvals jobs={filtered} showProject={showProject} reload={reload} />
       {recent}
       {/* 两列各自一叠（C023-A）：左边漏斗 + 每周节奏，右边接下来 / 待追踪 / 复盘，较短的一列不再留大块空白 */}
       <div className="grid2">
@@ -137,15 +155,15 @@ export function TabBody({ tab, jobs, showProject, projectTitle, sessions, reload
         </div>
         <div className="stack">
           <Upcoming jobs={jobs} showProject={showProject} />
-          <FollowUps jobs={jobs} showProject={showProject} />
+          <FollowUps jobs={filtered} showProject={showProject} everyDays={everyDays} />
           <Reviews jobs={jobs} />
         </div>
       </div>
       {/* 看板下面是 Failures（C024-fix）：跳过的候选、投递失败、不投了；看板「已结束」列和时间线不再有它们 */}
-      <Board jobs={jobs} showProject={showProject} />
+      <Board jobs={filtered} showProject={showProject} />
       <Failures jobs={jobs} showProject={showProject}
         onReopen={(job) => void act(() => api.reopen(job.id), `${job.company} · ${job.title}：已撤销，回到之前的状态`)} />
-      <Timeline jobs={jobs} />
+      <Timeline jobs={filtered} />
     </>
   );
 }

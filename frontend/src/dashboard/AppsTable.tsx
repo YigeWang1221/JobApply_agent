@@ -1,11 +1,20 @@
 import type { JobView } from "../api";
 import { go } from "../route";
-import { PHASE, phaseText, RoundProgress, RunChip } from "../status";
-import { applications, lane, md } from "./metrics";
+import { CheckChip, PHASE, portalTitle, RoundProgress, RunChip, stageText } from "../status";
+import { applications, dayOf, lane, md } from "./metrics";
 
 // 申请总表按阶段分组的顺序（示意页：在做的在上，结束的在下）；最后一组是 Failures 里的投递失败 / 不投了（C024-fix）
 const ORDER = ["prep", "interview", "assessment", "screening", "applied", "offer", "closed", "dropped"];
 const GROUP: Record<string, string> = { ...PHASE, dropped: "Failures · 投递失败 / 不投了" };
+
+// 最近查看的来源：官网查到的那天就是最近查看的那天写「官网」，否则是用户自己说的
+function checkSource(job: JobView): string | null {
+  if (!job.lastCheckedAt) {
+    return null;
+  }
+  const check = job.portalCheck;
+  return check?.result === "found" && dayOf(check.checkedAt) === dayOf(job.lastCheckedAt) ? "官网" : "你说的";
+}
 
 function groupOf(job: JobView): string {
   return lane(job) === "dropped" ? "dropped" : job.phase ?? "";
@@ -48,15 +57,21 @@ export function AppsTable({ jobs, showProject, onPostingClosed }: {
                     <td>{job.type || "—"}</td>
                     <td className="num">{md(job.appliedAt)}</td>
                     <td>
-                      {phaseText(job)}{" "}
+                      {stageText(job)}{" "}
                       {job.phase === "closed" && job.outcomeReason && (
                         <span className="endreason" title={job.outcomeReason}>· {job.outcomeReason}</span>
                       )}{" "}
-                      {job.due && <span className="chip wait">该查看了</span>}{" "}
+                      {job.portalCheck?.result === "found" && job.portalCheck.stage && (
+                        <span className="portalstage" title={portalTitle(job)}>· 官网：{job.portalCheck.stage}</span>
+                      )}{" "}
+                      <CheckChip job={job} />{" "}
                       <RunChip job={job} />
                     </td>
                     <td><RoundProgress rounds={job.rounds ?? []} /></td>
-                    <td className="num">{md(job.lastCheckedAt)}</td>
+                    <td className="num">
+                      {md(job.lastCheckedAt)}
+                      {checkSource(job) && <span className="checksrc">{checkSource(job)}</span>}
+                    </td>
                     <td className="num">{job.phase === "closed" ? "—" : md(job.nextCheckAt)}</td>
                     <td>
                       {job.url ? <a href={job.url} target="_blank" rel="noreferrer">岗位</a> : "—"}
