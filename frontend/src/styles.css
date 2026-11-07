@@ -129,6 +129,11 @@ a {
   gap: 8px;
 }
 
+/* 侧栏顶部右侧的小按钮组：返回（只在 App 里）+ 收起侧栏 */
+.brand .brandtools {
+  gap: 2px;
+}
+
 .brand i {
   width: 18px;
   height: 18px;

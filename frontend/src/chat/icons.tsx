@@ -15,6 +15,7 @@ const PATHS: Record<string, string> = {
   send: "M12 19V5M6 11l6-6 6 6",
   stop: "M7 7h10v10H7z",
   chevron: "M9 6l6 6-6 6",
+  back: "M15 6l-6 6 6 6",
   down: "M12 5v14M6 13l6 6 6-6",
   plus: "M12 5v14M5 12h14",
   clip: "M20 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8",

@@ -1413,3 +1413,17 @@
 ## 2026-11-05 · C027-fix Gemini 真实测试
 
 - 用户填好 AI Studio key、只测 3.7 / 3.8。修前 8 组全部 400（thought_signature）；修后（`GeminiThoughtSignatures` 拦截器）8 组全部通过两轮工具调用，重启后续接旧 Session 也通过。耗时明细见 C027-fix 计划「真实测试」。真实 Chrome 申请：未运行。用途分配已恢复，临时 Project 删到 `.trash/`。未提交。
+
+## 2026-11-07 · C017-fix 返回上一页
+
+- 指令：用户反馈 App 里没有返回按钮；重新打开 / 退出时页面栈要清空。
+- 结果：`frontend/src/route.ts`（内存页面栈、`back()`、`useCanGoBack()`）、`frontend/src/App.tsx`（侧栏顶部和收起窄栏的返回按钮，只在 App 里显示；⌘[）、`frontend/src/chat/icons.tsx`（`back` 图标）、`frontend/src/styles.css`（侧栏顶部按钮组间距）；计划 `plan/coding/03-features/C017-fix-back-navigation.md`。`main.swift` 没改。没提交。
+- 验证：`frontend/` `npm run build` 退出码 0。App 重新打包、在 App 里点返回 / ⌘[ / 重启后端后置灰：未运行。
+- 追加（同日）：用户定返回跳过已删掉的页、不要前进 / 滑动 / 菜单项。`route.ts` 加 `setRouteExists` / `pruneStack`、`back()` 弹到还在的页（都没了回全局）；`App.tsx` 加 `listedGone()`，Project / Session 按侧栏列表，侧栏里没有的工作台问已有的 `GET /api/jobs/{id}`（404 算删了，后端 `JobController.find` 抛 NotFound → 404 已核对）。`frontend/` `npm run build` 退出码 0。App 里实测：未运行。
+
+## 2026-11-07 · 后续段上传图片被拦（415）
+
+- 现象：用户在工作台后续段附图片，提示「写接口只接受 Content-Type: application/json」；用户以为是 Gemini 不收图。
+- 原因：`LocalRequestGuard` 的 multipart 放行名单只有 `/api/assets`、`.../application/attachments`、`/api/sessions/{id}/attachments`，C022 新增的 `/api/jobs/{id}/followup/attachments` 没加进去。与模型无关：图片附件对所有模型都原样发送（`Conversation.withAttachments`）。
+- 改：放行正则加上 `followup`。
+- 验证：`mvn -B clean verify` 退出码 0（662 + IT 1）；重启后端，带本机 Origin 用 curl 传一张 PNG 到后续段附件接口，返回 201；测试文件和它新建的空目录已删，Job 其它文件未动。用户在界面里附图并发给 Gemini：未运行。未提交。

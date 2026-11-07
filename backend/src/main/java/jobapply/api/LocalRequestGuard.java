@@ -19,14 +19,15 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * 带 {@code Origin} 请求头的请求只放行 {@code jobapply.api.allowed-origins} 里的本机前端地址，其它一律 403；
  * 不带的（curl）照常放行。写请求必须是 {@code application/json}，网页就不能用简单表单绕过预检；
  * 例外是上传原件（{@code POST /api/assets}）和上传附件（{@code POST .../application/attachments}、
- * {@code POST /api/sessions/{id}/attachments}，C006 附件），允许 {@code multipart/form-data}。
+ * {@code POST .../followup/attachments}（C022 后续段）、{@code POST /api/sessions/{id}/attachments}，C006 附件），
+ * 允许 {@code multipart/form-data}。
  */
 @Component
 class LocalRequestGuard extends OncePerRequestFilter {
 
     static final String UPLOAD_PATH = "/api/assets";
     private static final Pattern ATTACHMENT_PATHS = Pattern.compile(
-            "/api/jobs/[^/]+/application/attachments|/api/sessions/[^/]+/attachments");
+            "/api/jobs/[^/]+/(application|followup)/attachments|/api/sessions/[^/]+/attachments");
 
     private final Set<String> allowedOrigins;
 
