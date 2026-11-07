@@ -3,7 +3,7 @@ import type { IconName } from "./icons";
 
 // 把后端的消息流整理成「一轮」：用户的一句话 + Agent 为它做的事。Agent 写的每一段文字都常显；相邻的思考和工具调用
 // 合成一个可折叠的过程块（C006-fix-final-reply，Claude.ai / deep-agents-ui 的做法）。运行的结束说明是这一轮末尾的状态行；
-// 申请线程的回报单独成一张通知卡，不并进上一轮。
+// 申请线程的回报不显示（2026-11-07 用户改动：状态看侧栏圆点），但仍在那里断开一轮，前后的消息不合并。
 // 后端有 steps 时照用；没有时用旧的 tools（名字、说明、结果首行）拼出来。思考只在 steps 里真的有时出现
 
 export interface Step extends ProcessStep {
@@ -20,8 +20,6 @@ export interface Turn {
   user: { text: string; at: string | null; attachments: SentAttachment[] } | null;
   blocks: Block[];
   steps: Step[];
-  // 申请线程回报 / 工作台记下的结果：整轮只是一张通知卡
-  notice: { text: string; at: string | null } | null;
   // 这一轮 Agent 写的全部文字（复制用）和最后一条消息的时间
   text: string;
   at: string | null;
@@ -43,9 +41,8 @@ export function toTurns(messages: ChatMessage[], running: boolean): Turn[] {
       flush(false);
       group = { user: { text: message.text, at: message.at, attachments: message.attachments ?? [] }, items: [] };
     } else if (message.kind === "report") {
+      // 回报只留给 Session 的 Agent 当上下文，界面不显示；它前后的消息仍分属两轮
       flush(false);
-      turns.push({ key: `${turns.length}-notice-${message.at ?? ""}`, user: null, blocks: [], steps: [],
-        notice: { text: message.text ?? "", at: message.at }, text: message.text ?? "", at: message.at });
     } else {
       group ??= { user: null, items: [] };
       group.items.push(message);
@@ -90,7 +87,6 @@ function build(user: Turn["user"], items: AssistantMessage[], index: number, liv
     user,
     blocks,
     steps,
-    notice: null,
     text: texts.join("\n\n"),
     at: last?.at ?? null,
   };

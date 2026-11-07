@@ -111,3 +111,13 @@
 和第 2 节的出入：工作台 `MessageList` 没有另传 `error`，出错原因已经作为结束说明写进对话；折叠块摘要不写「几段说明」（选 B 以后文字不进折叠块）。
 
 验证：`backend/` 里 `JAVA_HOME=…openjdk@25… JOBAPPLY_APP_CONFIG=/tmp/jobapply-nonexistent-app.yaml mvn -B clean verify` 退出码 0（Tests run: 662 + IT 1，Failures 0、Errors 0，没有测试要改）；`frontend/` 里 `npm run build` 退出码 0。真实模型、真实 Chrome、用户本机试：未运行。
+
+## 7. 用户改动（2026-11-07）：Session 不再显示回报通知卡
+
+用户定：对话里不再显示申请回报的通知卡（「申请 … 在等你：…… 去申请工作台回复。」、「已经填好，停在提交前…」、「出错停下了…」，以及 C024 `noteToSession` 的通知）。状态看侧栏每个工作台前的彩色圆点，卡片重复。
+
+- 只改界面。后端不变：`ApplicationRunner.reportToSession`、`SessionRunner.report` / `noteToSession` 照样把 `SessionRunner.REPORT` 开头的 note 写进 Session 对话，Session 的 Agent 仍拿它当上下文；`Views` 仍把它标成 `kind: "report"`。
+- `chat/process.ts`：`toTurns` 遇到 `report` 只结束当前一轮（前后消息不并成一轮），不再生成通知轮；`Turn` 去掉 `notice`。
+- `chat/MessageList.tsx`：删 `NoticeCard` 和 `turn.notice` 分支（及不再用的 `go` 引入）；`styles.css` 删 `.noticecard`、`.noticecard-h`。
+- 工作台（`JobPage`）用同一个 `MessageList` / `TranscriptTurns`，若出现 `report` 也一样不显示；一次运行的结束说明（`status`，`.runend`）不变。
+- 验证：`frontend/` 里 `npm run build` 退出码 0；后端没改，未跑 Maven。用户本机看：未运行。

@@ -1437,3 +1437,10 @@
   - 前端：`api.ts`、`pages/ModelSettings.tsx`。
   - 计划：`plan/coding/04-refinement/C028-chatgpt-plan-signin.md`。
 - 验证：`mvn -B clean verify` BUILD SUCCESS（668 单元测试含新增 3 个测试类，IT 1，0 失败）；`npm run build` 退出码 0；后端重启在 18080，预设列表含 `chatgpt`。真实登录、拉模型、测试、Session 轮次、刷新、退出：未运行（等用户在界面登录）。App 重新打包：未运行。未提交。
+
+## 2026-11-07 · C006-fix-final-reply 用户改动：Session 不再显示回报通知卡
+
+- 指令：Session 页不再显示申请回报 / 通知卡（等你、停在提交前、出错停下、C024 通知），状态看侧栏圆点；只改界面，后端照样把回报写进 Session 对话给 Agent 当上下文。
+- 结果：`frontend/src/chat/process.ts`（`report` 只断开一轮、不出通知轮，`Turn` 去掉 `notice`）、`frontend/src/chat/MessageList.tsx`（删 `NoticeCard`、`turn.notice` 分支、`go` 引入）、`frontend/src/styles.css`（删 `.noticecard*`）、`frontend/src/api.ts`（注释）。施工记录写在 `plan/coding/02-core-agent/C006-fix-final-reply.md` 第 7 节。后端未改。
+- 验证：`frontend/` 里 `npm run build` 退出码 0。Maven：未运行（后端未改）。用户在界面里看：未运行。未提交。
+- 偏差：无。

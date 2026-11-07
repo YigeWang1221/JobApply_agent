@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { Activity, ChatMessage, JobView, SentAttachment } from "../api";
-import { go } from "../route";
 import { CopyButton } from "./CopyButton";
 import { Icon, Spinner } from "./icons";
 import { Markdown } from "./Markdown";
@@ -70,7 +69,7 @@ export function MessageList(props: MessageListProps) {
         {before}
         {nothing && empty}
         {turns.map((turn, i) => (
-          <TurnView key={turn.key} turn={turn} jobs={jobs} live={running && i === turns.length - 1 && !turn.notice}
+          <TurnView key={turn.key} turn={turn} jobs={jobs} live={running && i === turns.length - 1}
             last={i === turns.length - 1 && !pending}
             onRegenerate={!running && i === turns.length - 1 && !pending && turn.user ? props.onRegenerate : undefined} />
         ))}
@@ -127,9 +126,6 @@ function TurnView({ turn, jobs, live, last, onRegenerate }: {
   last: boolean;
   onRegenerate?: () => void;
 }) {
-  if (turn.notice) {
-    return <NoticeCard text={turn.notice.text} at={turn.notice.at} jobs={jobs} />;
-  }
   const sources = sourcesOf(turn);
   const lastSteps = turn.blocks.reduce((at, block, i) => block.kind === "steps" ? i : at, -1);
   return (
@@ -189,23 +185,6 @@ function TurnView({ turn, jobs, live, last, onRegenerate }: {
         </div>
       )}
     </>
-  );
-}
-
-// 申请线程回报 / 工作台记下的结果（C006-fix-final-reply）：按到达时间单独一张卡，不并进上一轮、不当成提问
-function NoticeCard({ text, at, jobs }: { text: string; at: string | null; jobs: JobView[] }) {
-  const job = jobs.find((j) => text.includes(j.id));
-  return (
-    <div className="noticecard">
-      <div className="noticecard-h">
-        <Icon name="lead" size={14} /> 申请通知
-        <Time at={at} />
-      </div>
-      <Markdown text={text} />
-      {job && (
-        <button className="btn-xs" onClick={() => go({ kind: "job", id: job.id })}>打开工作台</button>
-      )}
-    </div>
   );
 }
 
