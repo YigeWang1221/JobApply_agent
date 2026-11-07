@@ -850,3 +850,40 @@
   - × 对已保存模型直接保存当前整份选择（含还没保存的新增），不另开「只删一个」的接口。
   - 清掉的用途只在本次页面里提示（前端状态），不往 `models.yaml` 记。
 - 未决：主模型被清空后，对话 / 填表会报「没有配置主模型」，没在页面上另加全局提示。
+
+## 2026-11-05 · C025-fix 补：OpenCode Go 的 `x-opencode-session`
+
+- 原意：OpenCode Go 不带这个头就 400；照 DSH 插件自动补，用户不用配置。
+- 取舍：
+  - 按 host（`opencode.ai` / `*.opencode.ai`）判断，不按提供方名字：用户用「自定义」填 OpenCode 地址也生效。
+  - 用 `ScopedValue` + OkHttp 拦截器（对应 DSH 的 AsyncLocalStorage + fetch 中间件），不在每个调用点改单次请求选项：Spring AI 的 Anthropic 客户端没有单次请求的头，调用点也多（循环、导入抽取、测试连接）。
+  - 只在三个 Runner 绑定对话 id；导入、测试连接、拉模型列表没有对话，用 `jobapply-default`。
+  - id 加前缀区分申请和后续段：两者都用 job id，但是两段对话。
+- 未决：Anthropic 格式发往 OpenCode 时也会补这个头（拦截器两种格式都挂）；OpenCode 是否需要，没核实。
+
+## 2026-11-05 · C027 DeepSeek 思考强度
+
+- 原意：DeepSeek 默认开思考、强度 high，JobApply 什么都不发，所以一直按 high 跑，慢；让用户在设置里关掉或调低。
+- 取舍：
+  - 用 Spring AI 自带的 `extraBody`，不写拦截器：`mutate()` 会把它带到每次带工具的请求。`reasoning_effort` 也放进 `extraBody`，不用 `reasoningEffort(...)`：`max` 不是 OpenAI SDK 的已知值。
+  - 按模型名含 `deepseek` 认，不看 Base URL：官方、OpenCode Go、OpenRouter 都能认出。只做 DeepSeek，别家以后在 `thinkingBody` 加分支。
+  - 不改 `reasoning_content` 发回：关了以后没有思考原文，本来就不发。
+- 未决：OpenCode Go 是否把 `thinking` / `reasoning_effort` 转给 DeepSeek（文档没写，要实跑）；一次运行中途从「关」改成「开」，之前的工具轮没有 `reasoning_content`，按 DeepSeek 文档可能 400，没专门处理。
+
+## 2026-11-05 · C027-fix Gemini 思考强度
+
+- 原意：用户拿 Gemini Flash 和 DeepSeek 比速度，Gemini 也要能选思考强度。
+- 取舍：
+  - 只发顶层 `reasoning_effort`，不发 `extra_body.google.thinking_config`：一个字段同时管 2.5（budget）和 3.x（level），两者不能同时发。
+  - 档位按模型名在前端给：Gemini 3.x / 2.5 Pro 关不掉思考，不给「关」；`max` 对 Gemini 不发。新增存值只有 `medium`，C027 的旧值照常读。
+  - 换模型后存的值不在新档位里就当默认，不报错。
+- 未决：Gemini 3 在 OpenAI 兼容端点带工具多轮要求原样发回 `thought_signature`（社区报告，官方细节未确认），JobApply 没处理；真跑出 400 再单开 fix。`gemini-3.8-flash` 收到 `minimal` 怎么映射未确认（界面不给）。
+
+## 2026-11-05 · C027-fix Gemini thought_signature
+
+- 原意：Gemini 3 带工具多轮 400（缺 `thought_signature`），让 Gemini 能当主模型。
+- 取舍：
+  - 用拦截器按 id 补，不改对话记录格式：Spring AI 本来把签名放进 `AssistantMessage` metadata，但 `Conversation` 每轮从记录重建消息，metadata 丢了；改记录格式要动存储和重建两处，拦截器只加一个类、对别的提供方无影响。
+  - 记不到的签名（重启、旧记录）用官方 FAQ 的占位值，只补在第一个工具调用上（和 Gemini 并行调用只给第一个签名一致）。只校验当前轮，所以旧轮补占位值无害。
+  - 内存表上限 4096 条，重启即丢，靠占位值兜底。
+- 未决：占位值在当前轮会不会降低 Gemini 的推理质量（文档说「strongly discouraged」，只在重启后的那一轮出现）；论坛有人报告占位值没解决他的 400（场景不同，未确认）；流式没处理（JobApply 不用）。

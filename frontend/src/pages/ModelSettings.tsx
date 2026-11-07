@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorText, type Assignment, type ModelSettings as Settings, type Preset, type Provider,
-  type ProviderHeader, type TestResult, type Usage } from "../api";
+  type ProviderHeader, type TestResult, type Thinking, type Usage } from "../api";
 import { toast } from "../toast";
 
 const USAGES: { usage: Usage; label: string; hint: string }[] = [
@@ -16,6 +16,30 @@ const USAGE_LABEL: Record<Usage, string> = { main: "主模型", auxiliary: "辅�
 const usageNames = (usages: Usage[]) => usages.map((u) => USAGE_LABEL[u] ?? u).join("、");
 
 type Format = "openai" | "anthropic";
+
+// 思考强度（C027 / C027-fix）：值为空 = 默认，不发参数。按模型给档位，没有档位的模型不显示下拉
+type ThinkingOption = { value: Thinking | ""; label: string };
+const DEEPSEEK_THINKING: ThinkingOption[] = [
+  { value: "", label: "默认（模型自己的，现在是高）" },
+  { value: "off", label: "关（最快）" },
+  { value: "low", label: "低" },
+  { value: "high", label: "高" },
+  { value: "max", label: "最高" },
+];
+// Gemini 2.5 Flash / Flash-Lite 能关（reasoning_effort=none）；3.x 和 2.5 Pro 关不掉，低就是最快
+const GEMINI_25_FLASH_THINKING: ThinkingOption[] = [
+  { value: "", label: "默认（模型自己的）" },
+  { value: "off", label: "关（最快）" },
+  { value: "low", label: "低" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
+];
+const GEMINI_THINKING: ThinkingOption[] = [
+  { value: "", label: "默认（模型自己的）" },
+  { value: "low", label: "低（最快）" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
+];
 const FORMAT_LABEL: Record<Format, string> = { openai: "OpenAI 兼容", anthropic: "Anthropic" };
 
 export default function ModelSettings() {
@@ -532,14 +556,45 @@ function TestSummary({ result, record }: { result?: TestResult; record?: Provide
 
 function Assignments({ settings, cleared, onSaved }: { settings: Settings; cleared: Usage[]; onSaved: () => void }) {
   const [values, setValues] = useState<Record<Usage, string>>(() => initial(settings));
+  const [thinking, setThinking] = useState<Record<Usage, Thinking | "">>(() => initialThinking(settings));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     setValues(initial(settings));
+    setThinking(initialThinking(settings));
   }, [settings]);
 
-  const assignment = (usage: Usage) => parse(values[usage]);
+  // DeepSeek / Gemini（OpenAI 格式、模型名含 deepseek / gemini）才有「思考」下拉；其它模型保存时不带 thinking
+  const thinkingOptions = (value: string): ThinkingOption[] | null => {
+    const parsed = parse(value);
+    const provider = parsed && settings.providers.find((p) => p.id === parsed.provider);
+    if (!parsed || provider?.format !== "openai") {
+      return null;
+    }
+    const model = parsed.model.toLowerCase();
+    if (model.includes("deepseek")) {
+      return DEEPSEEK_THINKING;
+    }
+    if (model.includes("gemini")) {
+      return model.includes("gemini-2.5-flash") ? GEMINI_25_FLASH_THINKING : GEMINI_THINKING;
+    }
+    return null;
+  };
+  // 存的值不在当前模型的档位里（比如从 DeepSeek「最高」换到 Gemini）就当默认，保存时不带
+  const thinkingValue = (usage: Usage): Thinking | "" => {
+    const choices = thinkingOptions(values[usage]);
+    return choices?.some((option) => option.value === thinking[usage]) ? thinking[usage] : "";
+  };
+
+  const assignment = (usage: Usage): Assignment | null => {
+    const parsed = parse(values[usage]);
+    const value = thinkingValue(usage);
+    if (!parsed || !value) {
+      return parsed;
+    }
+    return { ...parsed, thinking: value };
+  };
 
   const options = settings.providers.flatMap((provider) =>
     provider.models.map((model) => {
@@ -583,6 +638,17 @@ function Assignments({ settings, cleared, onSaved }: { settings: Settings; clear
                 <span className="error small">随删除清空了，请重新选一个再保存</span>
               )}
             </label>
+            {thinkingOptions(values[usage]) && (
+              <label>
+                思考
+                <select value={thinkingValue(usage)}
+                  onChange={(e) => setThinking({ ...thinking, [usage]: e.target.value as Thinking | "" })}>
+                  {thinkingOptions(values[usage])!.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
         ))}
       </div>
@@ -600,6 +666,15 @@ function Assignments({ settings, cleared, onSaved }: { settings: Settings; clear
 
 function initial(settings: Settings): Record<Usage, string> {
   const value = (a?: Assignment) => (a ? `${a.provider}\n${a.model}` : "");
+  return {
+    main: value(settings.assignments.main),
+    auxiliary: value(settings.assignments.auxiliary),
+    cross_check: value(settings.assignments.cross_check),
+  };
+}
+
+function initialThinking(settings: Settings): Record<Usage, Thinking | ""> {
+  const value = (a?: Assignment) => a?.thinking ?? "";
   return {
     main: value(settings.assignments.main),
     auxiliary: value(settings.assignments.auxiliary),

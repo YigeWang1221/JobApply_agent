@@ -2,6 +2,7 @@ package jobapply.config;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.springframework.ai.anthropic.AnthropicChatModel;
 import org.springframework.ai.anthropic.AnthropicChatOptions;
@@ -32,12 +33,18 @@ public final class ModelFactory {
      * 一个可调用的端点。{@link #toString()} 不带 Key。
      *
      * @param apiKey  解析好的 Key；不需要 Key 时为 null
-     * @param headers 解析好的自定义请求头（C025），没有时为空
+     * @param headers  解析好的自定义请求头（C025），没有时为空
+     * @param thinking 思考强度（C027）：off / low / medium / high / max，null = 默认（不发参数）；只对 DeepSeek、Gemini 模型生效
      */
-    public record Endpoint(String format, String baseUrl, String apiKey, String model, Map<String, String> headers) {
+    public record Endpoint(String format, String baseUrl, String apiKey, String model, Map<String, String> headers,
+                           String thinking) {
 
         public Endpoint(String format, String baseUrl, String apiKey, String model) {
-            this(format, baseUrl, apiKey, model, Map.of());
+            this(format, baseUrl, apiKey, model, Map.of(), null);
+        }
+
+        public Endpoint(String format, String baseUrl, String apiKey, String model, Map<String, String> headers) {
+            this(format, baseUrl, apiKey, model, headers, null);
         }
 
         public Endpoint {
@@ -59,7 +66,8 @@ public final class ModelFactory {
         @Override
         public String toString() {
             return "Endpoint[format=" + format + ", baseUrl=" + baseUrl + ", model=" + model + ", key="
-                    + (apiKey == null ? "无" : "已设置") + ", headers=" + headers.keySet() + "]";
+                    + (apiKey == null ? "无" : "已设置") + ", headers=" + headers.keySet() + ", thinking="
+                    + (thinking == null ? "默认" : thinking) + "]";
         }
     }
 
@@ -79,7 +87,9 @@ public final class ModelFactory {
                     .timeout(timeout)
                     .maxRetries(maxRetries)
                     .customHeaders(endpoint.headers())
-                    .build()).build();
+                    .build())
+                    .httpClientBuilderCustomizer(http -> http.interceptor(OpenCodeSession.INTERCEPTOR))
+                    .build();
         }
         return OpenAiChatModel.builder().options(OpenAiChatOptions.builder()
                 .baseUrl(endpoint.baseUrl().strip())
@@ -89,7 +99,47 @@ public final class ModelFactory {
                 .timeout(timeout)
                 .maxRetries(maxRetries)
                 .customHeaders(endpoint.headers())
-                .build()).build();
+                .extraBody(thinkingBody(endpoint))
+                .build())
+                // C027-fix：Gemini 的思考签名在拦截器里记下、下一轮补回（只对 generativelanguage.googleapis.com）
+                .httpClientBuilderCustomizer(http -> http.interceptor(OpenCodeSession.INTERCEPTOR)
+                        .interceptor(GeminiThoughtSignatures.INTERCEPTOR))
+                .build();
+    }
+
+    /**
+     * 思考强度对应的请求字段（C027）。认 DeepSeek（OpenAI 格式、模型名含 {@code deepseek}）：
+     * 关 = {@code thinking.type=disabled}；低 / 高 / 最高 = {@code thinking.type=enabled} + {@code reasoning_effort}
+     * （api-docs.deepseek.com/guides/thinking_mode）。没设或不是 DeepSeek 时为 null，请求不变。
+     * 两个字段都走 {@code extraBody}（顶层 body 字段，{@code mutate()} 会带到每次带工具的请求里）；
+     * 不用 {@code reasoningEffort(...)}，因为 {@code max} 不是 OpenAI SDK 已知的取值。
+     * Gemini（C027-fix，模型名含 {@code gemini}）：关 = {@code reasoning_effort=none}，低 / 中 / 高 = 同名值
+     * （ai.google.dev/gemini-api/docs/openai）。以后别家模型在这里加分支。
+     */
+    static Map<String, Object> thinkingBody(Endpoint endpoint) {
+        String thinking = endpoint.thinking();
+        if (thinking == null || !"openai".equals(endpoint.format())) {
+            return null;
+        }
+        String model = endpoint.model().toLowerCase(Locale.ROOT);
+        if (model.contains("deepseek")) {
+            return switch (thinking) {
+                case "off" -> Map.of("thinking", Map.of("type", "disabled"));
+                case "low", "medium", "high", "max" ->
+                        Map.of("thinking", Map.of("type", "enabled"), "reasoning_effort", thinking);
+                default -> null;
+            };
+        }
+        if (model.contains("gemini")) {
+            // C027-fix：Gemini 的 OpenAI 兼容端点只发 reasoning_effort（不能和 thinking_config 同时发）；
+            // none 只有 2.5 能关，界面只给 2.5 Flash 「关」；max 没有对应值，不发
+            return switch (thinking) {
+                case "off" -> Map.of("reasoning_effort", "none");
+                case "low", "medium", "high" -> Map.of("reasoning_effort", thinking);
+                default -> null;
+            };
+        }
+        return null;
     }
 
     /**

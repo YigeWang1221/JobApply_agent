@@ -1371,3 +1371,45 @@
 ## 2026-11-05 · C025-fix 用户本机试
 
 - 在 18080（后端）+ 5173（Vite 临时配置）启动界面，用户在「设置 → 模型」试过删除，回复「OK了」。服务已停，临时配置已删。
+
+## 2026-11-05 · App 里确认框不弹、删除静默失败
+
+- 现象：C025-fix 后浏览器里能删模型提供方，打包 App 里点删除没反应。
+- 原因：`appbuild/macos/JobApply/main.swift` 的 `WKUIDelegate` 没实现 JS 对话框方法，WKWebView 把 `window.confirm` 当「取消」（`ModelSettings.tsx` 两处、`Sources.tsx` 一处）。
+- 改：补 `runJavaScriptAlertPanel` / `ConfirmPanel` / `TextInputPanel`，用 NSAlert 弹在窗口上。`appbuild/` 被 git 忽略。
+- 验证：`appbuild/macos/build.sh` 退出码 0（21:11，App + DMG）。在 App 里实际点删除：未运行。
+
+## 2026-11-05 · C025-fix 补：OpenCode Go 自动带 `x-opencode-session`
+
+- 指令：OpenCode Go 没有 `x-opencode-session` 头就 400；照 DSH 插件按 host 自动补，每个对话一个固定 id，没有对话用 `jobapply-default`，用户写了同名自定义头时用用户的。
+- 结果：新增 `backend/src/main/java/jobapply/config/OpenCodeSession.java`（`ScopedValue` + OkHttp 拦截器，host 为 `opencode.ai` / `*.opencode.ai`）；`ModelFactory` 两种客户端挂拦截器；`ModelCatalogClient` 拉模型列表时补头；`SessionRunner` / `ApplicationRunner` / `FollowupRunner` 调 loop 时绑定 `jobapply-session-<id>` / `jobapply-apply-<jobId>` / `jobapply-followup-<jobId>`。前端没改。没提交。
+- 验证：`backend/` `mvn -B clean verify` 退出码 0，单元测试 662 个、IT 1 个，全部通过，BUILD SUCCESS。真的连 OpenCode Go：未运行。
+- 偏差：DSH 仓库没有拉取，提交号未记录。
+
+## 2026-11-05 · C027 DeepSeek 思考强度
+
+- 指令：用户「进行开发」，按 C027 计划默认（按用途存、保留最高、新分配为默认）。前后端并行（前端由子代理改）。
+- 结果：`ModelSettingsFile`（`Assignment.thinking`、读写 `thinking`）、`ModelSettingsService`（校验取值）、`ModelRegistry`（传进 `Endpoint`）、`ModelFactory`（`thinkingBody` → `extraBody`：关 = `thinking.type=disabled`，低/高/最高 = `enabled` + `reasoning_effort`，只对 OpenAI 格式且模型名含 `deepseek`）；`frontend/src/api.ts`、`frontend/src/pages/ModelSettings.tsx`（用途分配的「思考」下拉）；`plan/master/ui.md` 加一句。没提交。
+- 验证：`frontend/` `npm run build` 退出码 0；`backend/` `mvn -B clean verify` 退出码 0，单元 662、IT 1，全部通过。真实 DeepSeek / OpenCode Go：未运行（OpenCode Go 是否透传 `thinking` 未确认）。
+
+## 2026-11-05 · C027 真实模型测试
+
+- 用户授权代理测试（「你来测试和改动吧」）。后端 18080、Vite 5173（临时配置）。经 API 建临时 Project `c027-thinking-test` 和 3 个 Session，用 `PUT /api/settings/models/assignments` 切换思考档位，发同一类消息计时。
+- 结果：OpenCode Go 的模型测试通过（自动 `x-opencode-session` 生效）；「关」「低」时没有思考步骤，参数确实被转发；同一 Session 来回切换档位没有 400。耗时：Session 1、3 稳定 4–6 s（含「关」），Session 2 任何档位都 12–97 s。慢与会话有关、与思考档位无关（推测是上游按会话固定路由，未确认）。明细在 C027 计划「真实测试」一节。
+- 测完恢复用途分配（thinking null、showThinking false），临时 Project 删到 `.trash/`。真实 Chrome 下的申请：未运行。未改代码，未提交。
+
+## 2026-11-05 · C027-fix Gemini 思考强度
+
+- 指令：用户「直接施工、边做边测」，按 C027-fix 计划默认（不加 minimal、只做 AI Studio、签名 400 另开 fix）。
+- 结果：`ModelSettingsFile`（`THINKING` 加 `medium`）、`ModelSettingsService`（提示文字）、`ModelFactory.thinkingBody`（Gemini 分支：关 = `reasoning_effort: none`，低/中/高 = 同名值）；`frontend/src/api.ts`、`frontend/src/pages/ModelSettings.tsx`（按模型给档位）；`plan/master/ui.md` 加一句。没提交。
+- 验证：`frontend/` `npm run build` 退出码 0；`backend/` `mvn -B clean verify` 退出码 0，单元 662、IT 1，全部通过。真实 Gemini：未运行。运行中的 18080 后端没动。
+
+## 2026-11-05 · C027-fix Gemini thought_signature
+
+- 现象：用户真实测试 `gemini` 预设 + `gemini-3.7-flash` / `gemini-3.8-flash`，Session 里第二次工具调用都 400「Function call is missing a thought_signature in functionCall parts」。
+- 结果：新增 `backend/.../config/GeminiThoughtSignatures.java`（OkHttp 拦截器，只对 `generativelanguage.googleapis.com` 的 `/chat/completions`：响应里按工具调用 id 记签名，请求里给缺签名的 assistant 工具调用补回，找不到时第一个调用补 `skip_thought_signature_validator`）；`ModelFactory` 在 OpenAI 格式模型上挂上它。没提交。
+- 验证：`backend/` `mvn -B clean verify` 退出码 0，单元 662、IT 1，全部通过。临时离线检查（不进仓库）确认补签名、占位值、响应体不变、别的 host 不动。真实 Gemini：未运行。运行中的 18080 后端没动。
+
+## 2026-11-05 · C027-fix Gemini 真实测试
+
+- 用户填好 AI Studio key、只测 3.7 / 3.8。修前 8 组全部 400（thought_signature）；修后（`GeminiThoughtSignatures` 拦截器）8 组全部通过两轮工具调用，重启后续接旧 Session 也通过。耗时明细见 C027-fix 计划「真实测试」。真实 Chrome 申请：未运行。用途分配已恢复，临时 Project 删到 `.trash/`。未提交。

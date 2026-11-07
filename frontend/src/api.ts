@@ -98,7 +98,11 @@ export interface Assignment {
   model: string;
   // 显示思考（C006-agent）：只有 Anthropic 格式的提供方用它；后端没给这个字段时设置页不显示开关
   showThinking?: boolean;
+  // 思考强度（C027）：只对 OpenAI 格式的 DeepSeek 模型生效；不写或 null = 默认（模型自己的）
+  thinking?: Thinking | null;
 }
+
+export type Thinking = "off" | "low" | "medium" | "high" | "max";
 
 export type Usage = "main" | "auxiliary" | "cross_check";
 

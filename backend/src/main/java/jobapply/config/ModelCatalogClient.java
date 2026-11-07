@@ -71,7 +71,7 @@ public final class ModelCatalogClient {
         HttpRequest.Builder request = HttpRequest.newBuilder(uri).timeout(timeout).GET()
                 .header("Accept", "application/json");
         try {
-            headers.forEach(request::header);
+            OpenCodeSession.withHeader(uri.getHost(), headers).forEach(request::header);
         } catch (IllegalArgumentException e) {
             return new Failed("自定义请求头不被允许（例如 Host、Connection 这类由客户端自己管的头）");
         }

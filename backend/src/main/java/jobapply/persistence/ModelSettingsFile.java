@@ -81,17 +81,29 @@ public final class ModelSettingsFile {
      *                     thinking 块（含签名）原样发回，本项目每一轮从存下的对话重新拼消息，Spring AI 2.0.1 的
      *                     thinking 内容类型不公开，拼不回去；OpenAI 兼容格式的推理字段不用开关，有就显示，
      *                     同一次运行里也发回给模型（{@code reasoning_content}，C016 实跑后修正）。
+     * @param thinking     思考强度（C027）：{@link #THINKING} 之一，null = 默认（不发参数）
      */
-    public record Assignment(String provider, String model, Boolean showThinking) {
+    public record Assignment(String provider, String model, Boolean showThinking, String thinking) {
 
         public Assignment {
             showThinking = Boolean.TRUE.equals(showThinking);
+            thinking = thinking == null || thinking.isBlank() ? null : thinking.strip().toLowerCase(Locale.ROOT);
         }
 
         public Assignment(String provider, String model) {
-            this(provider, model, false);
+            this(provider, model, false, null);
+        }
+
+        public Assignment(String provider, String model, Boolean showThinking) {
+            this(provider, model, showThinking, null);
         }
     }
+
+    /**
+     * 思考强度（C027）：{@code assignments.<用途>.thinking}。只对 DeepSeek / Gemini 模型生效（{@code ModelFactory}；{@code medium} 是 C027-fix 为 Gemini 加的）；
+     * 不写 = 默认，请求里不带思考参数。
+     */
+    public static final Set<String> THINKING = Set.of("off", "low", "medium", "high", "max");
 
     /**
      * @param assignments 用途 → 分配；没有分配的用途不在里面
@@ -244,8 +256,10 @@ public final class ModelSettingsFile {
                     assignmentsExtra.put(entry.getKey(), entry.getValue());
                 } else if (entry.getValue() != null) {
                     Map<String, Object> value = map(file, entry.getValue(), "assignments." + entry.getKey());
+                    String thinking = string(value.get("thinking"));
                     assignments.put(entry.getKey(), new Assignment(string(value.get("provider")),
-                            string(value.get("model")), Boolean.TRUE.equals(value.get("show_thinking"))));
+                            string(value.get("model")), Boolean.TRUE.equals(value.get("show_thinking")),
+                            thinking != null && THINKING.contains(thinking) ? thinking : null));
                 }
             }
         }
@@ -301,6 +315,9 @@ public final class ModelSettingsFile {
                 value.put("model", a.model());
                 if (Boolean.TRUE.equals(a.showThinking())) {
                     value.put("show_thinking", true);
+                }
+                if (a.thinking() != null) {
+                    value.put("thinking", a.thinking());
                 }
                 return (Object) value;
             }).orElse(null));

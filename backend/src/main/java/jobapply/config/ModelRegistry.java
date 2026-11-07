@@ -80,7 +80,9 @@ public final class ModelRegistry {
         if (!provider.models().contains(assignment.model())) {
             throw new NotConfiguredException("提供方 " + provider.id() + " 没有选中模型 " + assignment.model());
         }
-        return endpoint(provider, assignment.model(), env);
+        ModelFactory.Endpoint plain = endpoint(provider, assignment.model(), env);
+        return new ModelFactory.Endpoint(plain.format(), plain.baseUrl(), plain.apiKey(), plain.model(),
+                plain.headers(), assignment.thinking());
     }
 
     /** 解析占位符，得到可调用的端点。 */

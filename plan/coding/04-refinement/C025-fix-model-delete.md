@@ -24,3 +24,14 @@
 
 - `frontend/` `npm run build`；`backend/` `mvn -B clean verify`（改了原来断言 409 的两个测试：`ModelSettingsFileTest`、`ModelSettingsControllerTest`）。
 - 浏览器里删提供方 / 去掉在用模型：等用户试。
+
+## 补：OpenCode Go 要求 `x-opencode-session`（2026-11-05）
+
+- 现象：OpenCode Go（预设 `opencode-go`）对没有 `x-opencode-session` 头的请求返回「400: Request is missing x-opencode-session and cannot be routed efficiently.」。
+- 参考：DSH 插件 github.com/beihzb/dsh-opencode-session-header（用户提供，2026-11-05；本次没有拉取仓库，提交号未记录）：AsyncLocalStorage 存会话 id，fetch 中间件按 host 补头。
+- 修法（不用用户配置）：
+  - `config/OpenCodeSession.java`：`ScopedValue` 存这次对话的 id；OkHttp 拦截器只对 host 为 `opencode.ai` 或 `*.opencode.ai` 的请求补头，请求里已有同名头（用户在自定义请求头里写的）时不动。`ModelFactory` 给 OpenAI / Anthropic 两种客户端都挂这个拦截器。
+  - 对话 id：调研 Session `jobapply-session-<sessionId>`；申请 `jobapply-apply-<jobId>`；后续段 `jobapply-followup-<jobId>`（查状态 C026 是发进后续段的消息，同一个）。在三个 Runner 调 loop 的地方绑定，同一个对话每一轮、每次重试都一样。
+  - 没有对话时（测试连接、拉模型列表 `ModelCatalogClient`、导入时的抽取）用 `jobapply-default`。
+  - 并行：同步调用的拦截器和 SDK 重试都在调模型的线程上跑；`ScopedValue` 不传给别的线程，Worker 之间不串。
+- 验证：`backend/` `mvn -B clean verify`（见 dev-log）。真的连 OpenCode Go：等用户试。

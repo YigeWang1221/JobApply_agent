@@ -302,6 +302,9 @@ public final class ModelSettingsService {
         if (!provider.models().contains(assignment.model())) {
             throw new IllegalArgumentException("提供方 " + provider.id() + " 没有选中模型 " + assignment.model());
         }
+        if (assignment.thinking() != null && !ModelSettingsFile.THINKING.contains(assignment.thinking())) {
+            throw new IllegalArgumentException("思考强度只能是 off、low、medium、high、max 或不填");
+        }
         next.put(usage, assignment);
     }
 
