@@ -28,6 +28,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import jobapply.config.HarnessProperties;
+import jobapply.config.OpenCodeSession;
 import jobapply.domain.Actor;
 import jobapply.domain.AgentRun;
 import jobapply.domain.ApplicationState;
@@ -930,12 +931,14 @@ public final class ApplicationRunner implements AutoCloseable {
         HarnessLoop loop = new HarnessLoop(mainModel.get(), browser, layout, clock, limits, toolCalls::perRun, experience,
                 this::noteToSession);
         // 每轮存盘后发一次 changed：工作台侧栏的「进度」跟着申请状态刷新（C019）
-        return loop.run(run, () -> stopRequested(jobId), progressed -> {
-            if (!discarded.contains(jobId)) {
-                runs.save(progressed);
-                events.changed(progressed.session(), progressed.job());
-            }
-        }, events.observer(run.session(), jobId), () -> inbox.take(jobId));
+        // 发往 OpenCode 的模型请求带这份申请的对话 id（C025-fix）
+        return OpenCodeSession.call("jobapply-apply-" + jobId, () -> loop.run(run, () -> stopRequested(jobId),
+                progressed -> {
+                    if (!discarded.contains(jobId)) {
+                        runs.save(progressed);
+                        events.changed(progressed.session(), progressed.job());
+                    }
+                }, events.observer(run.session(), jobId), () -> inbox.take(jobId)));
     }
 
     /** 一次运行结束：按结果更新 {@code prep_state}；停在提交前时把报告定稿、清空上传区。 */

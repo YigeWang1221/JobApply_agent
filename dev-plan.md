@@ -59,6 +59,7 @@
 | [C016](plan/coding/03-features/C016-dropdowns.md) | 下拉框、级联、日期控件：参考开源做法改工具和 skill | 已施工；实跑后修正（下拉淡入、弹出层留整页、发回思考、去掉来回提醒、日期 need_day、第 18 条放行）已施工，等用户在真实网站试（2026-10-25） |
 | [C017](plan/coding/03-features/C017-macos-app.md) | 打包成本机自用的 macOS App：Swift 窗口外壳 + 自带 Java 运行时、node 和 Playwright MCP；数据位置由用户在首次打开和设置页里选 | 已施工，等用户双击试（2026-10-27） |
 | [C017-fix](plan/coding/03-features/C017-fix-chrome-port.md) | App 连不上 Chrome：macOS 不让 App 读 Chrome 资料夹里的端口文件，改成直接连 127.0.0.1:9222；关闭 App 卡 30 秒、强制退出留下后端 | 已施工，等用户在 Air 上试（2026-10-27） |
+| [C017-fix 返回](plan/coding/03-features/C017-fix-back-navigation.md) | App 里没有返回上一页：侧栏顶部返回按钮 + ⌘[，前端内存里的页面栈，跳过已删掉的页，每次窗口加载（启动、重启后端、⌘R）都从空栈开始 | 已施工，等用户在 App 里试（2026-11-07；`npm run build` 0） |
 | [C018](plan/coding/03-features/C018-tool-call-limits.md) | 工具调用上限在设置页由用户自己定（申请每次运行、对话每轮），可设为不限 | 已施工，等用户试（2026-10-25） |
 | [C019](plan/coding/03-features/C019-application-state.md) | 每次投递一份申请状态（字段清单 + 计划），模型每步在它上面读和更新，不再每步重读整页 | 已施工，等用户试（2026-10-25） |
 | [C020](plan/coding/04-refinement/C020-holistic-refinement.md) | 整体精炼（分 A–E 五个工作包）：A 提示词与 Skills 常识推理引导升级；B 下拉/日期滚轮与未完层级诚实观测；C Memory 闭环与上传按需复制；D 对话 Agent `browser_tabs`；E 工作台报告表格渲染与 `reset` 重读 | 已施工，等用户试（2026-10-28；合龙验证：JDK 25 下 `mvn -B clean verify` 退出码 0、`npm run build` 退出码 0、无头 Chromium 5 项新脚本验证通过） |
@@ -68,7 +69,11 @@
 | [C024](plan/coding/04-refinement/C024-manual-outcome-reason.md) | 投递结果不再按 case 写死：工作台选「投递失败 / 不投了」+ 手动写原因，记进工作台和 Session，Dashboard 与台账显示，可撤销；模型可用同一工具记下 | 已施工，等用户在本机试（2026-10-31） |
 | [C024-fix](plan/coding/04-refinement/C024-fix-status-and-timeline.md) | 「结束」一词跨领域重复（投递段结束被显示成申请已结束）：状态按运行 / 申请 / 候选分清用词；Dashboard 的 Failures 放跳过 / 投递失败 / 不投了；时间线每份申请一条圆角长条、点开看详情 | 已施工，等用户在本机试（2026-10-31） |
 | [C025](plan/coding/04-refinement/C025-settings-ui-polish.md) | 设置页打磨：敏感信息值能输入中文（密码框禁了输入法）；模型 / 运行 / 敏感信息 / 资料事实里该选的字段换下拉、组合框、分段开关，样式对齐 C023 | 已施工，等用户在本机试（2026-11-05；`npm run build` 0；`mvn verify` 在隔离副本里 0，工作区因 C026 施工中未通过） |
+| [C025-fix](plan/coding/04-refinement/C025-fix-model-delete.md) | 模型设置删不掉：删提供方 / 去掉在用模型时清掉相关用途分配、让用户重新分配；清用途不再被主模型工具调用检查挡住；页面标出谁在用、错误放在删除旁 | 完成（用户在本机界面试过，2026-11-05） |
 | [C026](plan/coding/04-refinement/C026-portal-status-check.md) | 投递状态交给 Agent 查：Dashboard 按当前筛选出的申请「查状态」，跑后续段（只读、用户 Chrome 的登录态），识别门户状态并记下；要手动登录的记下、不再查；查看间隔天数可设，状态显示跟着改；状态变化进「核准列表」由用户核准；阶段按官网动态（复用轮次） | 已施工，等用户在本机试（2026-11-05；`npm run build` 0、工作区 `mvn -B clean verify` 0，含 C025；真实 Chrome 未跑） |
+| [C027](plan/coding/04-refinement/C027-thinking-strength.md) | DeepSeek 模型可选思考强度：用途分配里模型名含 deepseek 时多一个「思考」下拉（默认 / 关 / 低 / 高 / 最高），按 DeepSeek 的 `thinking` + `reasoning_effort` 发请求 | 已施工，等用户用真实模型试（2026-11-05；`npm run build` 0、`mvn -B clean verify` 0） |
+| [C027-fix](plan/coding/04-refinement/C027-fix-gemini-thinking.md) | Gemini 模型也可选思考强度：模型名含 gemini 时显示「思考」下拉（3.x：默认 / 低 / 中 / 高；2.5 Flash 多「关」），发 `reasoning_effort`；新增存值 `medium` | 已施工，等真实 Gemini 测试（2026-11-05；`npm run build` 0、`mvn -B clean verify` 0） |
+| [C028](plan/coding/04-refinement/C028-chatgpt-plan-signin.md) | 用 ChatGPT 登录：模型设置加「ChatGPT 套餐」提供方，用户在浏览器里登录（官方 SIWC，OAuth + PKCE，本机回调），用订阅额度走 Responses API，可分配给各用途 | 计划，待用户确认（2026-11-07） |
 
 ## 参考（不是施工步骤）
 

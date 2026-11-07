@@ -12,7 +12,7 @@ import java.util.Optional;
 public final class ModelPresets {
 
     /**
-     * @param format      {@code openai} 或 {@code anthropic}；自定义时为 null（用户自己选）
+     * @param format      {@code openai}、{@code anthropic} 或 {@code chatgpt}；自定义时为 null（用户自己选）
      * @param baseUrl     默认 Base URL；自定义时为 null
      * @param keyRequired 本地模型不需要 Key
      * @param note        给用户看的提示，可以为 null
@@ -21,6 +21,8 @@ public final class ModelPresets {
     }
 
     public static final String CUSTOM = "custom";
+    /** C028：用 ChatGPT 登录的预设，同时也是它的接口格式名。 */
+    public static final String CHATGPT = "chatgpt";
 
     public static final List<Preset> ALL = List.of(
             new Preset("openai", "OpenAI", "openai", "https://api.openai.com/v1", true, null),
@@ -39,6 +41,9 @@ public final class ModelPresets {
                     "OpenCode 的订阅；Key 在 OpenCode Console 里复制。只有走 Chat Completions 的模型能用（GLM、Kimi、"
                             + "DeepSeek、MiMo 等）；Qwen、MiniMax M3、Claude 走 Anthropic 端点，GPT、Grok、Gemini 走别的接口，"
                             + "这里用不了"),
+            // C028：官方 Sign in with ChatGPT（preview），不填 Key，用订阅额度走 Responses API
+            new Preset(CHATGPT, "ChatGPT 套餐（Sign in with ChatGPT）", "chatgpt", "https://api.openai.com/v1", false,
+                    "用 ChatGPT 订阅额度（preview，需要 Plus / Pro 等套餐）；在浏览器里登录，不用 Key；只能加一个"),
             new Preset("ollama", "Ollama / LM Studio（本地）", "openai", "http://localhost:11434/v1", false,
                     "不需要 Key，数据不出本机；LM Studio 的默认地址是 http://localhost:1234/v1"),
             new Preset(CUSTOM, "自定义", null, null, true, "公司内网网关、自建代理等；两种接口格式任选"));

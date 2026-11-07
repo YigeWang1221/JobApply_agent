@@ -53,10 +53,13 @@ export interface BrowserState {
   generation: number;
 }
 
+// 接口格式：chatgpt = ChatGPT 套餐（Responses API，用 ChatGPT 登录，C028）
+export type ModelFormat = "openai" | "anthropic" | "chatgpt";
+
 export interface Preset {
   id: string;
   label: string;
-  format: "openai" | "anthropic" | null;
+  format: ModelFormat | null;
   baseUrl: string | null;
   keyRequired: boolean;
   note: string | null;
@@ -74,7 +77,7 @@ export interface TestRecord {
 export interface Provider {
   id: string;
   preset: string;
-  format: "openai" | "anthropic";
+  format: ModelFormat;
   baseUrl: string;
   keyVariable: string;
   keySet: boolean;
@@ -83,6 +86,15 @@ export interface Provider {
   tested: TestRecord[];
   usedBy: string[];
   headers: ProviderHeader[];
+  // ChatGPT 套餐的登录状态（C028）：只有 chatgpt 格式的提供方有，其它为 null 或没有
+  account?: { signedIn: boolean; email: string | null } | null;
+}
+
+// ChatGPT 登录轮询状态（C028）
+export interface ChatGptStatus {
+  state: "idle" | "pending" | "signed_in" | "error";
+  email: string | null;
+  error: string | null;
 }
 
 // 自定义请求头（C025）：密钥头的 value 为 null，set 表示 .env 里有没有值
@@ -98,7 +110,11 @@ export interface Assignment {
   model: string;
   // 显示思考（C006-agent）：只有 Anthropic 格式的提供方用它；后端没给这个字段时设置页不显示开关
   showThinking?: boolean;
+  // 思考强度（C027）：只对 OpenAI 格式的 DeepSeek 模型生效；不写或 null = 默认（模型自己的）
+  thinking?: Thinking | null;
 }
+
+export type Thinking = "off" | "low" | "medium" | "high" | "max";
 
 export type Usage = "main" | "auxiliary" | "cross_check";
 
@@ -776,9 +792,13 @@ export const api = {
     request<{ keyLast4: string }>("PUT", `${MODELS}/providers/${encodeURIComponent(id)}/key`, { key }),
   saveHeaders: (id: string, headers: { name: string; value: string; secret: boolean }[]) =>
     request<Provider>("PUT", `${MODELS}/providers/${enc(id)}/headers`, { headers }),
-  catalog: (id: string) => request<{ models: string[] }>("POST", `${MODELS}/providers/${encodeURIComponent(id)}/catalog`),
+  catalog: (id: string) => request<{ models: string[]; labels?: Record<string, string> }>("POST", `${MODELS}/providers/${encodeURIComponent(id)}/catalog`),
   test: (id: string, model: string) =>
     request<TestResult>("POST", `${MODELS}/providers/${encodeURIComponent(id)}/test`, { model }),
+  chatgptSignin: (id: string) =>
+    request<{ authorizeUrl: string }>("POST", `${MODELS}/providers/${enc(id)}/chatgpt/signin`, {}),
+  chatgptStatus: (id: string) => request<ChatGptStatus>("GET", `${MODELS}/providers/${enc(id)}/chatgpt/status`),
+  chatgptSignout: (id: string) => request<void>("DELETE", `${MODELS}/providers/${enc(id)}/chatgpt/signin`),
   assign: (main: Assignment | null, auxiliary: Assignment | null, crossCheck: Assignment | null) =>
     request<Partial<Record<Usage, Assignment>>>("PUT", `${MODELS}/assignments`, { main, auxiliary, crossCheck }),
 

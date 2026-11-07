@@ -129,6 +129,11 @@ a {
   gap: 8px;
 }
 
+/* 侧栏顶部右侧的小按钮组：返回（只在 App 里）+ 收起侧栏 */
+.brand .brandtools {
+  gap: 2px;
+}
+
 .brand i {
   width: 18px;
   height: 18px;
@@ -4096,4 +4101,13 @@ button.ms-panel-head {
 .proposalcard .row {
   flex-wrap: wrap;
   gap: 8px;
+}
+
+/* C025-fix：提供方卡片的错误放在删除按钮旁 */
+.ms-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 60%;
+  text-align: right;
 }

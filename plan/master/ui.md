@@ -79,7 +79,7 @@ Session 标签（research / apply / review）根据实际发生的事情自动�
 | Moonshot / Kimi | OpenAI 兼容 | |
 | 智谱 GLM | OpenAI 兼容 | |
 | OpenRouter | OpenAI 兼容 | 一个 key 接很多模型 |
-| OpenCode Go | OpenAI 兼容 | OpenCode 的订阅；只有走 Chat Completions 的模型能用（用户确认，2026-11-05，C025） |
+| OpenCode Go | OpenAI 兼容 | OpenCode 的订阅；只有走 Chat Completions 的模型能用（用户确认，2026-11-05，C025）。发往 `opencode.ai` 的请求自动带 `x-opencode-session`（每个对话一个 id，用户写了同名自定义头时用用户的；C025-fix） |
 | Ollama / LM Studio（本地） | OpenAI 兼容 | 不需要 key，数据不出本机 |
 | 自定义 | 两种格式任选 | 公司内网网关、自建代理等 |
 
@@ -93,6 +93,8 @@ Session 标签（research / apply / review）根据实际发生的事情自动�
 | 辅助模型 | 长页面摘要、快照压缩、Session 交接摘要、候选池公司名 / 地点归并 | 便宜、快 |
 | 交叉核验（可选） | 用第二个模型复核匹配评分 | 最好和主模型不是同一家 |
 | 本地 embedding（后置） | 以后做相似题检索 | 只允许本地模型 |
+
+DeepSeek 模型（OpenAI 格式、模型名含 `deepseek`）在用途分配里多一个「思考」下拉：默认 / 关 / 低 / 高 / 最高，按用途存在 `assignments.<用途>.thinking`，请求带 DeepSeek 的 `thinking` + `reasoning_effort`；默认不发参数（用户确认，2026-11-05，C027）。Gemini 模型（OpenAI 格式、模型名含 `gemini`）同样有这个下拉，发 `reasoning_effort`：3.x 和 2.5 Pro 是 默认 / 低 / 中 / 高，2.5 Flash 多一个「关」（用户确认，2026-11-05，C027-fix）。
 
 ### 实现（Spring AI 2.0.1）
 

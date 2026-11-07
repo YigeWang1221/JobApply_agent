@@ -1360,3 +1360,80 @@
   - `styles.css` 末尾追加 C026-C、C026-D 两节。
   - Master 回写：workflow 第 8 段、tracking「unknown 规则」、memory `job.md` 字段、agent-runtime 7.9、ui 新小节。
 - 验证（工作区，含同时施工的 C025）：`frontend/` `npm run build` 退出码 0；`backend/` `mvn -B clean verify` 退出码 0（单元 662、IT 1，Failures 0）。真实模型、真实 Chrome 下查状态，浏览器里看界面：未运行。未提交。
+
+## 2026-11-05 · C025-fix 模型设置删不掉
+
+- 指令：用户确认：删提供方 / 去掉模型时把相关用途分配清掉，让用户重新设；清用途不被主模型工具调用检查挡住；页面标出谁在用。
+- 根因：`ModelSettingsFile.Settings.withoutProvider` 在用即抛 `InUseException`（409）；`ModelSettingsService.upsertProvider` 去掉在用模型也 409；`assign` 主模型没变也查测试；前端错误在卡片底部、`usedBy` 未显示、× 只改本地。旧版和 C025 版相同。
+- 结果：后端 `ModelSettingsFile`（`withoutProvider` 清分配、新增 `withoutAssignmentsOutside`、删 `InUseException`）、`ModelSettingsService`（`upsertProvider`、`deleteProvider`、`assign` 只查新主模型）、`ApiErrors`（去掉 `InUseException`）；前端 `ModelSettings.tsx`（用作 chip、确认框、错误在删除旁、× 立即保存、清空用途提示）、`styles.css`（C025-fix 一节）；测试 `ModelSettingsFileTest`、`ModelSettingsControllerTest` 改为断言清分配。细节见计划。
+- 验证：`frontend/` `npm run build` 退出码 0；`backend/` `mvn -B clean verify` 退出码 0（单元 662、IT 1，Failures 0）。浏览器里删除：未运行。未提交。
+
+## 2026-11-05 · C025-fix 用户本机试
+
+- 在 18080（后端）+ 5173（Vite 临时配置）启动界面，用户在「设置 → 模型」试过删除，回复「OK了」。服务已停，临时配置已删。
+
+## 2026-11-05 · App 里确认框不弹、删除静默失败
+
+- 现象：C025-fix 后浏览器里能删模型提供方，打包 App 里点删除没反应。
+- 原因：`appbuild/macos/JobApply/main.swift` 的 `WKUIDelegate` 没实现 JS 对话框方法，WKWebView 把 `window.confirm` 当「取消」（`ModelSettings.tsx` 两处、`Sources.tsx` 一处）。
+- 改：补 `runJavaScriptAlertPanel` / `ConfirmPanel` / `TextInputPanel`，用 NSAlert 弹在窗口上。`appbuild/` 被 git 忽略。
+- 验证：`appbuild/macos/build.sh` 退出码 0（21:11，App + DMG）。在 App 里实际点删除：未运行。
+
+## 2026-11-05 · C025-fix 补：OpenCode Go 自动带 `x-opencode-session`
+
+- 指令：OpenCode Go 没有 `x-opencode-session` 头就 400；照 DSH 插件按 host 自动补，每个对话一个固定 id，没有对话用 `jobapply-default`，用户写了同名自定义头时用用户的。
+- 结果：新增 `backend/src/main/java/jobapply/config/OpenCodeSession.java`（`ScopedValue` + OkHttp 拦截器，host 为 `opencode.ai` / `*.opencode.ai`）；`ModelFactory` 两种客户端挂拦截器；`ModelCatalogClient` 拉模型列表时补头；`SessionRunner` / `ApplicationRunner` / `FollowupRunner` 调 loop 时绑定 `jobapply-session-<id>` / `jobapply-apply-<jobId>` / `jobapply-followup-<jobId>`。前端没改。没提交。
+- 验证：`backend/` `mvn -B clean verify` 退出码 0，单元测试 662 个、IT 1 个，全部通过，BUILD SUCCESS。真的连 OpenCode Go：未运行。
+- 偏差：DSH 仓库没有拉取，提交号未记录。
+
+## 2026-11-05 · C027 DeepSeek 思考强度
+
+- 指令：用户「进行开发」，按 C027 计划默认（按用途存、保留最高、新分配为默认）。前后端并行（前端由子代理改）。
+- 结果：`ModelSettingsFile`（`Assignment.thinking`、读写 `thinking`）、`ModelSettingsService`（校验取值）、`ModelRegistry`（传进 `Endpoint`）、`ModelFactory`（`thinkingBody` → `extraBody`：关 = `thinking.type=disabled`，低/高/最高 = `enabled` + `reasoning_effort`，只对 OpenAI 格式且模型名含 `deepseek`）；`frontend/src/api.ts`、`frontend/src/pages/ModelSettings.tsx`（用途分配的「思考」下拉）；`plan/master/ui.md` 加一句。没提交。
+- 验证：`frontend/` `npm run build` 退出码 0；`backend/` `mvn -B clean verify` 退出码 0，单元 662、IT 1，全部通过。真实 DeepSeek / OpenCode Go：未运行（OpenCode Go 是否透传 `thinking` 未确认）。
+
+## 2026-11-05 · C027 真实模型测试
+
+- 用户授权代理测试（「你来测试和改动吧」）。后端 18080、Vite 5173（临时配置）。经 API 建临时 Project `c027-thinking-test` 和 3 个 Session，用 `PUT /api/settings/models/assignments` 切换思考档位，发同一类消息计时。
+- 结果：OpenCode Go 的模型测试通过（自动 `x-opencode-session` 生效）；「关」「低」时没有思考步骤，参数确实被转发；同一 Session 来回切换档位没有 400。耗时：Session 1、3 稳定 4–6 s（含「关」），Session 2 任何档位都 12–97 s。慢与会话有关、与思考档位无关（推测是上游按会话固定路由，未确认）。明细在 C027 计划「真实测试」一节。
+- 测完恢复用途分配（thinking null、showThinking false），临时 Project 删到 `.trash/`。真实 Chrome 下的申请：未运行。未改代码，未提交。
+
+## 2026-11-05 · C027-fix Gemini 思考强度
+
+- 指令：用户「直接施工、边做边测」，按 C027-fix 计划默认（不加 minimal、只做 AI Studio、签名 400 另开 fix）。
+- 结果：`ModelSettingsFile`（`THINKING` 加 `medium`）、`ModelSettingsService`（提示文字）、`ModelFactory.thinkingBody`（Gemini 分支：关 = `reasoning_effort: none`，低/中/高 = 同名值）；`frontend/src/api.ts`、`frontend/src/pages/ModelSettings.tsx`（按模型给档位）；`plan/master/ui.md` 加一句。没提交。
+- 验证：`frontend/` `npm run build` 退出码 0；`backend/` `mvn -B clean verify` 退出码 0，单元 662、IT 1，全部通过。真实 Gemini：未运行。运行中的 18080 后端没动。
+
+## 2026-11-05 · C027-fix Gemini thought_signature
+
+- 现象：用户真实测试 `gemini` 预设 + `gemini-3.7-flash` / `gemini-3.8-flash`，Session 里第二次工具调用都 400「Function call is missing a thought_signature in functionCall parts」。
+- 结果：新增 `backend/.../config/GeminiThoughtSignatures.java`（OkHttp 拦截器，只对 `generativelanguage.googleapis.com` 的 `/chat/completions`：响应里按工具调用 id 记签名，请求里给缺签名的 assistant 工具调用补回，找不到时第一个调用补 `skip_thought_signature_validator`）；`ModelFactory` 在 OpenAI 格式模型上挂上它。没提交。
+- 验证：`backend/` `mvn -B clean verify` 退出码 0，单元 662、IT 1，全部通过。临时离线检查（不进仓库）确认补签名、占位值、响应体不变、别的 host 不动。真实 Gemini：未运行。运行中的 18080 后端没动。
+
+## 2026-11-05 · C027-fix Gemini 真实测试
+
+- 用户填好 AI Studio key、只测 3.7 / 3.8。修前 8 组全部 400（thought_signature）；修后（`GeminiThoughtSignatures` 拦截器）8 组全部通过两轮工具调用，重启后续接旧 Session 也通过。耗时明细见 C027-fix 计划「真实测试」。真实 Chrome 申请：未运行。用途分配已恢复，临时 Project 删到 `.trash/`。未提交。
+
+## 2026-11-07 · C017-fix 返回上一页
+
+- 指令：用户反馈 App 里没有返回按钮；重新打开 / 退出时页面栈要清空。
+- 结果：`frontend/src/route.ts`（内存页面栈、`back()`、`useCanGoBack()`）、`frontend/src/App.tsx`（侧栏顶部和收起窄栏的返回按钮，只在 App 里显示；⌘[）、`frontend/src/chat/icons.tsx`（`back` 图标）、`frontend/src/styles.css`（侧栏顶部按钮组间距）；计划 `plan/coding/03-features/C017-fix-back-navigation.md`。`main.swift` 没改。没提交。
+- 验证：`frontend/` `npm run build` 退出码 0。App 重新打包、在 App 里点返回 / ⌘[ / 重启后端后置灰：未运行。
+- 追加（同日）：用户定返回跳过已删掉的页、不要前进 / 滑动 / 菜单项。`route.ts` 加 `setRouteExists` / `pruneStack`、`back()` 弹到还在的页（都没了回全局）；`App.tsx` 加 `listedGone()`，Project / Session 按侧栏列表，侧栏里没有的工作台问已有的 `GET /api/jobs/{id}`（404 算删了，后端 `JobController.find` 抛 NotFound → 404 已核对）。`frontend/` `npm run build` 退出码 0。App 里实测：未运行。
+
+## 2026-11-07 · 后续段上传图片被拦（415）
+
+- 现象：用户在工作台后续段附图片，提示「写接口只接受 Content-Type: application/json」；用户以为是 Gemini 不收图。
+- 原因：`LocalRequestGuard` 的 multipart 放行名单只有 `/api/assets`、`.../application/attachments`、`/api/sessions/{id}/attachments`，C022 新增的 `/api/jobs/{id}/followup/attachments` 没加进去。与模型无关：图片附件对所有模型都原样发送（`Conversation.withAttachments`）。
+- 改：放行正则加上 `followup`。
+- 验证：`mvn -B clean verify` 退出码 0（662 + IT 1）；重启后端，带本机 Origin 用 curl 传一张 PNG 到后续段附件接口，返回 201；测试文件和它新建的空目录已删，Job 其它文件未动。用户在界面里附图并发给 Gemini：未运行。未提交。
+
+## 2026-11-07 · C028 用 ChatGPT 登录（ChatGPT 套餐）
+
+- 指令：模型设置加「Sign in with ChatGPT」，用订阅内 Work/Codex 额度。用户定：官方 SIWC、GPT 有思考下拉、登录后自动拉模型；账号数量未答，按建议只允许一个。
+- 结果（三个子代理并行 + 主会话补 `labels` 显示）：
+  - 后端登录：`ChatGptAuth`、`ChatGptIdToken`、`persistence/ChatGptTokenStore`；`ModelPresets`、`ModelSettingsService`、`ModelCatalogClient`、`ModelSettingsController`、`ModelSettingsFile`、`StorageLayout`。令牌在 `storage/settings/chatgpt-auth.json`（0600，代理不读），注册信息在 `chatgpt-client.json`。
+  - Responses 模型：`ChatGptResponsesChatModel`、`ChatGptResponsesOptions`、`NonTransientAiException`、`ChatGptAccessTokens`；`ModelFactory`、`ModelRegistry`、`ConnectionTester`、`SettingsConfiguration`。
+  - 前端：`api.ts`、`pages/ModelSettings.tsx`。
+  - 计划：`plan/coding/04-refinement/C028-chatgpt-plan-signin.md`。
+- 验证：`mvn -B clean verify` BUILD SUCCESS（668 单元测试含新增 3 个测试类，IT 1，0 失败）；`npm run build` 退出码 0；后端重启在 18080，预设列表含 `chatgpt`。真实登录、拉模型、测试、Session 轮次、刷新、退出：未运行（等用户在界面登录）。App 重新打包：未运行。未提交。

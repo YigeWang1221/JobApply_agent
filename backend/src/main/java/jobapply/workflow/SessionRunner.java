@@ -14,6 +14,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import jobapply.config.OpenCodeSession;
 import jobapply.domain.AgentRun;
 import jobapply.domain.Inbox;
 import jobapply.domain.LiveRuns;
@@ -393,9 +394,10 @@ public final class SessionRunner implements AutoCloseable {
                         .map(SessionRepository.TimedTurn::turn).toList();
                 SessionLoop loop = new SessionLoop(mainModel.get(), browser, layout, clock, search, fetch,
                         applicationTools(), events::changed, applications.toolCallLimits()::perMessage);
-                loop.run(projectId, sessionId, history, () -> stopRequested(sessionId),
-                        turn -> sessions.appendTurn(projectId, sessionId, turn), events.observer(sessionId, null),
-                        () -> inbox.take(sessionId));
+                // 发往 OpenCode 的模型请求带这个 Session 的 id（C025-fix）
+                OpenCodeSession.run("jobapply-session-" + sessionId, () -> loop.run(projectId, sessionId, history,
+                        () -> stopRequested(sessionId), turn -> sessions.appendTurn(projectId, sessionId, turn),
+                        events.observer(sessionId, null), () -> inbox.take(sessionId)));
             } catch (RuntimeException e) {
                 error = rootMessage(e);
                 log.warn("Session {} 的对话 Agent 出错：{}", sessionId, error);

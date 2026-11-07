@@ -13,6 +13,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Supplier;
+import jobapply.config.OpenCodeSession;
 import jobapply.domain.AgentRun;
 import jobapply.domain.Inbox;
 import jobapply.domain.Job;
@@ -458,9 +459,10 @@ public final class FollowupRunner implements AutoCloseable {
                         .map(SessionRepository.TimedTurn::turn).toList();
                 FollowupLoop loop = new FollowupLoop(mainModel.get(), browser, layout, clock, fetch, events::changed,
                         applications.toolCallLimits()::perMessage, applications.experience(), applications::noteToSession);
-                loop.run(projectId, jobId, session, history, () -> stopRequested(jobId),
-                        turn -> followups.appendTurn(projectId, jobId, turn), events.followupObserver(jobId),
-                        () -> inbox.take(jobId));
+                // 发往 OpenCode 的模型请求带这份申请后续段的 id；查状态（C026）也是发进后续段的消息，同一个（C025-fix）
+                OpenCodeSession.run("jobapply-followup-" + jobId, () -> loop.run(projectId, jobId, session, history,
+                        () -> stopRequested(jobId), turn -> followups.appendTurn(projectId, jobId, turn),
+                        events.followupObserver(jobId), () -> inbox.take(jobId)));
             } catch (RuntimeException e) {
                 error = rootMessage(e);
                 log.warn("Job {} 的后续段出错：{}", jobId, error);

@@ -2,6 +2,7 @@ package jobapply.api;
 
 import java.util.List;
 import java.util.Map;
+import jobapply.config.ChatGptAuth;
 import jobapply.config.ConnectionTester;
 import jobapply.config.ModelSettingsService;
 import jobapply.persistence.ModelSettingsFile.Assignment;
@@ -71,9 +72,30 @@ public class ModelSettingsController {
         return settings.setHeaders(id, request.headers());
     }
 
+    /** {@code models} 是 id 列表；ChatGPT 套餐另带 {@code labels}（slug → 显示名，C028）。 */
     @PostMapping("/providers/{id}/catalog")
-    public Map<String, List<String>> catalog(@PathVariable String id) {
-        return Map.of("models", settings.catalog(id));
+    public Map<String, Object> catalog(@PathVariable String id) {
+        ModelSettingsService.Catalog catalog = settings.catalog(id);
+        return catalog.labels().isEmpty() ? Map.of("models", catalog.models())
+                : Map.of("models", catalog.models(), "labels", catalog.labels());
+    }
+
+    /** C028：开始「用 ChatGPT 登录」，返回授权 URL；本机回调监听 5 分钟。再点一次会作废上一次。 */
+    @PostMapping(path = "/providers/{id}/chatgpt/signin", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, String> chatGptSignIn(@PathVariable String id) {
+        return Map.of("authorizeUrl", settings.chatGptSignIn(id));
+    }
+
+    /** C028：登录状态，{@code state} 是 idle / pending / signed_in / error。 */
+    @GetMapping("/providers/{id}/chatgpt/status")
+    public ChatGptAuth.Status chatGptStatus(@PathVariable String id) {
+        return settings.chatGptStatus(id);
+    }
+
+    /** C028：退出 ChatGPT（吊销尽力而为，令牌文件一定删），返回提供方视图。 */
+    @DeleteMapping("/providers/{id}/chatgpt/signin")
+    public ModelSettingsService.ProviderView chatGptSignOut(@PathVariable String id) {
+        return settings.chatGptSignOut(id);
     }
 
     @PostMapping(path = "/providers/{id}/test", consumes = MediaType.APPLICATION_JSON_VALUE)

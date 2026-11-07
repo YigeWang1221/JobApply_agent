@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
-import { api, errorText, type ProjectSummary, type SessionSummary, type WorkspaceSummary } from "./api";
+import { api, ApiError, errorText, type ProjectSummary, type SessionSummary, type WorkspaceSummary } from "./api";
 import BrowserBanner from "./BrowserBanner";
 import { DeleteConfirm, type DeleteTarget } from "./DeleteConfirm";
 import { DiscardWorkspace } from "./DiscardWorkspace";
@@ -13,7 +13,8 @@ import Settings from "./pages/Settings";
 import { RenameInput } from "./RenameTitle";
 import { DROPPED_OUTCOMES, labelText } from "./status";
 import { clampWidth, KEEP_MAIN, ResizeHandle, useStoredWidth, useWindowWidth } from "./ResizeHandle";
-import { go, href, useRoute, type Route } from "./route";
+import { back, go, href, pruneStack, setRouteExists, useCanGoBack, useRoute, type Route } from "./route";
+import { shell } from "./shell";
 import { toast, Toasts } from "./toast";
 
 // 应用外框（C005-ui.md）：左边 Project / Session 侧栏，右边按选中的内容切换
@@ -36,6 +37,43 @@ export default function App() {
     void refresh();
   }, [refresh, route]);
   useGlobalChanges(refresh);
+
+  // 返回时跳过已删掉的页（C017-fix-back-navigation）：Project / Session 看侧栏已读到的列表；
+  // 工作台不在侧栏里时（Session 删了 Job 还在、从 Dashboard 打开的）问一次已有的 GET /api/jobs/{id}，只有 404 算删了
+  useEffect(() => {
+    if (!projects) {
+      return;
+    }
+    const gone = (r: Route) => listedGone(r, projects) === true;
+    pruneStack(gone);
+    setRouteExists(async (r) => {
+      const listed = listedGone(r, projects);
+      if (listed !== null) {
+        return !listed;
+      }
+      try {
+        await api.job((r as { id: string }).id);
+        return true;
+      } catch (e) {
+        return !(e instanceof ApiError && e.status === 404);
+      }
+    });
+  }, [projects]);
+
+  // App 里没有浏览器的返回键：⌘[ 回到上一页（C017-fix-back-navigation）；浏览器里交给浏览器自己
+  useEffect(() => {
+    if (!shell.available()) {
+      return;
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey && e.key === "[") {
+        e.preventDefault();
+        back();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const [collapsed, setCollapsed] = useState(() => readFlag(SIDEBAR_KEY));
   const toggle = () => {
@@ -81,6 +119,22 @@ const SIDE_DEFAULT = 248;
 const SIDE_MIN = 180;
 // 对话页拖宽侧栏时，右栏至少还剩这么宽（和 ResizablePanel 的下限一致）
 const PANEL_MIN_RESERVE = 240;
+
+// 按侧栏列表判断一页是不是删了：true 删了、false 还在、null 列表里看不出（不在侧栏里的工作台）
+function listedGone(route: Route, projects: ProjectSummary[]): boolean | null {
+  const sessions = projects.flatMap((p) => p.sessions);
+  switch (route.kind) {
+    case "project":
+      return !projects.some((p) => p.id === route.id);
+    case "session":
+      return !sessions.some((s) => s.id === route.id);
+    case "job":
+      return sessions.some((s) => s.jobs.includes(route.id) || (s.workspaces ?? []).some((w) => w.id === route.id))
+        ? false : null;
+    default:
+      return false;
+  }
+}
 
 // 「新对话」建在哪个 Project：当前看的 Project / 当前 Session / 当前工作台所在的 Project，否则第一个
 function projectFor(route: Route, projects: ProjectSummary[] | null): string | null {
@@ -138,6 +192,19 @@ function NewChat({ route, projects, onCreated, compact }: {
   );
 }
 
+// 返回上一页（C017-fix-back-navigation）：只在 macOS App 里显示，浏览器有自己的返回键；没有上一页时置灰
+function BackButton() {
+  const canGoBack = useCanGoBack();
+  if (!shell.available()) {
+    return null;
+  }
+  return (
+    <button className="iconbtn" title="返回上一页（⌘[）" aria-label="返回上一页" disabled={!canGoBack} onClick={back}>
+      <Icon name="back" />
+    </button>
+  );
+}
+
 function SidebarRail({ route, projects, onExpand, onCreated }: {
   route: Route;
   projects: ProjectSummary[] | null;
@@ -147,6 +214,7 @@ function SidebarRail({ route, projects, onExpand, onCreated }: {
   return (
     <aside className="side rail" aria-label="Project 与 Session（已收起）">
       <button className="iconbtn" title="展开侧栏" aria-label="展开侧栏" onClick={onExpand}><Icon name="side" /></button>
+      <BackButton />
       <NewChat route={route} projects={projects} onCreated={onCreated} compact />
       <button className="iconbtn" title="全局" aria-label="全局" onClick={() => go({ kind: "global" })}><Icon name="home" /></button>
       <div className="bottom">
@@ -257,7 +325,10 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
     <aside className="side" aria-label="Project 与 Session">
       <div className="brand">
         <span><i aria-hidden="true"></i>JobApply</span>
-        <button className="iconbtn" title="收起侧栏" aria-label="收起侧栏" onClick={onCollapse}><Icon name="side" /></button>
+        <span className="brandtools">
+          <BackButton />
+          <button className="iconbtn" title="收起侧栏" aria-label="收起侧栏" onClick={onCollapse}><Icon name="side" /></button>
+        </span>
       </div>
       <NewChat route={route} projects={projects} onCreated={onCreated} />
       <button className="pbtn" aria-current={current({ kind: "global" })} onClick={() => go({ kind: "global" })}>

@@ -25,7 +25,8 @@ public final class ModelSettingsFile {
     public static final String AUXILIARY = "auxiliary";
     public static final String CROSS_CHECK = "cross_check";
     public static final List<String> USAGES = List.of(MAIN, AUXILIARY, CROSS_CHECK);
-    public static final Set<String> FORMATS = Set.of("openai", "anthropic");
+    /** {@code chatgpt}：用 ChatGPT 登录，走 Responses API（C028）。 */
+    public static final Set<String> FORMATS = Set.of("openai", "anthropic", "chatgpt");
 
     private static final Pattern ID = Pattern.compile("[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?");
     private static final Set<String> PROVIDER_KEYS = Set.of(
@@ -81,17 +82,29 @@ public final class ModelSettingsFile {
      *                     thinking 块（含签名）原样发回，本项目每一轮从存下的对话重新拼消息，Spring AI 2.0.1 的
      *                     thinking 内容类型不公开，拼不回去；OpenAI 兼容格式的推理字段不用开关，有就显示，
      *                     同一次运行里也发回给模型（{@code reasoning_content}，C016 实跑后修正）。
+     * @param thinking     思考强度（C027）：{@link #THINKING} 之一，null = 默认（不发参数）
      */
-    public record Assignment(String provider, String model, Boolean showThinking) {
+    public record Assignment(String provider, String model, Boolean showThinking, String thinking) {
 
         public Assignment {
             showThinking = Boolean.TRUE.equals(showThinking);
+            thinking = thinking == null || thinking.isBlank() ? null : thinking.strip().toLowerCase(Locale.ROOT);
         }
 
         public Assignment(String provider, String model) {
-            this(provider, model, false);
+            this(provider, model, false, null);
+        }
+
+        public Assignment(String provider, String model, Boolean showThinking) {
+            this(provider, model, showThinking, null);
         }
     }
+
+    /**
+     * 思考强度（C027）：{@code assignments.<用途>.thinking}。只对 DeepSeek / Gemini 模型生效（{@code ModelFactory}；{@code medium} 是 C027-fix 为 Gemini 加的）；
+     * 不写 = 默认，请求里不带思考参数。
+     */
+    public static final Set<String> THINKING = Set.of("off", "low", "medium", "high", "max");
 
     /**
      * @param assignments 用途 → 分配；没有分配的用途不在里面
@@ -144,30 +157,30 @@ public final class ModelSettingsFile {
             return new Settings(next, assignments, assignmentsExtra, extra);
         }
 
-        /**
-         * 删掉提供方。
-         *
-         * @throws InUseException 它正被某个用途使用
-         */
+        /** 删掉提供方，连同指向它的用途分配（C025-fix：清掉的用途由用户重新分配）。 */
         public Settings withoutProvider(String id) {
-            List<String> usages = usagesOf(id);
-            if (!usages.isEmpty()) {
-                throw new InUseException(id, usages);
-            }
-            return new Settings(providers.stream().filter(p -> !p.id().equals(id)).toList(), assignments,
-                    assignmentsExtra, extra);
+            return new Settings(providers.stream().filter(p -> !p.id().equals(id)).toList(),
+                    assignmentsWhere(a -> !a.provider().equals(id)), assignmentsExtra, extra);
+        }
+
+        /** 去掉指向这个提供方、但模型不在 {@code models} 里的用途分配（C025-fix）。 */
+        public Settings withoutAssignmentsOutside(String providerId, List<String> models) {
+            return new Settings(providers, assignmentsWhere(a -> !a.provider().equals(providerId)
+                    || models.contains(a.model())), assignmentsExtra, extra);
+        }
+
+        private Map<String, Assignment> assignmentsWhere(java.util.function.Predicate<Assignment> keep) {
+            Map<String, Assignment> kept = new LinkedHashMap<>();
+            assignments.forEach((usage, a) -> {
+                if (keep.test(a)) {
+                    kept.put(usage, a);
+                }
+            });
+            return kept;
         }
 
         public Settings withAssignments(Map<String, Assignment> next) {
             return new Settings(providers, next, assignmentsExtra, extra);
-        }
-    }
-
-    /** 提供方正被某个用途使用，不能删除。 */
-    public static final class InUseException extends RuntimeException {
-
-        public InUseException(String id, List<String> usages) {
-            super("提供方 " + id + " 正被用作 " + String.join("、", usages) + "，先修改用途分配再删除");
         }
     }
 
@@ -244,8 +257,10 @@ public final class ModelSettingsFile {
                     assignmentsExtra.put(entry.getKey(), entry.getValue());
                 } else if (entry.getValue() != null) {
                     Map<String, Object> value = map(file, entry.getValue(), "assignments." + entry.getKey());
+                    String thinking = string(value.get("thinking"));
                     assignments.put(entry.getKey(), new Assignment(string(value.get("provider")),
-                            string(value.get("model")), Boolean.TRUE.equals(value.get("show_thinking"))));
+                            string(value.get("model")), Boolean.TRUE.equals(value.get("show_thinking")),
+                            thinking != null && THINKING.contains(thinking) ? thinking : null));
                 }
             }
         }
@@ -259,7 +274,7 @@ public final class ModelSettingsFile {
         for (Provider provider : settings.providers()) {
             requireId(provider.id());
             if (!FORMATS.contains(provider.format())) {
-                throw new IllegalArgumentException("接口格式只能是 openai 或 anthropic");
+                throw new IllegalArgumentException("接口格式只能是 openai、anthropic 或 chatgpt");
             }
         }
         Map<String, Object> root = new LinkedHashMap<>();
@@ -301,6 +316,9 @@ public final class ModelSettingsFile {
                 value.put("model", a.model());
                 if (Boolean.TRUE.equals(a.showThinking())) {
                     value.put("show_thinking", true);
+                }
+                if (a.thinking() != null) {
+                    value.put("thinking", a.thinking());
                 }
                 return (Object) value;
             }).orElse(null));

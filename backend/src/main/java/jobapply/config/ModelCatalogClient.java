@@ -9,6 +9,7 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import tools.jackson.core.JacksonException;
@@ -17,6 +18,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 请求提供方的模型列表。OpenAI 兼容格式：{@code GET {base}/models}，带 {@code Authorization: Bearer}；
+ * ChatGPT 套餐（C028）：{@code GET {base}/models}，带当前登录的 access token，返回 {@code models} 数组。
  * Anthropic 格式：{@code GET {base}/v1/models}，带 {@code x-api-key} 和 {@code anthropic-version}。超时 10 秒。
  * 有的网关没有这个接口，失败时返回原因（HTTP 状态码和对方的错误信息），让用户手填模型名。原因里不带 Key。
  */
@@ -31,7 +33,16 @@ public final class ModelCatalogClient {
     public sealed interface Result {
     }
 
-    public record Models(List<String> ids) implements Result {
+    /** @param labels slug → 显示名；只有 ChatGPT 的目录带（C028），其它为空。 */
+    public record Models(List<String> ids, Map<String, String> labels) implements Result {
+
+        public Models {
+            labels = labels == null ? Map.of() : Map.copyOf(labels);
+        }
+
+        public Models(List<String> ids) {
+            this(ids, Map.of());
+        }
     }
 
     public record Failed(String reason) implements Result {
@@ -71,7 +82,7 @@ public final class ModelCatalogClient {
         HttpRequest.Builder request = HttpRequest.newBuilder(uri).timeout(timeout).GET()
                 .header("Accept", "application/json");
         try {
-            headers.forEach(request::header);
+            OpenCodeSession.withHeader(uri.getHost(), headers).forEach(request::header);
         } catch (IllegalArgumentException e) {
             return new Failed("自定义请求头不被允许（例如 Host、Connection 这类由客户端自己管的头）");
         }
@@ -99,6 +110,9 @@ public final class ModelCatalogClient {
         if (response.statusCode() / 100 != 2) {
             return new Failed("HTTP " + response.statusCode() + errorMessage(response.body(), apiKey, headers));
         }
+        if ("chatgpt".equals(format)) {
+            return chatGptModels(response.body());
+        }
         try {
             JsonNode data = JSON.readTree(response.body()).path("data");
             if (!data.isArray()) {
@@ -112,6 +126,42 @@ public final class ModelCatalogClient {
                 }
             }
             return new Models(ids.stream().distinct().sorted().toList());
+        } catch (JacksonException e) {
+            return new Failed("返回内容不是合法的 JSON");
+        }
+    }
+
+    /**
+     * ChatGPT 套餐的模型目录（C028，官方 models-and-inference）：{@code models} 数组，只留 {@code visibility == "list"}，
+     * 保持服务端的顺序；存和发送用 {@code slug}，页面显示 {@code display_name}。
+     */
+    private static Result chatGptModels(String body) {
+        try {
+            JsonNode root = JSON.readTree(body);
+            JsonNode models = root.path("models").isArray() ? root.path("models") : root.path("data");
+            if (!models.isArray()) {
+                return new Failed("返回内容里没有 models 列表");
+            }
+            List<String> ids = new ArrayList<>();
+            Map<String, String> labels = new LinkedHashMap<>();
+            for (JsonNode model : models) {
+                if (!"list".equals(model.path("visibility").asString(""))) {
+                    continue;
+                }
+                String slug = model.path("slug").asString("");
+                if (slug.isBlank()) {
+                    slug = model.path("id").asString("");
+                }
+                if (slug.isBlank() || ids.contains(slug)) {
+                    continue;
+                }
+                ids.add(slug);
+                String label = model.path("display_name").asString("");
+                if (!label.isBlank() && !label.equals(slug)) {
+                    labels.put(slug, label);
+                }
+            }
+            return new Models(ids, labels);
         } catch (JacksonException e) {
             return new Failed("返回内容不是合法的 JSON");
         }

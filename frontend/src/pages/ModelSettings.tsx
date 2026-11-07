@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, errorText, type Assignment, type ModelSettings as Settings, type Preset, type Provider,
-  type ProviderHeader, type TestResult, type Usage } from "../api";
+import { api, errorText, type Assignment, type ModelFormat as Format, type ModelSettings as Settings, type Preset,
+  type Provider, type ProviderHeader, type TestResult, type Thinking, type Usage } from "../api";
 import { toast } from "../toast";
 
 const USAGES: { usage: Usage; label: string; hint: string }[] = [
@@ -12,12 +12,56 @@ const USAGES: { usage: Usage; label: string; hint: string }[] = [
 const PRIVACY =
   "填表与对话时，A / B 级信息（简历内容、联系方式等）会发送给所选的模型供应商；C 级信息（证件、工作授权、薪资等）永不发送。";
 
-type Format = "openai" | "anthropic";
-const FORMAT_LABEL: Record<Format, string> = { openai: "OpenAI 兼容", anthropic: "Anthropic" };
+const USAGE_LABEL: Record<Usage, string> = { main: "主模型", auxiliary: "辅助模型", cross_check: "交叉核验" };
+const usageNames = (usages: Usage[]) => usages.map((u) => USAGE_LABEL[u] ?? u).join("、");
+
+// 思考强度（C027 / C027-fix）：值为空 = 默认，不发参数。按模型给档位，没有档位的模型不显示下拉
+type ThinkingOption = { value: Thinking | ""; label: string };
+const DEEPSEEK_THINKING: ThinkingOption[] = [
+  { value: "", label: "默认（模型自己的，现在是高）" },
+  { value: "off", label: "关（最快）" },
+  { value: "low", label: "低" },
+  { value: "high", label: "高" },
+  { value: "max", label: "最高" },
+];
+// Gemini 2.5 Flash / Flash-Lite 能关（reasoning_effort=none）；3.x 和 2.5 Pro 关不掉，低就是最快
+const GEMINI_25_FLASH_THINKING: ThinkingOption[] = [
+  { value: "", label: "默认（模型自己的）" },
+  { value: "off", label: "关（最快）" },
+  { value: "low", label: "低" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
+];
+const GEMINI_THINKING: ThinkingOption[] = [
+  { value: "", label: "默认（模型自己的）" },
+  { value: "low", label: "低（最快）" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
+];
+// GPT（ChatGPT 套餐，C028）：映射成 Responses 的 reasoning.effort；默认不发
+const GPT_THINKING: ThinkingOption[] = [
+  { value: "", label: "默认（模型自己的）" },
+  { value: "low", label: "低" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
+];
+const FORMAT_LABEL: Record<Format, string> = {
+  openai: "OpenAI 兼容",
+  anthropic: "Anthropic",
+  chatgpt: "ChatGPT 套餐（Responses）",
+};
+
+// ChatGPT 登录（C028）：等浏览器里完成登录时每 1.5 秒查一次状态，最多等 5 分钟
+const SIGNIN_POLL_MS = 1500;
+const SIGNIN_TIMEOUT_MS = 5 * 60 * 1000;
+const CHATGPT_USAGE_URL = "https://chatgpt.com/settings/usage";
+type SignIn = { state: "pending"; url: string } | { state: "error"; error: string };
 
 export default function ModelSettings() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 刚因删除提供方 / 模型而清掉的用途（C025-fix）：用途分配里提示重新选
+  const [cleared, setCleared] = useState<Usage[]>([]);
 
   const reload = useCallback(async () => {
     try {
@@ -42,16 +86,25 @@ export default function ModelSettings() {
         <h2>模型提供方</h2>
         {settings.providers.length === 0 && <p className="muted">还没有提供方。先在下面添加一个。</p>}
         {settings.providers.map((provider) => (
-          <ProviderCard key={provider.id} provider={provider} presets={settings.presets} onChanged={reload} />
+          <ProviderCard key={provider.id} provider={provider} presets={settings.presets}
+            assignments={settings.assignments} onChanged={reload}
+            onCleared={(usages) => setCleared((old) => [...new Set([...old, ...usages])])} />
         ))}
       </section>
-      <AddProvider presets={settings.presets} existing={settings.providers.map((p) => p.id)} onAdded={reload} />
-      <Assignments settings={settings} onSaved={reload} />
+      <AddProvider presets={settings.presets} existing={settings.providers.map((p) => p.id)}
+        hasChatGpt={settings.providers.some((p) => p.format === "chatgpt")} onAdded={reload} />
+      <Assignments settings={settings} cleared={cleared}
+        onSaved={() => { setCleared([]); void reload(); }} />
     </>
   );
 }
 
-function AddProvider({ presets, existing, onAdded }: { presets: Preset[]; existing: string[]; onAdded: () => void }) {
+function AddProvider({ presets, existing, hasChatGpt, onAdded }: {
+  presets: Preset[];
+  existing: string[];
+  hasChatGpt: boolean; // 只允许一个 ChatGPT 套餐提供方（C028）
+  onAdded: () => void;
+}) {
   const [presetId, setPresetId] = useState(presets[0]?.id ?? "custom");
   const preset = presets.find((p) => p.id === presetId);
   const [id, setId] = useState(presets[0] && presets[0].id !== "custom" ? `${presets[0].id}-main` : "");
@@ -60,6 +113,8 @@ function AddProvider({ presets, existing, onAdded }: { presets: Preset[]; existi
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const fixedFormat = preset?.format ?? null;
+  const isChatGpt = fixedFormat === "chatgpt";
+  const blocked = isChatGpt && hasChatGpt;
 
   function choose(next: string) {
     setPresetId(next);
@@ -100,9 +155,12 @@ function AddProvider({ presets, existing, onAdded }: { presets: Preset[]; existi
         <label>
           预设
           <select value={presetId} onChange={(e) => choose(e.target.value)}>
-            {presets.map((p) => (
-              <option key={p.id} value={p.id}>{p.label}</option>
-            ))}
+            {presets.map((p) => {
+              const taken = p.format === "chatgpt" && hasChatGpt;
+              return (
+                <option key={p.id} value={p.id} disabled={taken}>{p.label}{taken ? "（已添加 ChatGPT 套餐）" : ""}</option>
+              );
+            })}
           </select>
         </label>
         <div className="ms-field">
@@ -119,10 +177,12 @@ function AddProvider({ presets, existing, onAdded }: { presets: Preset[]; existi
             </div>
           )}
         </div>
-        <label className="wide">
-          Base URL（也可以写占位符 {"${变量名}"}）
-          <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
-        </label>
+        {!isChatGpt && (
+          <label className="wide">
+            Base URL（也可以写占位符 {"${变量名}"}）
+            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+          </label>
+        )}
       </div>
       {preset?.note && <p className="muted small">{preset.note}</p>}
       <details className="ms-advanced">
@@ -134,24 +194,36 @@ function AddProvider({ presets, existing, onAdded }: { presets: Preset[]; existi
         {existing.includes(id.trim()) && <p className="muted small">这个 id 已经存在，会修改它的设置。</p>}
       </details>
       <div className="ms-actions">
-        <button className="primary" disabled={busy || !id.trim()} onClick={add}>添加</button>
-        <span className="muted small">添加后再填 Key、拉取模型列表。</span>
+        <button className="primary" disabled={busy || !id.trim() || blocked} onClick={add}>添加</button>
+        <span className="muted small">
+          {blocked ? "已添加 ChatGPT 套餐" : isChatGpt ? "添加后在卡片上用 ChatGPT 登录，登录后自动拉取模型列表。" : "添加后再填 Key、拉取模型列表。"}
+        </span>
       </div>
       {error && <p className="error">{error}</p>}
     </section>
   );
 }
 
-function ProviderCard({ provider, presets, onChanged }: { provider: Provider; presets: Preset[]; onChanged: () => void }) {
+function ProviderCard({ provider, presets, assignments, onChanged, onCleared }: {
+  provider: Provider;
+  presets: Preset[];
+  assignments: Settings["assignments"];
+  onChanged: () => void;
+  onCleared: (usages: Usage[]) => void;
+}) {
   const preset = presets.find((p) => p.id === provider.preset);
   const [key, setKey] = useState("");
   const [catalog, setCatalog] = useState<string[] | null>(null);
+  const [labels, setLabels] = useState<Record<string, string>>({}); // C028：ChatGPT 目录的 display_name
   const [selected, setSelected] = useState<string[]>(provider.models);
   const [search, setSearch] = useState("");
   const [tests, setTests] = useState<Record<string, TestResult>>({});
   const [testing, setTesting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const isChatGpt = provider.format === "chatgpt";
+  const signedIn = isChatGpt && !!provider.account?.signedIn;
+  const [signin, setSignin] = useState<SignIn | null>(null);
 
   useEffect(() => setSelected(provider.models), [provider.models]);
 
@@ -177,27 +249,134 @@ function ProviderCard({ provider, presets, onChanged }: { provider: Provider; pr
 
   const loadCatalog = () =>
     run(async () => {
-      const models = (await api.catalog(provider.id)).models;
+      const result = await api.catalog(provider.id);
+      const models = result.models;
       setCatalog(models);
+      setLabels(result.labels ?? {});
       toast(`拉到 ${models.length} 个模型`);
     });
 
-  const saveModels = () =>
+  // 轮询里要用最新的 loadCatalog / onChanged
+  const latest = useRef({ loadCatalog, onChanged });
+  latest.current = { loadCatalog, onChanged };
+
+  // ChatGPT 登录（C028）：拿到授权 URL 后在系统浏览器里打开（macOS App 里 window.open 会交给默认浏览器），然后轮询状态
+  const startSignin = () =>
     run(async () => {
+      const { authorizeUrl } = await api.chatgptSignin(provider.id);
+      window.open(authorizeUrl, "_blank", "noopener");
+      setSignin({ state: "pending", url: authorizeUrl });
+    });
+
+  const pending = signin?.state === "pending";
+  useEffect(() => {
+    if (!pending) {
+      return;
+    }
+    let stopped = false;
+    let timer: number | undefined;
+    const deadline = Date.now() + SIGNIN_TIMEOUT_MS;
+    const tick = async () => {
+      if (stopped) {
+        return;
+      }
+      if (Date.now() > deadline) {
+        setSignin({ state: "error", error: "等了 5 分钟还没完成登录，请重试" });
+        return;
+      }
+      try {
+        const status = await api.chatgptStatus(provider.id);
+        if (stopped) {
+          return;
+        }
+        if (status.state === "signed_in") {
+          setSignin(null);
+          toast(status.email ? `已登录 ChatGPT · ${status.email}` : "已登录 ChatGPT");
+          latest.current.onChanged();
+          latest.current.loadCatalog(); // 登录后自动拉一次模型列表
+          return;
+        }
+        if (status.state === "error") {
+          setSignin({ state: "error", error: status.error || "登录失败" });
+          return;
+        }
+        if (status.state === "idle") {
+          setSignin({ state: "error", error: "登录没有完成，请重试" });
+          return;
+        }
+      } catch (e) {
+        if (stopped) {
+          return;
+        }
+        setSignin({ state: "error", error: errorText(e) });
+        return;
+      }
+      timer = window.setTimeout(tick, SIGNIN_POLL_MS);
+    };
+    timer = window.setTimeout(tick, SIGNIN_POLL_MS);
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+  }, [pending, provider.id]);
+
+  const signOut = () =>
+    run(async () => {
+      if (!window.confirm("退出 ChatGPT 登录？之后要重新登录才能用这个提供方。")) {
+        return;
+      }
+      await api.chatgptSignout(provider.id);
+      setCatalog(null);
+      toast("已退出 ChatGPT");
+      onChanged();
+    });
+
+  // 指向这个提供方、某个模型的用途
+  const usagesOf = (model: string) =>
+    (Object.keys(USAGE_LABEL) as Usage[]).filter((u) => assignments[u]?.provider === provider.id && assignments[u]?.model === model);
+  const providerUsages = provider.usedBy as Usage[];
+
+  // 保存模型选择；去掉的模型正被用途使用时，后端会清掉那条分配（C025-fix），这里先说一声
+  const persistModels = (models: string[], message: string) =>
+    run(async () => {
+      const lost = provider.models.filter((m) => !models.includes(m)).flatMap(usagesOf);
+      if (lost.length > 0 && !window.confirm(`会一起清掉用途分配里的${usageNames(lost)}，之后要重新分配。继续？`)) {
+        setSelected(provider.models);
+        return;
+      }
       await api.saveProvider(provider.id, {
         preset: provider.preset,
         format: provider.format,
         baseUrl: provider.baseUrl,
-        models: selected,
+        models,
       });
-      toast("模型选择已保存");
+      if (lost.length > 0) {
+        onCleared(lost);
+      }
+      toast(message);
       onChanged();
     });
 
+  const saveModels = () => persistModels(selected, "模型选择已保存");
+
+  // 已保存的模型点 ×：立即保存，免得只在页面上消失、刷新后又回来
+  function removeModel(model: string) {
+    const next = selected.filter((m) => m !== model);
+    if (provider.models.includes(model)) {
+      void persistModels(next, `已移除 ${model}`); // 成功后重新加载；失败时模型留在列表里，错误显示在删除按钮旁
+    } else {
+      setSelected(next);
+    }
+  }
+
   const remove = () =>
     run(async () => {
-      if (window.confirm(`删除提供方 ${provider.id}？它在 .env 里的 Key 也会一起删掉。`)) {
+      const also = providerUsages.length > 0 ? `\n用途分配里的${usageNames(providerUsages)}也会清空，之后要重新分配。` : "";
+      const what = isChatGpt ? "" : "它在 .env 里的 Key 也会一起删掉。";
+      if (window.confirm(`删除提供方 ${provider.id}？${what}${also}`)) {
         await api.deleteProvider(provider.id);
+        onCleared(providerUsages);
+        toast(`已删除 ${provider.id}`);
         onChanged();
       }
     });
@@ -247,12 +426,41 @@ function ProviderCard({ provider, presets, onChanged }: { provider: Provider; pr
         <div>
           <strong>{provider.id}</strong>{" "}
           <span className="chip muted">{preset?.label ?? provider.preset}</span>{" "}
-          <span className="chip">{FORMAT_LABEL[provider.format]}</span>
-          <div className="mono muted small">{provider.baseUrl}</div>
+          <span className="chip">{FORMAT_LABEL[provider.format]}</span>{" "}
+          {providerUsages.length > 0 && <span className="chip good">用作 {usageNames(providerUsages)}</span>}
+          {!isChatGpt && <div className="mono muted small">{provider.baseUrl}</div>}
         </div>
-        <button className="danger btn-xs" disabled={busy} onClick={remove}>删除</button>
+        <div className="ms-head-actions">
+          {error && <span className="error small">{error}</span>}
+          <button className="danger btn-xs" disabled={busy} onClick={remove}>删除</button>
+        </div>
       </div>
 
+      {isChatGpt ? (
+        <div className="ms-chatgpt">
+          {signedIn ? (
+            <div className="row">
+              <span className="chip good">Using ChatGPT plan{provider.account?.email ? ` · ${provider.account.email}` : ""}</span>
+              <a href={CHATGPT_USAGE_URL} target="_blank" rel="noopener">Manage usage</a>
+              <button className="btn-xs" disabled={busy} onClick={signOut}>Sign out</button>
+            </div>
+          ) : pending ? (
+            <div className="row">
+              <span className="chip wait">等待浏览器里完成登录…</span>
+              <a href={signin.url} target="_blank" rel="noopener">没打开浏览器？点这里</a>
+              <button className="ghost btn-xs" onClick={() => setSignin(null)}>取消</button>
+            </div>
+          ) : (
+            <div className="row">
+              <button className="primary" disabled={busy} onClick={startSignin}>Continue with ChatGPT</button>
+              {signin?.state === "error" && <span className="error small">{signin.error}</span>}
+            </div>
+          )}
+          {!signedIn && (
+            <p className="muted small">在你自己的浏览器里登录 ChatGPT，使用订阅内的 Work/Codex 额度；JobApply 不接触你的密码。</p>
+          )}
+        </div>
+      ) : (
       <div className="row">
         <span>
           Key{" "}
@@ -263,7 +471,9 @@ function ProviderCard({ provider, presets, onChanged }: { provider: Provider; pr
           onChange={(e) => setKey(e.target.value)} />
         <button className={key.trim() ? "primary" : undefined} disabled={busy || !key.trim()} onClick={saveKey}>保存 Key</button>
       </div>
+      )}
 
+      {(!isChatGpt || signedIn) && (
       <div className="row">
         <button disabled={busy} onClick={loadCatalog}>拉取模型列表</button>
         <input list={listId} value={search} spellCheck={false} autoComplete="off"
@@ -276,12 +486,13 @@ function ProviderCard({ provider, presets, onChanged }: { provider: Provider; pr
             }
           }} />
         <datalist id={listId}>
-          {(catalog ?? []).filter((m) => !selected.includes(m)).map((m) => <option key={m} value={m} />)}
+          {(catalog ?? []).filter((m) => !selected.includes(m)).map((m) => <option key={m} value={m} label={labels[m]} />)}
         </datalist>
         <button disabled={!search.trim()} onClick={() => addModel(search)}>加入</button>
       </div>
+      )}
 
-      {catalog && <CatalogPanel catalog={catalog} selected={selected} onToggle={toggle} />}
+      {catalog && <CatalogPanel catalog={catalog} labels={labels} selected={selected} onToggle={toggle} />}
 
       {selected.length > 0 && (
         <ul className="models ms-selected">
@@ -296,8 +507,9 @@ function ProviderCard({ provider, presets, onChanged }: { provider: Provider; pr
                   </button>
                 ) : <span className="chip inp">未保存</span>}
                 <TestSummary result={tests[model]} record={provider.tested.find((t) => t.model === model)} />
-                <button className="ghost btn-xs ms-remove" title="移除" aria-label={`移除 ${model}`}
-                  onClick={() => toggle(model)}>×</button>
+                {saved && usagesOf(model).length > 0 && <span className="chip">用作 {usageNames(usagesOf(model))}</span>}
+                <button className="ghost btn-xs ms-remove" title="移除" aria-label={`移除 ${model}`} disabled={busy}
+                  onClick={() => removeModel(model)}>×</button>
               </li>
             );
           })}
@@ -306,18 +518,19 @@ function ProviderCard({ provider, presets, onChanged }: { provider: Provider; pr
       {(dirty || provider.models.length > 0) && (
         <button className={dirty ? "primary" : undefined} disabled={busy || !dirty} onClick={saveModels}>保存模型选择</button>
       )}
-      {error && <p className="error">{error}</p>}
 
-      <details className="ms-advanced">
-        <summary>高级 · 自定义请求头{provider.headers.length > 0 ? `（${provider.headers.length}）` : ""}</summary>
-        <HeadersEditor provider={provider} onChanged={onChanged} />
-      </details>
+      {!isChatGpt && (
+        <details className="ms-advanced">
+          <summary>高级 · 自定义请求头{provider.headers.length > 0 ? `（${provider.headers.length}）` : ""}</summary>
+          <HeadersEditor provider={provider} onChanged={onChanged} />
+        </details>
+      )}
     </div>
   );
 }
 
 // 拉到的模型目录：默认收起的下拉面板，展开后可筛选、勾选；点面板外或再点面板头收起
-function CatalogPanel({ catalog, selected, onToggle }: { catalog: string[]; selected: string[]; onToggle: (m: string) => void }) {
+function CatalogPanel({ catalog, labels, selected, onToggle }: { catalog: string[]; labels: Record<string, string>; selected: string[]; onToggle: (m: string) => void }) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const ref = useRef<HTMLDivElement>(null);
@@ -338,7 +551,7 @@ function CatalogPanel({ catalog, selected, onToggle }: { catalog: string[]; sele
   const all = Array.from(new Set([...selected, ...catalog]));
   const q = filter.trim().toLowerCase();
   const shown = all
-    .filter((m) => !q || m.toLowerCase().includes(q))
+    .filter((m) => !q || m.toLowerCase().includes(q) || (labels[m] ?? "").toLowerCase().includes(q))
     .sort((a, b) => Number(selected.includes(b)) - Number(selected.includes(a)));
 
   return (
@@ -356,6 +569,7 @@ function CatalogPanel({ catalog, selected, onToggle }: { catalog: string[]; sele
                 <label>
                   <input type="checkbox" checked={selected.includes(model)} onChange={() => onToggle(model)} />
                   <span className="mono">{model}</span>
+                  {labels[model] && labels[model] !== model && <span className="muted small">{labels[model]}</span>}
                 </label>
               </li>
             ))}
@@ -483,16 +697,51 @@ function TestSummary({ result, record }: { result?: TestResult; record?: Provide
   return null;
 }
 
-function Assignments({ settings, onSaved }: { settings: Settings; onSaved: () => void }) {
+function Assignments({ settings, cleared, onSaved }: { settings: Settings; cleared: Usage[]; onSaved: () => void }) {
   const [values, setValues] = useState<Record<Usage, string>>(() => initial(settings));
+  const [thinking, setThinking] = useState<Record<Usage, Thinking | "">>(() => initialThinking(settings));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     setValues(initial(settings));
+    setThinking(initialThinking(settings));
   }, [settings]);
 
-  const assignment = (usage: Usage) => parse(values[usage]);
+  // DeepSeek / Gemini（OpenAI 格式、模型名含 deepseek / gemini）和 ChatGPT 套餐的模型（C028）才有「思考」下拉；
+  // 其它模型保存时不带 thinking
+  const thinkingOptions = (value: string): ThinkingOption[] | null => {
+    const parsed = parse(value);
+    const provider = parsed && settings.providers.find((p) => p.id === parsed.provider);
+    if (parsed && provider?.format === "chatgpt") {
+      return GPT_THINKING;
+    }
+    if (!parsed || provider?.format !== "openai") {
+      return null;
+    }
+    const model = parsed.model.toLowerCase();
+    if (model.includes("deepseek")) {
+      return DEEPSEEK_THINKING;
+    }
+    if (model.includes("gemini")) {
+      return model.includes("gemini-2.5-flash") ? GEMINI_25_FLASH_THINKING : GEMINI_THINKING;
+    }
+    return null;
+  };
+  // 存的值不在当前模型的档位里（比如从 DeepSeek「最高」换到 Gemini）就当默认，保存时不带
+  const thinkingValue = (usage: Usage): Thinking | "" => {
+    const choices = thinkingOptions(values[usage]);
+    return choices?.some((option) => option.value === thinking[usage]) ? thinking[usage] : "";
+  };
+
+  const assignment = (usage: Usage): Assignment | null => {
+    const parsed = parse(values[usage]);
+    const value = thinkingValue(usage);
+    if (!parsed || !value) {
+      return parsed;
+    }
+    return { ...parsed, thinking: value };
+  };
 
   const options = settings.providers.flatMap((provider) =>
     provider.models.map((model) => {
@@ -532,7 +781,21 @@ function Assignments({ settings, onSaved }: { settings: Settings; onSaved: () =>
                 ))}
               </select>
               <span className="muted small">{hint}</span>
+              {cleared.includes(usage) && !settings.assignments[usage] && (
+                <span className="error small">随删除清空了，请重新选一个再保存</span>
+              )}
             </label>
+            {thinkingOptions(values[usage]) && (
+              <label>
+                思考
+                <select value={thinkingValue(usage)}
+                  onChange={(e) => setThinking({ ...thinking, [usage]: e.target.value as Thinking | "" })}>
+                  {thinkingOptions(values[usage])!.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
         ))}
       </div>
@@ -541,7 +804,7 @@ function Assignments({ settings, onSaved }: { settings: Settings; onSaved: () =>
       </div>
       {error && <p className="error">{error}</p>}
       <p className="muted small ms-footnote">
-        思考过程：OpenAI 兼容的推理模型（例如 DeepSeek）返回了思考内容时，会显示在对话的「过程」里；Anthropic 格式暂不开启思考（现用的
+        思考过程：OpenAI 兼容的推理模型（例如 DeepSeek）和 ChatGPT 套餐的模型返回了思考内容时，会显示在对话的「过程」里；Anthropic 格式暂不开启思考（现用的
         Spring AI 版本没法在工具调用的多轮对话里把思考原样发回给模型）。{PRIVACY}
       </p>
     </section>
@@ -550,6 +813,15 @@ function Assignments({ settings, onSaved }: { settings: Settings; onSaved: () =>
 
 function initial(settings: Settings): Record<Usage, string> {
   const value = (a?: Assignment) => (a ? `${a.provider}\n${a.model}` : "");
+  return {
+    main: value(settings.assignments.main),
+    auxiliary: value(settings.assignments.auxiliary),
+    cross_check: value(settings.assignments.cross_check),
+  };
+}
+
+function initialThinking(settings: Settings): Record<Usage, Thinking | ""> {
+  const value = (a?: Assignment) => a?.thinking ?? "";
   return {
     main: value(settings.assignments.main),
     auxiliary: value(settings.assignments.auxiliary),
