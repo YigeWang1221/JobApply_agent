@@ -51,16 +51,29 @@ public final class ConnectionTester {
     }
 
     private final Duration timeout;
+    private final ChatGptAccessTokens chatGptTokens;
 
     public ConnectionTester() {
-        this(TIMEOUT);
+        this(TIMEOUT, null);
+    }
+
+    /** @param chatGptTokens chatgpt 格式（C028）的令牌源，测试时填进端点 */
+    public ConnectionTester(ChatGptAccessTokens chatGptTokens) {
+        this(TIMEOUT, chatGptTokens);
     }
 
     ConnectionTester(Duration timeout) {
-        this.timeout = timeout;
+        this(timeout, null);
     }
 
-    public Result test(ModelFactory.Endpoint endpoint) {
+    ConnectionTester(Duration timeout, ChatGptAccessTokens chatGptTokens) {
+        this.timeout = timeout;
+        this.chatGptTokens = chatGptTokens;
+    }
+
+    public Result test(ModelFactory.Endpoint plain) {
+        ModelFactory.Endpoint endpoint = plain.chatGptTokens() == null ? plain.withChatGptTokens(chatGptTokens)
+                : plain;
         ChatModel model = ModelFactory.create(endpoint, timeout, 0);
         Prompt prompt = new Prompt(List.of(
                 new SystemMessage("This is a connection test. Call the tool " + PROBE_TOOL

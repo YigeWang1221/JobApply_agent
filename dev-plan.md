@@ -73,6 +73,7 @@
 | [C026](plan/coding/04-refinement/C026-portal-status-check.md) | 投递状态交给 Agent 查：Dashboard 按当前筛选出的申请「查状态」，跑后续段（只读、用户 Chrome 的登录态），识别门户状态并记下；要手动登录的记下、不再查；查看间隔天数可设，状态显示跟着改；状态变化进「核准列表」由用户核准；阶段按官网动态（复用轮次） | 已施工，等用户在本机试（2026-11-05；`npm run build` 0、工作区 `mvn -B clean verify` 0，含 C025；真实 Chrome 未跑） |
 | [C027](plan/coding/04-refinement/C027-thinking-strength.md) | DeepSeek 模型可选思考强度：用途分配里模型名含 deepseek 时多一个「思考」下拉（默认 / 关 / 低 / 高 / 最高），按 DeepSeek 的 `thinking` + `reasoning_effort` 发请求 | 已施工，等用户用真实模型试（2026-11-05；`npm run build` 0、`mvn -B clean verify` 0） |
 | [C027-fix](plan/coding/04-refinement/C027-fix-gemini-thinking.md) | Gemini 模型也可选思考强度：模型名含 gemini 时显示「思考」下拉（3.x：默认 / 低 / 中 / 高；2.5 Flash 多「关」），发 `reasoning_effort`；新增存值 `medium` | 已施工，等真实 Gemini 测试（2026-11-05；`npm run build` 0、`mvn -B clean verify` 0） |
+| [C028](plan/coding/04-refinement/C028-chatgpt-plan-signin.md) | 用 ChatGPT 登录：模型设置加「ChatGPT 套餐」提供方，用户在浏览器里登录（官方 SIWC，OAuth + PKCE，本机回调），用订阅额度走 Responses API，可分配给各用途 | 计划，待用户确认（2026-11-07） |
 
 ## 参考（不是施工步骤）
 

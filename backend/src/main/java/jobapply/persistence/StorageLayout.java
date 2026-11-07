@@ -139,6 +139,16 @@ public record StorageLayout(Path root) {
         return settingsDir().resolve(".env");
     }
 
+    /** ChatGPT 登录的令牌（C028）：权限 600，按 .env 的规矩处理（开发代理不读）。 */
+    public Path chatGptAuthFile() {
+        return settingsDir().resolve("chatgpt-auth.json");
+    }
+
+    /** ChatGPT 登录签发的 client_id 和本机 ext_agent_host_id（C028）：不是密钥，退出登录后保留，下次重新授权复用。 */
+    public Path chatGptClientFile() {
+        return settingsDir().resolve("chatgpt-client.json");
+    }
+
     /** C 级资料的真实值（C014-D）：用户在设置页「敏感信息」里写，格式同 {@code .env}，权限 600。 */
     public Path personalEnvFile() {
         return settingsDir().resolve("personal.env");

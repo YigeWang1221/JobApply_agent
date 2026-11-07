@@ -1,6 +1,7 @@
 package jobapply.config;
 
 import java.net.URI;
+import java.io.UncheckedIOException;
 import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,7 +25,15 @@ public final class ModelSettingsService {
     public record ProviderView(String id, String preset, String format, String baseUrl, String keyVariable,
                                boolean keySet, String keyLast4, List<String> models,
                                List<ModelSettingsFile.TestResult> tested, List<String> usedBy,
-                               List<HeaderView> headers) {
+                               List<HeaderView> headers, Account account) {
+    }
+
+    /** ChatGPT 套餐提供方的登录状态（C028）；别的提供方为 null。不带令牌。 */
+    public record Account(boolean signedIn, String email) {
+    }
+
+    /** 模型列表：{@code labels} 是 slug → 显示名，只有 ChatGPT 的目录带（C028）。 */
+    public record Catalog(List<String> models, Map<String, String> labels) {
     }
 
     /**
@@ -50,21 +59,25 @@ public final class ModelSettingsService {
                        List<ModelPresets.Preset> presets) {
     }
 
+    private static final String CHATGPT = ModelPresets.CHATGPT;
+
     private final ModelSettingsFile file;
     private final EnvFile env;
     private final ModelRegistry registry;
     private final ModelCatalogClient catalog;
     private final ConnectionTester tester;
     private final Clock clock;
+    private final ChatGptAuth chatGpt;
 
     public ModelSettingsService(ModelSettingsFile file, EnvFile env, ModelRegistry registry, ModelCatalogClient catalog,
-                                ConnectionTester tester, Clock clock) {
+                                ConnectionTester tester, Clock clock, ChatGptAuth chatGpt) {
         this.file = file;
         this.env = env;
         this.registry = registry;
         this.catalog = catalog;
         this.tester = tester;
         this.clock = clock;
+        this.chatGpt = chatGpt;
     }
 
     public synchronized View view() {
@@ -81,11 +94,18 @@ public final class ModelSettingsService {
         if (known.isEmpty()) {
             throw new IllegalArgumentException("未知的预设：" + preset);
         }
-        String resolvedFormat = format == null || format.isBlank() ? known.get().format() : format;
+        boolean chatGptPreset = ModelPresets.CHATGPT.equals(known.get().id());
+        // ChatGPT 套餐只能从它的预设来，接口格式和 Base URL 固定（C028）
+        String resolvedFormat = chatGptPreset ? CHATGPT
+                : format == null || format.isBlank() ? known.get().format() : format;
         if (resolvedFormat == null || !ModelSettingsFile.FORMATS.contains(resolvedFormat)) {
-            throw new IllegalArgumentException("接口格式只能是 openai 或 anthropic");
+            throw new IllegalArgumentException("接口格式只能是 openai、anthropic 或 chatgpt");
         }
-        String resolvedBase = baseUrl == null || baseUrl.isBlank() ? known.get().baseUrl() : baseUrl.strip();
+        if (!chatGptPreset && CHATGPT.equals(resolvedFormat)) {
+            throw new IllegalArgumentException("chatgpt 格式只能用「ChatGPT 套餐」预设添加");
+        }
+        String resolvedBase = chatGptPreset ? known.get().baseUrl()
+                : baseUrl == null || baseUrl.isBlank() ? known.get().baseUrl() : baseUrl.strip();
         if (resolvedBase == null || !(resolvedBase.startsWith("http://") || resolvedBase.startsWith("https://")
                 || resolvedBase.startsWith("${"))) {
             throw new IllegalArgumentException("Base URL 必须是 http:// 或 https:// 开头，或者是占位符 ${变量名}");
@@ -97,6 +117,15 @@ public final class ModelSettingsService {
         }
         Settings settings = file.read();
         Optional<Provider> old = settings.provider(id);
+        if (old.isPresent() && CHATGPT.equals(old.get().format()) != CHATGPT.equals(resolvedFormat)) {
+            throw new SettingsException.Conflict("ChatGPT 套餐提供方不能和别的接口格式互换；删掉后重新添加");
+        }
+        if (CHATGPT.equals(resolvedFormat)) {
+            settings.providers().stream().filter(p -> CHATGPT.equals(p.format()) && !p.id().equals(id)).findFirst()
+                    .ifPresent(p -> {
+                        throw new SettingsException.Conflict("只能有一个 ChatGPT 套餐提供方（已有 " + p.id() + "）");
+                    });
+        }
         // 接口格式或 Base URL 真的变了（写法差异不算），旧的测试结果对新端点不成立，作废；用途分配不动
         boolean endpointChanged = old.isPresent() && (!old.get().format().equals(resolvedFormat)
                 || !sameEndpoint(old.get().baseUrl(), resolvedBase));
@@ -140,10 +169,16 @@ public final class ModelSettingsService {
         }
     }
 
-    /** 删除提供方，同时删掉 .env 里对应的那一行；指向它的用途分配一起清掉（C025-fix）。 */
+    /**
+     * 删除提供方，同时删掉 .env 里对应的那一行；指向它的用途分配一起清掉（C025-fix）。
+     * ChatGPT 套餐提供方先退出登录、删掉令牌文件（C028）。
+     */
     public synchronized void deleteProvider(String id) {
         Settings settings = file.read();
         Provider provider = require(settings, id);
+        if (CHATGPT.equals(provider.format())) {
+            chatGpt.signOut();
+        }
         Settings next = settings.withoutProvider(id);
         file.write(next, "删除提供方 " + id);
         for (String name : EnvFile.placeholders(provider.apiKey())) {
@@ -220,6 +255,9 @@ public final class ModelSettingsService {
     public synchronized String setKey(String id, String key) {
         Settings settings = file.read();
         Provider provider = require(settings, id);
+        if (CHATGPT.equals(provider.format())) {
+            throw new IllegalArgumentException("ChatGPT 套餐不用 Key，点 Continue with ChatGPT 登录");
+        }
         String variable = ModelSettingsFile.envName(id);
         String checked = EnvFile.checkValue(key);
         env.set(variable, checked);
@@ -234,17 +272,58 @@ public final class ModelSettingsService {
         return last4(checked);
     }
 
-    /** 模型 id 列表；拉不到时抛出 {@link SettingsException.Upstream}，带原因。 */
-    public List<String> catalog(String id) {
+    /** 模型 id 列表；拉不到时抛出 {@link SettingsException.Upstream}，带原因。ChatGPT 用当前登录的令牌（C028）。 */
+    public Catalog catalog(String id) {
         Provider provider = require(file.read(), id);
-        String key = resolvedKey(provider);
+        String key;
+        if (CHATGPT.equals(provider.format())) {
+            try {
+                key = chatGpt.current();
+            } catch (NonTransientAiException e) {
+                throw new SettingsException.Conflict(e.getMessage());
+            } catch (IllegalStateException e) {
+                throw new SettingsException.Upstream(e.getMessage());
+            }
+        } else {
+            key = resolvedKey(provider);
+        }
         ModelCatalogClient.Result result = catalog.list(provider.format(), env.resolve(provider.baseUrl()), key,
                 ModelRegistry.headers(provider, env));
         return switch (result) {
-            case ModelCatalogClient.Models models -> models.ids();
+            case ModelCatalogClient.Models models -> new Catalog(models.ids(), models.labels());
             case ModelCatalogClient.Failed failed -> throw new SettingsException.Upstream(
                     "拉不到模型列表：" + failed.reason() + "。可以手填模型名");
         };
+    }
+
+    /** 开始「用 ChatGPT 登录」，返回授权 URL（前端在新窗口打开）。 */
+    public String chatGptSignIn(String id) {
+        requireChatGpt(id);
+        try {
+            return chatGpt.startSignIn();
+        } catch (UncheckedIOException e) {
+            throw new SettingsException.Upstream(e.getMessage());
+        }
+    }
+
+    public ChatGptAuth.Status chatGptStatus(String id) {
+        requireChatGpt(id);
+        return chatGpt.status();
+    }
+
+    /** 退出 ChatGPT：吊销（尽力而为）、删令牌文件；吊销失败的提示放在状态的 error 里。 */
+    public ProviderView chatGptSignOut(String id) {
+        requireChatGpt(id);
+        chatGpt.signOut();
+        Settings settings = file.read();
+        return view(settings, require(settings, id));
+    }
+
+    private void requireChatGpt(String id) {
+        Provider provider = require(file.read(), id);
+        if (!CHATGPT.equals(provider.format())) {
+            throw new IllegalArgumentException("提供方 " + id + " 不是 ChatGPT 套餐");
+        }
     }
 
     /** 测试连接，结果记进 models.yaml。 */
@@ -319,7 +398,9 @@ public final class ModelSettingsService {
         return new ProviderView(provider.id(), provider.preset(), provider.format(), provider.baseUrl(),
                 variables.isEmpty() ? ModelSettingsFile.envName(provider.id()) : variables.getFirst(),
                 key != null, key == null ? null : last4(key), provider.models(), provider.tested(),
-                settings.usagesOf(provider.id()), headerViews(provider));
+                settings.usagesOf(provider.id()), headerViews(provider),
+                CHATGPT.equals(provider.format())
+                        ? new Account(chatGpt.signedIn(), chatGpt.email().orElse(null)) : null);
     }
 
     private List<HeaderView> headerViews(Provider provider) {

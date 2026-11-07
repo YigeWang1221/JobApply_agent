@@ -27,11 +27,18 @@ public final class ModelRegistry {
 
     private final ModelSettingsFile settings;
     private final EnvFile env;
+    private final ChatGptAccessTokens chatGptTokens;
     private final Map<String, ChatModel> models = new HashMap<>();
 
     public ModelRegistry(ModelSettingsFile settings, EnvFile env) {
+        this(settings, env, null);
+    }
+
+    /** @param chatGptTokens chatgpt 格式（C028）每次请求时取 access token 的地方；没有时这个格式调用会报「需要先登录」 */
+    public ModelRegistry(ModelSettingsFile settings, EnvFile env, ChatGptAccessTokens chatGptTokens) {
         this.settings = settings;
         this.env = env;
+        this.chatGptTokens = chatGptTokens;
     }
 
     /** 主模型。没有配置时抛出 {@link NotConfiguredException}。 */
@@ -62,7 +69,7 @@ public final class ModelRegistry {
         if (assignment.isEmpty()) {
             return Optional.empty();
         }
-        ModelFactory.Endpoint endpoint = endpoint(current, assignment.get(), env);
+        ModelFactory.Endpoint endpoint = endpoint(current, assignment.get(), env).withChatGptTokens(chatGptTokens);
         ChatModel model = ModelFactory.create(endpoint, TIMEOUT);
         models.put(usage, model);
         return Optional.of(model);

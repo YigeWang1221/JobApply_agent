@@ -23,6 +23,9 @@ import org.springframework.ai.tool.ToolCallback;
  */
 public final class ModelFactory {
 
+    /** ChatGPT 套餐（C028）：OpenAI Responses API + 用 ChatGPT 登录得到的 access token，不用 Key。 */
+    public static final String CHATGPT = "chatgpt";
+
     /** 失败时重试一次（SDK 默认两次）；测试连接用 0。 */
     static final int MAX_RETRIES = 1;
 
@@ -34,23 +37,31 @@ public final class ModelFactory {
      *
      * @param apiKey  解析好的 Key；不需要 Key 时为 null
      * @param headers  解析好的自定义请求头（C025），没有时为空
-     * @param thinking 思考强度（C027）：off / low / medium / high / max，null = 默认（不发参数）；只对 DeepSeek、Gemini 模型生效
+     * @param thinking 思考强度（C027）：off / low / medium / high / max，null = 默认（不发参数）；只对 DeepSeek、Gemini 模型生效；
+     *                 chatgpt 格式（C028）的 low / medium / high 发成 {@code reasoning.effort}
+     * @param chatGptTokens chatgpt 格式（C028）每次请求时取 access token 的地方；别的格式为 null。
+     *                      {@code ModelRegistry} / {@code ConnectionTester} 用 {@link #withChatGptTokens} 填上
      */
     public record Endpoint(String format, String baseUrl, String apiKey, String model, Map<String, String> headers,
-                           String thinking) {
+                           String thinking, ChatGptAccessTokens chatGptTokens) {
 
         public Endpoint(String format, String baseUrl, String apiKey, String model) {
-            this(format, baseUrl, apiKey, model, Map.of(), null);
+            this(format, baseUrl, apiKey, model, Map.of(), null, null);
         }
 
         public Endpoint(String format, String baseUrl, String apiKey, String model, Map<String, String> headers) {
-            this(format, baseUrl, apiKey, model, headers, null);
+            this(format, baseUrl, apiKey, model, headers, null, null);
+        }
+
+        public Endpoint(String format, String baseUrl, String apiKey, String model, Map<String, String> headers,
+                        String thinking) {
+            this(format, baseUrl, apiKey, model, headers, thinking, null);
         }
 
         public Endpoint {
             headers = headers == null ? Map.of() : Map.copyOf(headers);
-            if (!"openai".equals(format) && !"anthropic".equals(format)) {
-                throw new IllegalArgumentException("接口格式只能是 openai 或 anthropic");
+            if (!"openai".equals(format) && !"anthropic".equals(format) && !CHATGPT.equals(format)) {
+                throw new IllegalArgumentException("接口格式只能是 openai、anthropic 或 chatgpt");
             }
             if (baseUrl == null || baseUrl.isBlank()) {
                 throw new IllegalArgumentException("Base URL 不能为空");
@@ -61,6 +72,12 @@ public final class ModelFactory {
             if ("anthropic".equals(format) && (apiKey == null || apiKey.isBlank())) {
                 throw new IllegalArgumentException("Anthropic 格式需要 Key");
             }
+        }
+
+        /** chatgpt 格式填上令牌源；别的格式原样返回。 */
+        public Endpoint withChatGptTokens(ChatGptAccessTokens tokens) {
+            return CHATGPT.equals(format) ? new Endpoint(format, baseUrl, apiKey, model, headers, thinking, tokens)
+                    : this;
         }
 
         @Override
@@ -79,6 +96,11 @@ public final class ModelFactory {
     }
 
     static ChatModel create(Endpoint endpoint, Duration timeout, int maxRetries) {
+        if (CHATGPT.equals(endpoint.format())) {
+            // 只在 401 时刷新令牌重试一次；别的重试交给 ModelCaller
+            return new ChatGptResponsesChatModel(endpoint.baseUrl(), endpoint.model(), endpoint.thinking(),
+                    endpoint.headers(), endpoint.chatGptTokens(), timeout);
+        }
         if ("anthropic".equals(endpoint.format())) {
             return AnthropicChatModel.builder().options(AnthropicChatOptions.builder()
                     .baseUrl(endpoint.baseUrl().strip())
@@ -150,6 +172,9 @@ public final class ModelFactory {
     public static ChatOptions withTools(Endpoint endpoint, List<ToolCallback> tools) {
         if ("anthropic".equals(endpoint.format())) {
             return AnthropicChatOptions.builder().model(endpoint.model()).toolCallbacks(tools).build();
+        }
+        if (CHATGPT.equals(endpoint.format())) {
+            return ChatGptResponsesOptions.builder().model(endpoint.model()).toolCallbacks(tools).build();
         }
         return OpenAiChatOptions.builder().model(endpoint.model()).toolCallbacks(tools).build();
     }

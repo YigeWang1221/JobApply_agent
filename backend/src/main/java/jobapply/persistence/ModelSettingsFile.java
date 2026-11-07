@@ -25,7 +25,8 @@ public final class ModelSettingsFile {
     public static final String AUXILIARY = "auxiliary";
     public static final String CROSS_CHECK = "cross_check";
     public static final List<String> USAGES = List.of(MAIN, AUXILIARY, CROSS_CHECK);
-    public static final Set<String> FORMATS = Set.of("openai", "anthropic");
+    /** {@code chatgpt}：用 ChatGPT 登录，走 Responses API（C028）。 */
+    public static final Set<String> FORMATS = Set.of("openai", "anthropic", "chatgpt");
 
     private static final Pattern ID = Pattern.compile("[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?");
     private static final Set<String> PROVIDER_KEYS = Set.of(
@@ -273,7 +274,7 @@ public final class ModelSettingsFile {
         for (Provider provider : settings.providers()) {
             requireId(provider.id());
             if (!FORMATS.contains(provider.format())) {
-                throw new IllegalArgumentException("接口格式只能是 openai 或 anthropic");
+                throw new IllegalArgumentException("接口格式只能是 openai、anthropic 或 chatgpt");
             }
         }
         Map<String, Object> root = new LinkedHashMap<>();

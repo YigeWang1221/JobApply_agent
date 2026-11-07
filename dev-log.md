@@ -1427,3 +1427,13 @@
 - 原因：`LocalRequestGuard` 的 multipart 放行名单只有 `/api/assets`、`.../application/attachments`、`/api/sessions/{id}/attachments`，C022 新增的 `/api/jobs/{id}/followup/attachments` 没加进去。与模型无关：图片附件对所有模型都原样发送（`Conversation.withAttachments`）。
 - 改：放行正则加上 `followup`。
 - 验证：`mvn -B clean verify` 退出码 0（662 + IT 1）；重启后端，带本机 Origin 用 curl 传一张 PNG 到后续段附件接口，返回 201；测试文件和它新建的空目录已删，Job 其它文件未动。用户在界面里附图并发给 Gemini：未运行。未提交。
+
+## 2026-11-07 · C028 用 ChatGPT 登录（ChatGPT 套餐）
+
+- 指令：模型设置加「Sign in with ChatGPT」，用订阅内 Work/Codex 额度。用户定：官方 SIWC、GPT 有思考下拉、登录后自动拉模型；账号数量未答，按建议只允许一个。
+- 结果（三个子代理并行 + 主会话补 `labels` 显示）：
+  - 后端登录：`ChatGptAuth`、`ChatGptIdToken`、`persistence/ChatGptTokenStore`；`ModelPresets`、`ModelSettingsService`、`ModelCatalogClient`、`ModelSettingsController`、`ModelSettingsFile`、`StorageLayout`。令牌在 `storage/settings/chatgpt-auth.json`（0600，代理不读），注册信息在 `chatgpt-client.json`。
+  - Responses 模型：`ChatGptResponsesChatModel`、`ChatGptResponsesOptions`、`NonTransientAiException`、`ChatGptAccessTokens`；`ModelFactory`、`ModelRegistry`、`ConnectionTester`、`SettingsConfiguration`。
+  - 前端：`api.ts`、`pages/ModelSettings.tsx`。
+  - 计划：`plan/coding/04-refinement/C028-chatgpt-plan-signin.md`。
+- 验证：`mvn -B clean verify` BUILD SUCCESS（668 单元测试含新增 3 个测试类，IT 1，0 失败）；`npm run build` 退出码 0；后端重启在 18080，预设列表含 `chatgpt`。真实登录、拉模型、测试、Session 轮次、刷新、退出：未运行（等用户在界面登录）。App 重新打包：未运行。未提交。
