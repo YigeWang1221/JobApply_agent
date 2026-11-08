@@ -7,6 +7,7 @@ import jobapply.persistence.AssetRegistry;
 import jobapply.persistence.EnvFile;
 import jobapply.persistence.ModelSettingsFile;
 import jobapply.persistence.StorageLayout;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -75,9 +76,19 @@ public class SettingsConfiguration {
         return new PersonalSettingsService(layout, clock);
     }
 
+    /** 启动时把旧的原件登记升级一次（C004-A-fix：补分类、简历归属）；出错只记日志，不挡启动。 */
     @Bean
     AssetRegistry assetRegistry(StorageLayout layout, Clock clock) {
-        return new AssetRegistry(layout, clock);
+        AssetRegistry registry = new AssetRegistry(layout, clock);
+        try {
+            int changed = registry.upgrade();
+            if (changed > 0) {
+                LoggerFactory.getLogger(AssetRegistry.class).info("原件登记升级：{} 条补上了分类", changed);
+            }
+        } catch (RuntimeException e) {
+            LoggerFactory.getLogger(AssetRegistry.class).warn("原件登记升级失败：{}", e.getMessage());
+        }
+        return registry;
     }
 
     @Bean

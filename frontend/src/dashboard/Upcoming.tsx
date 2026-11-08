@@ -4,7 +4,7 @@ import { PHASE, PREP } from "../status";
 import { addDays, applications, md } from "./metrics";
 
 // 接下来 7 天：7 天内到「下次查看」的申请；下面是准备中、在等你的申请
-export function Upcoming({ jobs, showProject }: { jobs: JobView[]; showProject?: boolean }) {
+export function Upcoming({ jobs }: { jobs: JobView[] }) {
   const today = localDay();
   const end = addDays(today, 7);
   const apps = applications(jobs);
@@ -29,7 +29,7 @@ export function Upcoming({ jobs, showProject }: { jobs: JobView[]; showProject?:
                 <time>{md(job.nextCheckAt)}</time>
                 <div className="t">
                   <div>{job.company} · 查看进展</div>
-                  <small>{[job.title, PHASE[job.phase ?? ""], showProject ? job.project : null].filter(Boolean).join(" · ")}</small>
+                  <small>{[job.title, PHASE[job.phase ?? ""]].filter(Boolean).join(" · ")}</small>
                 </div>
                 <button className="linkbtn" onClick={() => go({ kind: "job", id: job.id })}>打开</button>
               </div>
@@ -39,7 +39,7 @@ export function Upcoming({ jobs, showProject }: { jobs: JobView[]; showProject?:
                 <time>待你</time>
                 <div className="t">
                   <div>{job.company} · {job.title}</div>
-                  <small>{[PREP[job.prepState ?? ""] ?? job.prepState, showProject ? job.project : null].filter(Boolean).join(" · ")}</small>
+                  <small>{[PREP[job.prepState ?? ""] ?? job.prepState].filter(Boolean).join(" · ")}</small>
                 </div>
                 <button className="linkbtn" onClick={() => go({ kind: "job", id: job.id })}>工作台</button>
               </div>

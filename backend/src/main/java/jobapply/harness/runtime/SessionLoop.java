@@ -319,8 +319,8 @@ public final class SessionLoop {
                     case ResearchTools.UPDATE_LEAD -> result(call, updateLead(args));
                     case ResearchTools.START_APPLICATION -> startApplication(call, text(args.get("job")),
                             text(args.get("skip_ranking")));
-                    case ResearchTools.LIST_RESUMES -> result(call, resumes.list());
-                    case ResearchTools.READ_RESUME -> result(call, resumes.read(text(args.get("key"))));
+                    case ResearchTools.LIST_RESUMES -> result(call, resumes.list(project));
+                    case ResearchTools.READ_RESUME -> result(call, resumes.read(project, text(args.get("key"))));
                     case ResearchTools.CHOOSE_RESUME -> result(call, resumes.choose(job(text(args.get("job"))), session,
                             args, new AttachmentStore(layout.sessionAttachmentsDir(project, session))));
                     case ResearchTools.ASK_USER -> askUser(call, text(args.get("message")));

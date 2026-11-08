@@ -14,7 +14,7 @@ import org.springframework.ai.tool.definition.ToolDefinition;
  *   <li>{@link #UPDATE_STATE}：申请状态（C019）：现在在哪一步、计划、字段清单、决定；字段按 id 合并。
  *       旧名 {@link #UPDATE_PLAN} 不再给模型，旧对话里调了照旧接受（只改计划）</li>
  *   <li>{@link #READ_SKILL}：读一个 skill 的正文</li>
- *   <li>{@link #LIST_RESUMES}：列出 {@code base/originals/} 中已登记的所有原件（C021 工作台内简历匹配）</li>
+ *   <li>{@link #LIST_RESUMES}：列出本 Project 的简历和通用资料（C021 工作台内简历匹配；C004-A-fix 按 Project）</li>
  *   <li>{@link #READ_RESUME}：读原件（按 {@code key}）或「可上传的文件」里一份简历（按 {@code file} 编号）的文字（C 级的值已去掉）</li>
  *   <li>{@link #CHOOSE_RESUME}：在工作台记下用户确认使用的简历（写入 {@code job.md} 的 {@code resume_choice}，并立即设为上传区文件 1）</li>
  *   <li>{@link #FINISH}：能填的都填了，停在最终提交前</li>
@@ -101,8 +101,9 @@ public final class ControlTools {
             {"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}""");
 
     private static final ToolDefinition RESUMES = definition(LIST_RESUMES,
-            "List the user's uploaded originals in base/originals/ (key, file name, type, description, upload time). "
-                    + "Decide from the file name and description which ones are resumes / CVs.",
+            "List this Project's resumes (本 Project 的简历) and the general materials shared by all Projects "
+                    + "(transcripts, certificates, ...): key, category (简历 / 通用资料), file name, type, description, "
+                    + "upload time. Resumes of other Projects are not shown.",
             """
             {"type":"object","properties":{}}""");
 
@@ -123,11 +124,11 @@ public final class ControlTools {
                     + "without asking again. Call it after showing the resume ranking and modification suggestions in "
                     + "the workspace chat and receiving the user's confirmation (or when the user explicitly said to "
                     + "skip ranking). asset: key of the chosen original (a-YYYY-MM-DD-NNN). attachment: when the user "
-                    + "attached a revised resume in this workspace chat, its attachment id (#...); it is registered as "
-                    + "a new original and becomes file 1. ranking: optional array of compared resumes ({key, rank, "
+                    + "attached a revised resume in this workspace chat, its attachment id (#...); it is used for "
+                    + "this application only (not saved to the library) and becomes file 1. ranking: optional array of compared resumes ({key, rank, "
                     + "reason, gap}). suggestions: optional array of resume edit suggestions for this JD. skip_ranking: "
                     + "optional user's words when the user explicitly said not to rank resumes and apply directly (if "
-                    + "asset is omitted, the latest uploaded original is chosen automatically).",
+                    + "asset is omitted, the latest uploaded resume of this Project is chosen automatically).",
             """
             {"type":"object","properties":{\
             "asset":{"type":"string","description":"key of the chosen resume original, e.g. a-YYYY-MM-DD-NNN"},\

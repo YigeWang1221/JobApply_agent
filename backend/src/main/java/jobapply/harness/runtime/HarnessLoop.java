@@ -902,7 +902,7 @@ public final class HarnessLoop {
                 case ControlTools.UPDATE_STATE -> updateState(call, args);
                 case ControlTools.UPDATE_PLAN -> updatePlan(call, args);
                 case ControlTools.READ_SKILL -> readSkill(call, text(args.get("name")));
-                case ControlTools.LIST_RESUMES -> result(call, resumes.list());
+                case ControlTools.LIST_RESUMES -> result(call, resumes.list(run.project()));
                 case ControlTools.READ_RESUME -> readResume(call, args);
                 case ControlTools.CHOOSE_RESUME -> chooseResume(call, args);
                 case ControlTools.FINISH -> finish(call, args);
@@ -1042,7 +1042,7 @@ public final class HarnessLoop {
             String key = text(args.get("key"));
             if (key != null) {
                 try {
-                    return result(call, resumes.read(key));
+                    return result(call, resumes.read(run.project(), key));
                 } catch (IllegalArgumentException e) {
                     return failedResult(call, "失败：" + e.getMessage());
                 }
@@ -1086,19 +1086,27 @@ public final class HarnessLoop {
             } catch (IllegalArgumentException e) {
                 return failedResult(call, "失败：" + e.getMessage());
             }
-            if (chosen.asset().isEmpty()) {
+            if (chosen.asset().isEmpty() && chosen.attachment().isEmpty()) {
                 return result(call, chosen.message() + "可以继续打开岗位页面填表，遇到需要上传简历的位置再用 ask_user 请用户选文件。");
             }
-            AssetRegistry.Asset asset = chosen.asset().get();
             AssetRegistry registry = new AssetRegistry(layout, clock);
             UploadArea uploads = new UploadArea(layout, registry);
             JobMaterials materials = new JobMaterials(layout, registry, clock);
+            // 对话里发来的附件（C004-A-fix）：本来就在这个申请的附件区，直接当文件 1，不进资料库
+            String fileName = chosen.asset().map(AssetRegistry.Asset::fileName)
+                    .orElseGet(() -> chosen.attachment().get().name());
             // 复制原件、写 materials 失败时只是这次调用失败（原件被改过、磁盘出错）：原话交给模型，运行照常继续
             AgentRun.StagedFile staged;
             try {
-                Path copy = uploads.stage(run.job(), asset.key());
-                staged = new AgentRun.StagedFile(asset.key(), asset.fileName(), "简历", Files.size(copy),
-                        asset.sha256());
+                if (chosen.asset().isPresent()) {
+                    AssetRegistry.Asset asset = chosen.asset().get();
+                    Path copy = uploads.stage(run.job(), asset.key());
+                    staged = new AgentRun.StagedFile(asset.key(), asset.fileName(), "简历", Files.size(copy),
+                            asset.sha256());
+                } else {
+                    AttachmentStore.Stored sent = chosen.attachment().get();
+                    staged = new AgentRun.StagedFile(null, sent.name(), "简历", sent.size(), sent.sha256(), sent.id());
+                }
                 List<JobMaterials.Selection> selections = new ArrayList<>();
                 List<AgentRun.StagedFile> next = new ArrayList<>(files);
                 if (next.isEmpty()) {
@@ -1120,13 +1128,13 @@ public final class HarnessLoop {
                 files.clear();
                 files.addAll(next);
             } catch (IOException e) {
-                return failedResult(call, "失败：读不到上传区的副本：" + asset.fileName() + "：" + e.getMessage()
+                return failedResult(call, "失败：读不到上传区的副本：" + fileName + "：" + e.getMessage()
                         + "。简历已记进 job.md，可以再调一次 choose_resume，或者用 ask_user 请用户看一下资料库。");
             } catch (RuntimeException e) {
-                return failedResult(call, "失败：没能把 " + asset.fileName() + " 放进上传区：" + e.getMessage()
+                return failedResult(call, "失败：没能把 " + fileName + " 放进上传区：" + e.getMessage()
                         + "。简历已记进 job.md，可以再调一次 choose_resume，或者用 ask_user 请用户看一下资料库。");
             }
-            return result(call, chosen.message() + "已放进当前工作台上传区成为「文件 1」（" + asset.fileName()
+            return result(call, chosen.message() + "已放进当前工作台上传区成为「文件 1」（" + fileName
                     + "），现在可以直接调用浏览器工具（如 browser_snapshot 或 browser_navigate）打开岗位页面填表，"
                     + "到上传位置直接 browser_file_upload 文件 1。");
         }

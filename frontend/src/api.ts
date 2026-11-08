@@ -20,9 +20,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 // 上传一个文件：multipart 字段 file，不设 Content-Type（浏览器自己带 boundary）
-async function uploadFile<T>(path: string, file: File): Promise<T> {
+async function uploadFile<T>(path: string, file: File, fields: Record<string, string> = {}): Promise<T> {
   const form = new FormData();
   form.append("file", file);
+  Object.entries(fields).forEach(([name, value]) => form.append(name, value));
   return parse<T>(await fetch(path, { method: "POST", body: form }));
 }
 
@@ -142,7 +143,12 @@ export interface Asset {
   sha256: string;
   uploadedAt: string;
   description: string;
+  // C004-A-fix：简历 / 通用资料；简历归属的 Project（空 = 未归属）。旧数据升级前分类可能为空
+  category: AssetCategory | "";
+  project: string;
 }
+
+export type AssetCategory = "简历" | "通用资料";
 
 export interface UploadResult {
   asset: Asset;
@@ -819,9 +825,13 @@ export const api = {
   clearPersonal: (key: string) => request<PersonalKey>("DELETE", `${PERSONAL}/${enc(key)}`),
 
   assets: () => request<{ assets: Asset[] }>("GET", "/api/assets"),
-  upload: (file: File) => uploadFile<UploadResult>("/api/assets", file),
-  describe: (key: string, description: string) =>
-    request<Asset>("PATCH", `/api/assets/${encodeURIComponent(key)}`, { description }),
+  // category 为空时后端按文件名判断；project 是简历归属的 Project
+  upload: (file: File, category: AssetCategory | "", project: string) =>
+    uploadFile<UploadResult>("/api/assets", file, { category, project }),
+  updateAsset: (key: string, change: { description?: string; category?: AssetCategory; project?: string }) =>
+    request<Asset>("PATCH", `/api/assets/${encodeURIComponent(key)}`, change),
+  deleteAsset: (key: string) =>
+    request<{ key: string; trash: string }>("DELETE", `/api/assets/${encodeURIComponent(key)}`),
 
   sources: () => request<{ sources: Source[] }>("GET", "/api/sources"),
   registerSource: (type: "dir" | "github", location: string) =>
@@ -907,7 +917,9 @@ export const api = {
   checkStatus: (jobId: string) => request<FollowupView>("POST", `/api/jobs/${enc(jobId)}/followup/check`),
   statusChecks: () => request<StatusChecks>("GET", "/api/status-checks"),
   startStatusChecks: (jobIds: string[]) => request<StatusChecks>("POST", "/api/status-checks", { jobIds }),
-  stopStatusChecks: () => request<StatusChecks>("POST", "/api/status-checks/stop"),
+  // 带 jobIds 只停这些（Dashboard 停选中 Project 的，C006-fix 全局 Dashboard）；不带停整批
+  stopStatusChecks: (jobIds?: string[]) =>
+    request<StatusChecks>("POST", "/api/status-checks/stop", jobIds ? { jobIds } : undefined),
   approveProposals: (jobIds: string[]) => request<ProposalResult>("POST", "/api/status-proposals/approve", { jobIds }),
   rejectProposals: (jobIds: string[]) => request<ProposalResult>("POST", "/api/status-proposals/reject", { jobIds }),
   checkSettings: () => request<{ days: number; defaultDays: number }>("GET", "/api/settings/checks"),

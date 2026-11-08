@@ -54,14 +54,13 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 │   ├── import-runs/<run-id>.json     # 一次整理的状态：来源、估算、进度、候选和用户的决定；不放原文
 │   ├── conflicts.md                  # 待核对冲突与空缺
 │   ├── writing.md                    # 通用写作偏好
-│   ├── assets.md                     # 来源层：原件索引，只登记用户上传的原件（键 a-YYYY-MM-DD-NNN、文件名、类型、大小、SHA-256、上传时间、说明），不登记副本、解析文本和日志
-│   └── originals/                    # 原件统一保存在这里（简历 docx/pdf、补充 PDF、照片等）；Project 只引用，不复制
+│   ├── assets.md                     # 来源层：原件索引，只登记用户在资料页上传的原件（键 a-YYYY-MM-DD-NNN、文件名、类型、大小、SHA-256、上传时间、说明、分类、Project），不登记副本、解析文本、日志和对话里发来的文件。分类：简历（属于一个 Project，未归属的 Agent 看不到）/ 通用资料（无 Project，所有 Project 都看得到）。2026-11-07，C004-A-fix
+│   └── originals/                    # 原件统一保存在这里（简历 docx/pdf、补充 PDF、照片等）；一条登记一个文件，同一文件在两个 Project 各传一次就各存一份
 │
 ├── projects/<project-id>/            # 一个求职侧重
 │   ├── project.md                    # frontmatter：继承关系、目标方向、默认简历；正文：这个侧重的说明
 │   ├── overrides.md                  # 覆盖 / 补充 base 的事实（同一键名，带来源与日期）
 │   ├── preferences.md                # 本 Project 的城市、方向、全职/实习、届别、评分权重
-│   ├── assets.md                     # 本 Project 使用的简历版本、补充附件（引用 base/assets.md 的键）
 │   ├── candidates.md                 # 待确认的 Memory 候选（来自本 Project 的 Session）
 │   ├── jobs/<job-id>/                # 一个岗位：候选 → 申请 → 各轮 → 结束，跨多个 Session
 │   │   ├── job.md                    # frontmatter = 岗位与申请的当前状态（单一事实来源）；正文 = JD 快照、资格映射、本次答案、授权、证据
@@ -154,7 +153,7 @@ status: active | archived
 流程：**继承 + 用户上传文件或输入文字 → Agent 提取 → 用户核实 → 写入**。
 
 1. **选继承**：选 `inherits`（base，或者 base 加某个已有 Project），`base_pin` 固定为 `live`（跟随最新）。
-2. **上传或输入**：上传这个 Project 要用的简历和资料（Word / PDF / Markdown / 纯文本），或者直接粘贴一段文字。上传的原件存进 `base/originals/`，登记到 `base/assets.md`；本 Project 的 `assets.md` 只引用它。
+2. **上传或输入**：上传这个 Project 要用的简历和资料（Word / PDF / Markdown / 纯文本），或者直接粘贴一段文字。上传的原件存进 `base/originals/`，登记到 `base/assets.md`：简历归属这个 Project（资料页每行一个 Project 下拉框，可改），成绩单、证书等是通用资料，不归属 Project。Agent 只看本 Project 的简历和全部通用资料；同一份简历要给另一个 Project 用就在那里再传一次（2026-11-07，C004-A-fix）。
 3. **提取**（2026-10-22 起按下面「资料导入与画像」的四层流程做；这里的对比规则不变）：后端用文档读取工具把文件转成文本，Agent 从中提取候选事实（教育、经历、项目、技能、链接），并**和继承来的事实做对比**：
    - 新增：继承里没有的；
    - 不同：和继承的值不一样（例如学位写法、项目日期）；
@@ -394,7 +393,9 @@ blocker: <阻塞原因>
 
 - 现在不做向量检索（见上方「存储格式」的后置说明）。
 - 不照搬 Hermes 的后台自动写 memory / skill。
-- 原件只在 `base/originals/` 保存一份；Project 不复制原件，`uploads/` 只放上传时临时的等字节副本。
+- 原件只在 `base/originals/` 保存；Project 目录不放原件，`uploads/` 只放上传时临时的等字节副本。
+- 对话（Session / 工作台）里发来的文件不进资料库：只在那次对话、那个 Job 里用（2026-11-07，C004-A-fix）。
+- 原件可以删除：文件挪进 `.trash/<时间>-asset-<键>/`（同 C013），`base/assets.md` 删掉这一行；Job 里记下的文件名保留，开始申请时选定的简历不在了就先重排（2026-11-07，C004-A-fix）。
 - 模型不直接写 `storage/` 下的任何文件，一律通过后端 Tool 提交。
 
 ## 待用户决定

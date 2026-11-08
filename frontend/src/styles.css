@@ -1039,6 +1039,11 @@ details ul {
   margin: 8px 0;
 }
 
+/* 标题和右侧控件分两头（资料页 Project 下拉框，C004-A-fix） */
+.row.spread {
+  justify-content: space-between;
+}
+
 .row input {
   flex: 1 1 200px;
 }
@@ -2722,6 +2727,12 @@ input.rename.side-rename {
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+/* Dashboard 顶部的 Project 下拉框（C006-fix 全局 Dashboard） */
+.topright select.dashproject {
+  max-width: 240px;
+  font-weight: 600;
 }
 
 .tabs button[aria-selected="true"] {

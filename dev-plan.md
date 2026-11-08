@@ -38,6 +38,7 @@
 | [C006-agent](plan/coding/02-core-agent/C006-agent-live-steps.md) | 后端补真实思考、完整步骤、当前活动、按步推送、安全的重新生成（给 C006-front 用） | 已施工，等用户用真实模型试（2026-10-23） |
 | [C006-fix](plan/coding/02-core-agent/C006-fix-attachments.md) | C006 的修补：申请工作台整屏；两个输入框都能附文件和图片，图片发给模型看 | 已施工，等用户在本机试（2026-10-23） |
 | [C006-fix 版式](plan/coding/02-core-agent/C006-fix-ui-mockup.md) | 照最早的示意页改全局 / Project 页：页签、8 格 KPI、漏斗、看板、时间线、申请总表 | 已施工，等用户在浏览器里对照（2026-10-23） |
+| [C006-fix 全局 Dashboard](plan/coding/02-core-agent/C006-fix-global-dashboard.md) | Dashboard 一处、顶部下拉框选 Project：三页签、筛选、查状态、查看间隔都只针对选中的 Project，不再混看；侧栏切换不影响选择；Project 页只留新建 Session、最近 Session、「在 Dashboard 查看」 | 已施工，等用户在浏览器里试（2026-11-07；`npm run build` 0、`mvn -B clean verify` 0） |
 | [C006-fix 运行时](plan/coding/02-core-agent/C006-fix-runtime.md) | 结构修正：事件日志 + 可续接推送、申请线程回报 Session、用户事实优先、工具可重放、文件一张清单、补中断的调用 | 已施工，等用户在本机试（2026-10-23） |
 | [C006-fix 第二阶段](plan/coding/02-core-agent/C006-fix-runtime-2.md) | 之前工作里同类的结构问题：申请排队、软按钮判断交给模型、「在跑」推导、标签页认领、合并两个循环、小项 | 已施工，经两轮只读审查和修正，等用户在本机试（2026-10-23；对话压缩、资料导入不做） |
 | [C006-fix 结果与回报](plan/coding/02-core-agent/C006-fix-final-reply.md) | Agent 每段文字常显、只折思考和工具调用；每次停下在对话里留一句状态（finish 的 summary、系统写的停止 / 断开 / 出错 / 空回复说明）；申请线程回报和 C024 通知只进 Session 对话给 Agent 看，界面不显示（2026-11-07 用户改动，第 7 节） | 已施工，等用户在本机试（2026-11-04；2026-11-07 改动 `npm run build` 退出码 0） |
@@ -74,6 +75,7 @@
 | [C027](plan/coding/04-refinement/C027-thinking-strength.md) | DeepSeek 模型可选思考强度：用途分配里模型名含 deepseek 时多一个「思考」下拉（默认 / 关 / 低 / 高 / 最高），按 DeepSeek 的 `thinking` + `reasoning_effort` 发请求 | 已施工，等用户用真实模型试（2026-11-05；`npm run build` 0、`mvn -B clean verify` 0） |
 | [C027-fix](plan/coding/04-refinement/C027-fix-gemini-thinking.md) | Gemini 模型也可选思考强度：模型名含 gemini 时显示「思考」下拉（3.x：默认 / 低 / 中 / 高；2.5 Flash 多「关」），发 `reasoning_effort`；新增存值 `medium` | 已施工，等真实 Gemini 测试（2026-11-05；`npm run build` 0、`mvn -B clean verify` 0） |
 | [C028](plan/coding/04-refinement/C028-chatgpt-plan-signin.md) | 用 ChatGPT 登录：模型设置加「ChatGPT 套餐」提供方，用户在浏览器里登录（官方 SIWC，OAuth + PKCE，本机回调），用订阅额度走 Responses API，可分配给各用途 | 计划，待用户确认（2026-11-07） |
+| [C004-A-fix 原件](plan/coding/02-core-agent/C004-A-fix-resume-project.md) | 资料页能删除原件（软删进 `.trash/`，Job 记录保留文件名）；原件分「简历 / 通用资料」，简历归属一个 Project（资料页下拉框可改），通用资料所有 Project 共用；对话里发来的文件只用于那次申请、不进资料库；Agent 只看本 Project 的简历和通用资料；旧数据启动时自动分类 | 已施工，等用户在本机试（2026-11-07；`mvn -B clean verify` 0、`npm run build` 0） |
 
 ## 参考（不是施工步骤）
 

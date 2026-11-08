@@ -13,7 +13,7 @@ import Settings from "./pages/Settings";
 import { RenameInput } from "./RenameTitle";
 import { DROPPED_OUTCOMES, labelText } from "./status";
 import { clampWidth, KEEP_MAIN, ResizeHandle, useStoredWidth, useWindowWidth } from "./ResizeHandle";
-import { back, go, href, pruneStack, setRouteExists, useCanGoBack, useRoute, type Route } from "./route";
+import { back, go, href, lastDashboardProject, pruneStack, setRouteExists, useCanGoBack, useRoute, type Route } from "./route";
 import { shell } from "./shell";
 import { toast, Toasts } from "./toast";
 
@@ -103,7 +103,7 @@ export default function App() {
       <Toasts />
       <BrowserBanner />
       <main className={route.kind === "session" || route.kind === "job" ? "main full" : "main"}>
-        {route.kind === "global" && <Global projects={projects} />}
+        {route.kind === "global" && <Global projects={projects} selected={route.project} />}
         {route.kind === "project" && <ProjectPage key={route.id} id={route.id} onChanged={refresh} />}
         {route.kind === "session" && <SessionPage key={route.id} id={route.id} onChanged={refresh} />}
         {route.kind === "job" && <JobPage key={route.id} id={route.id} onChanged={refresh} />}
@@ -119,6 +119,11 @@ const SIDE_DEFAULT = 248;
 const SIDE_MIN = 180;
 // 对话页拖宽侧栏时，右栏至少还剩这么宽（和 ResizablePanel 的下限一致）
 const PANEL_MIN_RESERVE = 240;
+
+// 侧栏「Dashboard」：回到这次打开窗口里最后选的 Project；没选过就让页面自己选（C006-fix 全局 Dashboard）
+function openDashboard() {
+  go({ kind: "global", project: lastDashboardProject() });
+}
 
 // 按侧栏列表判断一页是不是删了：true 删了、false 还在、null 列表里看不出（不在侧栏里的工作台）
 function listedGone(route: Route, projects: ProjectSummary[]): boolean | null {
@@ -216,7 +221,7 @@ function SidebarRail({ route, projects, onExpand, onCreated }: {
       <button className="iconbtn" title="展开侧栏" aria-label="展开侧栏" onClick={onExpand}><Icon name="side" /></button>
       <BackButton />
       <NewChat route={route} projects={projects} onCreated={onCreated} compact />
-      <button className="iconbtn" title="全局" aria-label="全局" onClick={() => go({ kind: "global" })}><Icon name="home" /></button>
+      <button className="iconbtn" title="Dashboard" aria-label="Dashboard" onClick={openDashboard}><Icon name="home" /></button>
       <div className="bottom">
         <button className="iconbtn" title="资料与简历" aria-label="资料与简历"
           onClick={() => go({ kind: "settings", tab: "profile" })}>
@@ -302,7 +307,7 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
     });
   };
 
-  // 删掉的正是当前看的工作台时回到全局
+  // 删掉的正是当前看的工作台时回到 Dashboard
   async function afterDiscardWorkspace(w: WorkspaceSummary) {
     if (route.kind === "job" && route.id === w.id) {
       go({ kind: "global" });
@@ -310,7 +315,7 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
     await onCreated();
   }
 
-  // 删掉的正是当前看的（或当前 Session 所在的 Project）时回到全局
+  // 删掉的正是当前看的（或当前 Session 所在的 Project）时回到 Dashboard
   async function afterDelete(target: DeleteTarget) {
     const gone = target.kind === "session"
       ? route.kind === "session" && route.id === target.session.id
@@ -331,8 +336,8 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
         </span>
       </div>
       <NewChat route={route} projects={projects} onCreated={onCreated} />
-      <button className="pbtn" aria-current={current({ kind: "global" })} onClick={() => go({ kind: "global" })}>
-        <span className="pico"><Icon name="home" size={15} />全局</span>
+      <button className="pbtn" aria-current={route.kind === "global"} onClick={openDashboard}>
+        <span className="pico"><Icon name="home" size={15} />Dashboard</span>
       </button>
       <div>
         <h6 className="sidehead">Projects <SideHelp /></h6>

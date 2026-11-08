@@ -10,13 +10,11 @@ const NO_CITY = "地点未写";
 const uniq = (names: string[]) => [...new Set(names.filter((n) => n && n.trim()))].sort();
 
 // 候选池：调研出来、还没转为申请的岗位，按公司组折叠，公司内有 ≥2 个地点时再按地点分小节（C023-C）。
-// 全局页最外面再按 Project 分一层；分组永远在一个 Project 内。公司组和地点组由后端用模型归并（原文 → 组名），
+// 只看一个 Project（Dashboard 顶部下拉框选的，C006-fix 全局 Dashboard）。公司组和地点组由后端用模型归并（原文 → 组名），
 // 没归并的名字按原文分组。想投 / 跳过（填原因，跳过的挪到 Dashboard 的 Failures，C024-fix）/ 已下线 / 重新开放 / 开始申请
-export function LeadPool({ leads, applications, showProject, projectTitle, sessionTitle, onMark, onClosed, onStart }: {
+export function LeadPool({ leads, applications, sessionTitle, onMark, onClosed, onStart }: {
   leads: JobView[];
   applications: JobView[];
-  showProject?: boolean;
-  projectTitle?: (id: string) => string | undefined;
   sessionTitle: (id: string) => string | undefined;
   onMark: (job: JobView, status: LeadMark, reason?: string) => Promise<boolean>;
   onClosed: (job: JobView) => Promise<boolean>;
@@ -25,7 +23,7 @@ export function LeadPool({ leads, applications, showProject, projectTitle, sessi
   // 正在填「跳过」原因的那个岗位
   const [skipping, setSkipping] = useState<string | null>(null);
   const [reason, setReason] = useState("");
-  // 展开着的 Project（p:<id>）和公司组（c:<project>:<组名>）；默认都收起
+  // 展开着的公司组（c:<project>:<组名>）；默认都收起
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const [groups, setGroups] = useState<LeadGroups>({ companies: {}, cities: {}, error: null });
   const [groupError, setGroupError] = useState<string | null>(null);
@@ -85,10 +83,7 @@ export function LeadPool({ leads, applications, showProject, projectTitle, sessi
   const projectIds = [...new Set(leads.map((j) => j.project))];
   const weightOfProject = (id: string) => leads.filter((j) => j.project === id && active(j)).length;
   projectIds.sort((a, b) => weightOfProject(b) - weightOfProject(a));
-  const allKeys = projectIds.flatMap((pid) => {
-    const keys = companiesIn(leads.filter((j) => j.project === pid)).map((co) => `c:${pid}:${co}`);
-    return showProject ? [`p:${pid}`, ...keys] : keys;
-  });
+  const allKeys = projectIds.flatMap((pid) => companiesIn(leads.filter((j) => j.project === pid)).map((co) => `c:${pid}:${co}`));
   const companyCount = projectIds.reduce((n, pid) => n + companiesIn(leads.filter((j) => j.project === pid)).length, 0);
   const toggle = (key: string) => {
     const next = new Set(open);
@@ -203,7 +198,7 @@ export function LeadPool({ leads, applications, showProject, projectTitle, sessi
     <div>
       <div className="cotools">
         <span className="muted small">
-          {showProject ? `${projectIds.length} 个 Project · ` : ""}{companyCount} 家公司 · {leads.length} 个岗位
+          {companyCount} 家公司 · {leads.length} 个岗位
           {grouping && " · 正在归并公司名和地点…"}
         </span>
         <button className="linkbtn" onClick={() => setOpen(allOpen ? new Set() : new Set(allKeys))}>
@@ -216,21 +211,7 @@ export function LeadPool({ leads, applications, showProject, projectTitle, sessi
           <button className="linkbtn" disabled={grouping} onClick={() => void resolve(true)}>重试</button>
         </p>
       )}
-      {showProject ? projectIds.map((pid) => {
-        const key = `p:${pid}`;
-        const expanded = open.has(key);
-        const projectLeads = leads.filter((j) => j.project === pid);
-        return (
-          <div key={key} className="cogrp projgrp">
-            <button className="cohead projhead" aria-expanded={expanded} onClick={() => toggle(key)} title={pid}>
-              <span className={`chev${expanded ? " open" : ""}`}><Icon name="chevron" size={13} /></span>
-              <b>{projectTitle?.(pid) ?? pid}</b>
-              <span>{companiesIn(projectLeads).length} 家公司 · 候选 {projectLeads.length}</span>
-            </button>
-            {expanded && <div className="projbody">{companiesOf(pid)}</div>}
-          </div>
-        );
-      }) : companiesOf(projectIds[0])}
+      {projectIds.flatMap((pid) => companiesOf(pid))}
     </div>
   );
 }

@@ -1,24 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, errorText, type JobView, type ProjectSummary } from "../api";
+import { api, errorText, type ProjectSummary } from "../api";
 import { useGlobalChanges } from "../chat/useLiveUpdates";
-import { TabBar, TabBody, useTab } from "../dashboard/Dashboard";
 import { RecentSessions } from "../dashboard/RecentSessions";
 import { go } from "../route";
 import { RenameTitle } from "../RenameTitle";
 
-// Project 主页（ui.md「界面结构」，示意页）：新建 Session；Dashboard / 候选池 / 申请总表三页签；Dashboard 里有最近的 Session
+// Project 主页（ui.md「界面结构」）：新建 Session、最近的 Session；Dashboard 只在一处（C006-fix 全局 Dashboard），
+// 这里一个按钮打开选中这个 Project 的 Dashboard
 export default function ProjectPage({ id, onChanged }: { id: string; onChanged: () => Promise<void> }) {
-  const [tab, setTab] = useTab();
   const [project, setProject] = useState<ProjectSummary | null>(null);
-  const [jobs, setJobs] = useState<JobView[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const data = await api.project(id);
-      setProject(data.project);
-      setJobs(data.jobs);
+      setProject((await api.project(id)).project);
       setError(null);
     } catch (e) {
       setError(errorText(e));
@@ -54,15 +50,12 @@ export default function ProjectPage({ id, onChanged }: { id: string; onChanged: 
           <p className="mono">{id}</p>
         </div>
         <div className="topright">
+          <button disabled={!project} onClick={() => go({ kind: "global", project: id })}>在 Dashboard 查看</button>
           <button className="primary" disabled={busy || !project} onClick={() => void newSession()}>＋ 新建 Session</button>
-          <TabBar tab={tab} onChange={setTab} />
         </div>
       </div>
       {error && <p className="error">{error}</p>}
-      {project && (
-        <TabBody tab={tab} onTab={setTab} jobs={jobs} sessions={project.sessions} reload={load} projectId={id}
-          recent={<RecentSessions sessions={project.sessions} />} />
-      )}
+      {project && <RecentSessions sessions={project.sessions} />}
     </>
   );
 }
