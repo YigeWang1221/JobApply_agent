@@ -6,7 +6,7 @@ import { applications, dayOf, daysBetween, md } from "./metrics";
 
 // 待追踪（C007「该查看了」）：已投递、到了下次查看日子的申请。「我看了」打开它的工作台，后续段的第一句已经填好（C022）
 // C026：标题旁写查看间隔（每 N 天）；查过官网的行带上最近一次的结果
-export function FollowUps({ jobs, showProject, everyDays }: { jobs: JobView[]; showProject?: boolean; everyDays?: number | null }) {
+export function FollowUps({ jobs, everyDays }: { jobs: JobView[]; everyDays?: number | null }) {
   const today = localDay();
   const due = applications(jobs).filter((j) => j.due);
   const since = (job: JobView) => dayOf(job.lastCheckedAt) ?? dayOf(job.appliedAt);
@@ -35,8 +35,7 @@ export function FollowUps({ jobs, showProject, everyDays }: { jobs: JobView[]; s
                   <div className="t">
                     <div>{job.company} · {job.title}</div>
                     <small>
-                      {[showProject ? job.project : null,
-                        job.lastCheckedAt ? `上次查看 ${md(job.lastCheckedAt)}` : `投递 ${md(job.appliedAt)} · 还没查看过`,
+                      {[job.lastCheckedAt ? `上次查看 ${md(job.lastCheckedAt)}` : `投递 ${md(job.appliedAt)} · 还没查看过`,
                         PHASE[job.phase ?? ""] ?? labelText(job.label)].filter(Boolean).join(" · ")}
                     </small>
                     {job.portalCheck && (

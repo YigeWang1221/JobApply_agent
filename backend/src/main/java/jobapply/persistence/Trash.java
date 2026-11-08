@@ -91,6 +91,30 @@ public final class Trash {
         }
     }
 
+    /**
+     * 挪走一份原件（C004-A-fix）：{@code base/originals/<文件名>} 挪进 {@code <时间>-asset-<键>/}，
+     * {@code RESTORE.md} 抄下它在 {@code base/assets.md} 里的那一行。文件已经不在时只写说明。由
+     * {@link AssetRegistry#remove} 调用，登记行由它删。
+     */
+    Path moveAsset(AssetRegistry.Asset asset, Path original, String row) {
+        synchronized (StorageLock.WRITES) {
+            Path entry = newEntry("asset", asset.key());
+            boolean moved = Files.exists(original);
+            if (moved) {
+                move(original, entry);
+            }
+            String path = layout.relative(original);
+            String out = "# 回收站 · 原件 " + asset.key() + "（" + asset.fileName() + "）\n\n"
+                    + (moved ? "原件原来在 `" + path + "`，照原样摆在本目录里。\n\n"
+                    : "原件文件在删除时已经不在 `" + path + "`，只删了登记。\n\n")
+                    + "它在 `base/assets.md` 里的登记：\n\n" + row + "\n\n"
+                    + "恢复：把本目录里的 `base/originals/` 下的文件挪回 storage 下同样的位置，再把上面最后一行加回 "
+                    + "`base/assets.md` 的表格（列顺序不同时按表头对上），刷新资料页就回来了。不要了就直接删掉本目录。\n";
+            AtomicFiles.write(entry.resolve("RESTORE.md"), out);
+            return entry;
+        }
+    }
+
     private Path newEntry(String kind, String id) {
         String name = LocalDateTime.now(clock).format(STAMP) + "-" + kind + "-" + id;
         Path entry = layout.trashDir().resolve(name);

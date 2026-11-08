@@ -152,7 +152,9 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
   const questions = waiting ? status?.questions ?? [] : [];
   const slots = waiting ? status?.fileSlots ?? [] : [];
   // C008：简历的上传位置默认选中对话 Agent 排名选定的那份（只有一个上传位置时也选它），你仍可改选
-  const chosen = job.resumeChoice?.asset;
+  // C004-A-fix：选定的原件删了、或不属于这个 Project 时不预选（候选里没有它）
+  const choiceKey = job.resumeChoice?.asset;
+  const chosen = choiceKey && (status?.assets ?? []).some((a) => a.key === choiceKey) ? choiceKey : undefined;
   const fresh: ReplyForm = {
     key: formKey, answers: {},
     picked: chosen ? Object.fromEntries(slots.filter((slot) => slots.length === 1 || RESUME_SLOT.test(slot.label))
@@ -384,7 +386,7 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
           {slots.length > 0 && (
             <Fold title="上传位置" open
               meta={<>{slots.length} 个 · 已选 {slots.filter((slot) => current.picked[slot.id]).length}</>}>
-              <Files slots={slots} offered={status?.assets ?? null} attachments={attachable} picked={current.picked}
+              <Files project={job.project} slots={slots} offered={status?.assets ?? null} attachments={attachable} picked={current.picked}
                 setPicked={(update) => setForm((old) => {
                   const base = old.key === formKey ? old : fresh;
                   return { ...base, picked: update(base.picked) };
@@ -910,7 +912,8 @@ function mergeAttachments(...lists: SlotAttachment[][]): SlotAttachment[] {
   return lists.flat().filter((file) => !seen.has(file.id) && !!seen.add(file.id));
 }
 
-function Files({ slots, offered, attachments, picked, setPicked }: {
+function Files({ project, slots, offered, attachments, picked, setPicked }: {
+  project: string;
   slots: FileSlot[];
   offered: Asset[] | null;
   attachments: SlotAttachment[];
@@ -922,11 +925,12 @@ function Files({ slots, offered, attachments, picked, setPicked }: {
 
   const reload = useCallback(async () => {
     try {
-      setAssets((await api.assets()).assets);
+      // 只列这个 Project 能用的：本 Project 的简历 + 通用资料（C004-A-fix）
+      setAssets((await api.assets()).assets.filter((a) => a.category !== "简历" || a.project === project));
     } catch (e) {
       setNotice({ kind: "error", text: errorText(e) });
     }
-  }, []);
+  }, [project]);
 
   useEffect(() => {
     if (!offered || offered.length === 0) {
@@ -937,7 +941,8 @@ function Files({ slots, offered, attachments, picked, setPicked }: {
   async function upload(slot: FileSlot, file: File) {
     setNotice(null);
     try {
-      const result = await api.upload(file);
+      // 拖进上传位置的文件登记进资料：像简历的归这个 Project，其余是通用资料
+      const result = await api.upload(file, "", project);
       await reload();
       setPicked((current) => ({ ...current, [slot.id]: result.asset.key }));
       setNotice(result.duplicate

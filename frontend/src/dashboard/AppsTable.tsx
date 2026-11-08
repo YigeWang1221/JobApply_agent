@@ -21,16 +21,15 @@ function groupOf(job: JobView): string {
 }
 
 // 申请总表：每个转为申请的岗位一行
-export function AppsTable({ jobs, showProject, onPostingClosed }: {
+export function AppsTable({ jobs, onPostingClosed }: {
   jobs: JobView[];
-  showProject?: boolean;
   onPostingClosed: (job: JobView) => void;
 }) {
   const apps = applications(jobs);
   if (apps.length === 0) {
     return <div className="panel"><p className="empty">还没有转为申请的岗位。在候选池里点「开始申请」。</p></div>;
   }
-  const cols = ["#", "公司", "岗位", ...(showProject ? ["Project"] : []), "城市", "类型", "投递日", "阶段", "进度", "最近查看",
+  const cols = ["#", "公司", "岗位", "城市", "类型", "投递日", "阶段", "进度", "最近查看",
     "下次查看", "链接", ""];
   let n = 0;
   return (
@@ -52,7 +51,6 @@ export function AppsTable({ jobs, showProject, onPostingClosed }: {
                     <td className="num">{n}</td>
                     <td>{job.company}</td>
                     <td><button className="linkbtn" onClick={() => go({ kind: "job", id: job.id })}>{job.title}</button></td>
-                    {showProject && <td className="num">{job.project}</td>}
                     <td>{job.city.join("、") || "—"}</td>
                     <td>{job.type || "—"}</td>
                     <td className="num">{md(job.appliedAt)}</td>

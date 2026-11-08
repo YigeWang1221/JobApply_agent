@@ -210,11 +210,20 @@ public final class FollowupRunner implements AutoCloseable {
 
     /** 停下批量查状态：排队的不查了，在查的请它停下（在当前这一次工具调用之后）。 */
     public synchronized StatusChecks stopChecks() {
-        List<String> dropped = List.copyOf(checkQueue);
-        checkQueue.clear();
+        return stopChecks(null);
+    }
+
+    /**
+     * 只停下这些 Job 的批量查状态（C006-fix，Dashboard 按 Project 停）：其中排队的不查了，在查的请它停下，别的照常。
+     * {@code jobIds} 为 null 或空时停下整批。
+     */
+    public synchronized StatusChecks stopChecks(List<String> jobIds) {
+        Set<String> only = jobIds == null || jobIds.isEmpty() ? null : new HashSet<>(jobIds);
+        List<String> dropped = checkQueue.stream().filter(jobId -> only == null || only.contains(jobId)).toList();
+        checkQueue.removeAll(dropped);
         checkTotal -= dropped.size();
         dropped.forEach(jobId -> events.changed(null, jobId));
-        for (String jobId : List.copyOf(checkRunning)) {
+        for (String jobId : checkRunning.stream().filter(jobId -> only == null || only.contains(jobId)).toList()) {
             try {
                 stop(jobId);
             } catch (RuntimeException e) {

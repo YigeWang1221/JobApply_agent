@@ -1437,3 +1437,32 @@
   - 前端：`api.ts`、`pages/ModelSettings.tsx`。
   - 计划：`plan/coding/04-refinement/C028-chatgpt-plan-signin.md`。
 - 验证：`mvn -B clean verify` BUILD SUCCESS（668 单元测试含新增 3 个测试类，IT 1，0 失败）；`npm run build` 退出码 0；后端重启在 18080，预设列表含 `chatgpt`。真实登录、拉模型、测试、Session 轮次、刷新、退出：未运行（等用户在界面登录）。App 重新打包：未运行。未提交。
+
+## 2026-11-07 · C006-fix-final-reply 用户改动：Session 不再显示回报通知卡
+
+- 指令：Session 页不再显示申请回报 / 通知卡（等你、停在提交前、出错停下、C024 通知），状态看侧栏圆点；只改界面，后端照样把回报写进 Session 对话给 Agent 当上下文。
+- 结果：`frontend/src/chat/process.ts`（`report` 只断开一轮、不出通知轮，`Turn` 去掉 `notice`）、`frontend/src/chat/MessageList.tsx`（删 `NoticeCard`、`turn.notice` 分支、`go` 引入）、`frontend/src/styles.css`（删 `.noticecard*`）、`frontend/src/api.ts`（注释）。施工记录写在 `plan/coding/02-core-agent/C006-fix-final-reply.md` 第 7 节。后端未改。
+- 验证：`frontend/` 里 `npm run build` 退出码 0。Maven：未运行（后端未改）。用户在界面里看：未运行。未提交。
+- 偏差：无。
+
+## 2026-11-07 · C006-fix 全局 Dashboard 按 Project 选择查看
+
+- 指令：全局页改成一个 Dashboard，顶部下拉框选 Project，三页签和查状态 / 间隔 / 停止都只针对选中的 Project。用户定：Project 页不再有页签、下拉框没有「全部」、默认 URL 里的 → 最近有 Session 活动的 → 第一个、侧栏「全局」改名「Dashboard」。
+- 结果：
+  - 前端：`frontend/src/route.ts`、`App.tsx`、`api.ts`、`styles.css`、`pages/Global.tsx`、`pages/ProjectPage.tsx`、`dashboard/Dashboard.tsx`、`CheckBar.tsx`、`LeadPool.tsx`、`Approvals.tsx`、`AppsTable.tsx`、`Board.tsx`、`Failures.tsx`、`FollowUps.tsx`、`Upcoming.tsx`、`RecentSessions.tsx`。
+  - 后端（另一个代理）：`POST /api/status-checks/stop` 可选 body `{"jobIds":[...]}`，不带或空列表停整批，不认识的 id 忽略；`FollowupRunner.stopChecks(List<String>)`、`StatusCheckController`。
+  - 文档：施工记录在 `plan/coding/02-core-agent/C006-fix-global-dashboard.md`；`plan/master/ui.md`、`plan/master/tracking.md` 按用户决定回写。
+- 验证：`frontend/` `npm run build` 退出码 0；`backend/` `mvn -B clean verify` 退出码 0（协调者报告）。用户在浏览器里按计划 5 步试：未运行。未提交。
+- 偏差：侧栏「Dashboard」回到上次选的 Project 只记在内存（窗口重新加载后按最近活动选），不写 localStorage。
+
+## 2026-11-07 · C004-A-fix 原件删除、简历归属 Project
+
+- 日期：2026-11-07
+- 指令：按用户对 `plan/coding/02-core-agent/C004-A-fix-resume-project.md` 待确认项的最终回答施工：简历一份只属于一个 Project（资料页下拉框手动设）；别的 Project 用就再传一次；资料页和 Dashboard 共用 Project 选择；删除进回收站；其它资料是通用资料、旧数据自动分类；对话里发来的文件只在那次对话生效、不进资料库。先改计划，再一次做完前后端和记录。
+- 结果：
+  - 计划：加「用户决定」一节，改写「改动」（不再做 `projects/<id>/assets.md` 引用表，改为 `base/assets.md` 加「分类」「Project」两列），删掉「待确认」，补施工记录。`plan/master/memory.md` 的 `base/assets.md`、`originals/` 行、删掉 `projects/<id>/assets.md` 行，「新建 Project」第 2 步，「不做」补两条。
+  - 后端：`persistence/AssetRegistry`（分类、归属、`update`、`remove`、`visibleTo`、`upgrade`）、`persistence/Trash`（`moveAsset`）、`config/SettingsConfiguration`（启动升级）、`api/AssetController`（`category` / `project`、`PATCH`、`DELETE`）、`harness/runtime/ResumeMatch`（按 Project、附件不登记、`chosenAttachment`、`readChosen`）、`HarnessLoop`、`SessionLoop`、`FollowupLoop`、`workflow/ApplicationRunner`、`tools/ResearchTools` / `ControlTools` / `FollowupTools`、`agents/ApplyAgent` / `ResearchAgent`。
+  - 前端：`api.ts`、`pages/Assets.tsx`、`pages/JobPage.tsx`、`styles.css`。
+  - 在已有的 C006-fix 全局 Dashboard 未提交改动之上做，没有回退它们。
+- 验证：`backend/` `mvn -B clean verify` 退出码 0；`frontend/` `npm run build` 退出码 0。`upgrade()` 用 scratchpad 里的临时 storage 跑过一次（3 行补分类、再跑 0 行、用户自加列保留）。真实页面、真实 Agent：未运行。未提交。
+- 偏差：「按文件名自动分类」也作为资料页上传的默认选项（用户可选简历 / 通用资料），工作台上传位置拖进的新文件同样按文件名分类、简历归这个 Job 的 Project。删除确认用行内「确认删除 / 取消」，没有另起弹框。

@@ -6,9 +6,8 @@ import { toast } from "../toast";
 import { md } from "./metrics";
 
 // 核准列表（C026）：Agent 在官网查到的状态只是建议，用户勾选后核准才改阶段；驳回就丢掉这条建议
-export function Approvals({ jobs, showProject, reload }: {
+export function Approvals({ jobs, reload }: {
   jobs: JobView[];
-  showProject?: boolean;
   reload: () => Promise<void>;
 }) {
   const rows = jobs.filter((j) => j.proposal);
@@ -77,7 +76,6 @@ export function Approvals({ jobs, showProject, reload }: {
                   <button className="linkbtn" onClick={() => go({ kind: "job", id: job.id })}>
                     {job.company} · {job.title}
                   </button>
-                  {showProject && <small className="muted"> · {job.project}</small>}
                 </div>
                 <small>{stageText(job)} → {proposalText(p)}</small>
                 {p.quote && <small className="cbquote" title={p.quote}>「{p.quote}」</small>}

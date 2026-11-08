@@ -37,9 +37,8 @@ export function failureCount(jobs: JobView[]): number {
 
 // Failures（C024-fix）：候选池里跳过的、投递失败、不投了放在一个池子里，chip 分三类，后面是原因原话和日期。
 // 看板「已结束」列、时间线、每周节奏都不再有它们；存的值不变，只是显示的分组
-export function Failures({ jobs, showProject, onReopen }: {
+export function Failures({ jobs, onReopen }: {
   jobs: JobView[];
-  showProject?: boolean;
   onReopen: (job: JobView) => void;
 }) {
   const [all, setAll] = useState(false);
@@ -63,7 +62,6 @@ export function Failures({ jobs, showProject, onReopen }: {
               <span className={`chip ${kind === "apply_failed" ? "bad" : kind === "gave_up" ? "wait" : ""}`}>{KIND_NAME[kind]}</span>
               <span className="who">
                 <b>{job.company}</b> · {job.title}
-                {showProject && <span className="muted"> · {job.project}</span>}
               </span>
               <span className="reason" title={reason ?? undefined}>{reason ?? "（没写原因）"}</span>
               <span className="muted num">{md(at)}</span>

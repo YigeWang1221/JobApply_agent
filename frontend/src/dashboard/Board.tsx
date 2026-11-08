@@ -18,7 +18,7 @@ function stateText(job: JobView): string {
 
 // 看板：按阶段分 7 列，卡片压成一行（公司 · 岗位 + 状态字），点开申请工作台。
 // 投递失败 / 不投了不在这里（在下面的 Failures，C024-fix）；运行 chip 只在「在跑或要你做事」时挂
-export function Board({ jobs, showProject }: { jobs: JobView[]; showProject?: boolean }) {
+export function Board({ jobs }: { jobs: JobView[] }) {
   const apps = applications(jobs).filter((j) => lane(j) !== "dropped");
   const [unfolded, setUnfolded] = useState<Set<string>>(() => new Set());
   return (
@@ -44,7 +44,7 @@ export function Board({ jobs, showProject }: { jobs: JobView[]; showProject?: bo
                     ? `官网：${job.portalCheck.stage}${portalTitle(job) ? `\n${portalTitle(job)}` : ""}` : null;
                   return (
                     <button key={job.id} className="bcard line" onClick={() => go({ kind: "job", id: job.id })}
-                      title={[`${job.company} · ${job.title}`, job.city.join("、"), showProject ? job.project : null, job.type,
+                      title={[`${job.company} · ${job.title}`, job.city.join("、"), job.type,
                         stateText(job), job.phase === "closed" && job.outcomeReason ? `原因：${job.outcomeReason}` : null,
                         portal, job.lastCheckedAt ? `最近查看 ${md(job.lastCheckedAt)}` : null]
                         .filter(Boolean).join("\n")}>

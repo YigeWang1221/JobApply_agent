@@ -1039,6 +1039,11 @@ details ul {
   margin: 8px 0;
 }
 
+/* 标题和右侧控件分两头（资料页 Project 下拉框，C004-A-fix） */
+.row.spread {
+  justify-content: space-between;
+}
+
 .row input {
   flex: 1 1 200px;
 }
@@ -1921,27 +1926,6 @@ pre.report {
   color: var(--ink-2);
 }
 
-/* 申请线程回报 / 工作台记下的结果：单独一张卡，按到达时间排在对话里 */
-.noticecard {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  font-size: 13.5px;
-}
-
-.noticecard-h {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--muted);
-}
-
 .sources {
   display: flex;
   flex-wrap: wrap;
@@ -2743,6 +2727,12 @@ input.rename.side-rename {
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+/* Dashboard 顶部的 Project 下拉框（C006-fix 全局 Dashboard） */
+.topright select.dashproject {
+  max-width: 240px;
+  font-weight: 600;
 }
 
 .tabs button[aria-selected="true"] {

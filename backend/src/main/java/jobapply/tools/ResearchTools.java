@@ -107,13 +107,14 @@ public final class ResearchTools {
                     "skip_ranking":{"type":"string","description":"only when the user said not to rank resumes: \
                     their words"}},"required":["job"]}"""),
             definition(LIST_RESUMES,
-                    "List the user's uploaded originals (key, file name, type, description, upload time). Decide "
-                            + "from the file name and description which ones are resumes / CVs.",
+                    "List this Project's resumes (本 Project 的简历) and the general materials shared by all Projects "
+                            + "(transcripts, certificates, ...): key, category (简历 / 通用资料), file name, type, "
+                            + "description, upload time. Resumes of other Projects are not shown.",
                     """
                     {"type":"object","properties":{}}"""),
             definition(READ_RESUME,
-                    "Read one original as text (class C values removed; long files are cut and say so). Use it on "
-                            + "each resume before ranking them for a job.",
+                    "Read one original of this Project (from list_resumes) as text (class C values removed; long "
+                            + "files are cut and say so). Use it on each resume before ranking them for a job.",
                     """
                     {"type":"object","properties":{"key":{"type":"string","description":"original key, \
                     a-YYYY-MM-DD-NNN"}},"required":["key"]}"""),
@@ -123,8 +124,8 @@ public final class ResearchTools {
                             + "and the user said which one to use (or sent a revised file). ranking: every resume you "
                             + "compared with its rank, a one-line reason and what it lacks for this JD. asset: the one "
                             + "the user chose (when they change their mind, call again). attachment: when the user sent "
-                            + "a revised resume in this chat, its attachment id (#...); it is registered as a new "
-                            + "original and becomes the chosen one, and ranking may be omitted. suggestions: edits for "
+                            + "a revised resume in this chat, its attachment id (#...); it is used for this application "
+                            + "only (not saved to the library) and becomes the chosen one, and ranking may be omitted. suggestions: edits for "
                             + "this JD, each as \"which section, how to change it, why\", only from facts the user "
                             + "confirmed. When the application starts, the chosen file is put in its upload list as "
                             + "file 1 and uploaded without asking again.",

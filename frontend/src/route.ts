@@ -2,7 +2,8 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 
 // 主区域显示什么，记在 location.hash 里（不加路由库）：刷新、前进后退都能回到同一页
 export type Route =
-  | { kind: "global" }
+  // Dashboard（C006-fix 全局 Dashboard）：project 是下拉框选中的那个；不带时页面自己选
+  | { kind: "global"; project?: string }
   | { kind: "project"; id: string }
   | { kind: "session"; id: string }
   | { kind: "job"; id: string }
@@ -18,6 +19,8 @@ export function parseRoute(hash: string): Route {
       return id ? { kind, id } : { kind: "global" };
     case "settings":
       return { kind: "settings", tab: id === "profile" ? "profile" : "models" };
+    case "global":
+      return id ? { kind: "global", project: id } : { kind: "global" };
     default:
       return { kind: "global" };
   }
@@ -26,7 +29,7 @@ export function parseRoute(hash: string): Route {
 export function href(route: Route): string {
   switch (route.kind) {
     case "global":
-      return "#/global";
+      return route.project ? `#/global/${encodeURIComponent(route.project)}` : "#/global";
     case "settings":
       return `#/settings/${route.tab}`;
     default:
@@ -36,6 +39,25 @@ export function href(route: Route): string {
 
 export function go(route: Route) {
   window.location.hash = href(route);
+}
+
+// 换页但不压返回栈、也不加浏览器历史（Dashboard 下拉框换 Project 时用）：把栈顶改成新地址
+export function replaceRoute(route: Route) {
+  const next = href(route);
+  stack[stack.length - 1] = next;
+  window.location.replace(next);
+}
+
+// 这次打开窗口里 Dashboard 最后选的 Project（只在内存里，不存本机）：侧栏「Dashboard」带着它回去，
+// 点进别的 Project / Session / 工作台再回来还是它；窗口重新加载后从「最近有 Session 活动的」开始
+let dashboardProject: string | undefined;
+
+export function lastDashboardProject(): string | undefined {
+  return dashboardProject;
+}
+
+export function rememberDashboardProject(id: string | undefined) {
+  dashboardProject = id;
 }
 
 export function useRoute(): Route {

@@ -18,7 +18,7 @@ import { Timeline } from "./Timeline";
 import { Upcoming } from "./Upcoming";
 import { Weekly } from "./Weekly";
 
-// 全局页和 Project 主页共用的三页签（示意页）：Dashboard / 候选池 / 申请总表。轮次表、题库等第 6 段
+// Dashboard 页的三页签（示意页；C006-fix 全局 Dashboard：只看顶部下拉框选中的一个 Project）：Dashboard / 候选池 / 申请总表。轮次表、题库等第 6 段
 export type Tab = "dash" | "leads" | "apps";
 
 const TABS: [Tab, string][] = [["dash", "Dashboard"], ["leads", "候选池"], ["apps", "申请总表"]];
@@ -57,24 +57,21 @@ export function TabBar({ tab, onChange }: { tab: Tab; onChange: (tab: Tab) => vo
 
 /**
  * @param sessions 范围内的 Session（新的在前）：显示「发现于哪个 Session」，开始申请时找最近的 Session
- * @param recent   Project 主页在 KPI 下面放的「最近的 Session」
+ * @param recent   在 KPI 下面放的「最近的 Session」
  * @param onTab    换页签（候选池里「Failures n」跳回 Dashboard 用）
- * @param projectId Project 主页传（C026：查看间隔改这个 Project 的）；全局页不传
+ * @param projectId 选中的 Project：筛选按它存，查看间隔、查状态进度和「停止」都只管它
  */
-export function TabBody({ tab, jobs, showProject, projectTitle, sessions, reload, recent, onTab, projectId }: {
+export function TabBody({ tab, jobs, sessions, reload, recent, onTab, projectId }: {
   tab: Tab;
-  projectId?: string;
+  projectId: string;
   onTab?: (tab: Tab) => void;
   jobs: JobView[];
-  showProject?: boolean;
-  // 全局页：候选池最外层按 Project 分组时显示的名字
-  projectTitle?: (id: string) => string | undefined;
   sessions: SessionSummary[];
   reload: () => Promise<void>;
   recent?: ReactNode;
 }) {
   // C026：查状态条的筛选只筛申请；看板、申请总表、待追踪、核准列表、时间线吃筛过的，KPI / 漏斗 / 每周节奏不筛
-  const [filter, setFilter] = useCheckFilter();
+  const [filter, setFilter] = useCheckFilter(projectId);
   const [everyDays, setEveryDays] = useState<number | null>(null);
   const filtered = useMemo(() => applyFilter(jobs, filter), [jobs, filter]);
   const checkBar = (
@@ -105,7 +102,7 @@ export function TabBody({ tab, jobs, showProject, projectTitle, sessions, reload
       <div className="panel">
         <div className="ph">
           <h2>候选池</h2>
-          <span className="boardnote">{showProject ? "调研出来的岗位，先按 Project，再按公司、地点分组" : "调研出来的岗位，按公司、再按地点分组"}；公司名写法不同的由模型归成一家；岗位不必和 Project 名字的方向一致</span>
+          <span className="boardnote">调研出来的岗位，按公司、再按地点分组；公司名写法不同的由模型归成一家；岗位不必和 Project 名字的方向一致</span>
           {failures > 0 && (
             <button className="linkbtn failurelink" title={`跳过的 ${skipped} 个和投递失败 / 不投了都在 Dashboard 的 Failures`}
               onClick={() => {
@@ -116,7 +113,7 @@ export function TabBody({ tab, jobs, showProject, projectTitle, sessions, reload
         </div>
         <LeadPool leads={jobs.filter((j) => j.leadStatus !== "converted" && j.leadStatus !== "skipped")}
           applications={applications(jobs)}
-          showProject={showProject} projectTitle={projectTitle} sessionTitle={(id) => titles.get(id)}
+          sessionTitle={(id) => titles.get(id)}
           onClosed={postingClosed}
           onMark={(job, status, reason) => act(() => api.markLead(job.id, status, reason),
             `${job.company} · ${job.title}：${LEAD[status]}`)}
@@ -137,7 +134,7 @@ export function TabBody({ tab, jobs, showProject, projectTitle, sessions, reload
     return (
       <>
         {checkBar}
-        <AppsTable jobs={filtered} showProject={showProject} onPostingClosed={(job) => void postingClosed(job)} />
+        <AppsTable jobs={filtered} onPostingClosed={(job) => void postingClosed(job)} />
       </>
     );
   }
@@ -145,7 +142,7 @@ export function TabBody({ tab, jobs, showProject, projectTitle, sessions, reload
     <>
       {checkBar}
       <Kpis jobs={jobs} />
-      <Approvals jobs={filtered} showProject={showProject} reload={reload} />
+      <Approvals jobs={filtered} reload={reload} />
       {recent}
       {/* 两列各自一叠（C023-A）：左边漏斗 + 每周节奏，右边接下来 / 待追踪 / 复盘，较短的一列不再留大块空白 */}
       <div className="grid2">
@@ -154,14 +151,14 @@ export function TabBody({ tab, jobs, showProject, projectTitle, sessions, reload
           <Weekly jobs={jobs} />
         </div>
         <div className="stack">
-          <Upcoming jobs={jobs} showProject={showProject} />
-          <FollowUps jobs={filtered} showProject={showProject} everyDays={everyDays} />
+          <Upcoming jobs={jobs} />
+          <FollowUps jobs={filtered} everyDays={everyDays} />
           <Reviews jobs={jobs} />
         </div>
       </div>
       {/* 看板下面是 Failures（C024-fix）：跳过的候选、投递失败、不投了；看板「已结束」列和时间线不再有它们 */}
-      <Board jobs={filtered} showProject={showProject} />
-      <Failures jobs={jobs} showProject={showProject}
+      <Board jobs={filtered} />
+      <Failures jobs={jobs}
         onReopen={(job) => void act(() => api.reopen(job.id), `${job.company} · ${job.title}：已撤销，回到之前的状态`)} />
       <Timeline jobs={filtered} />
     </>

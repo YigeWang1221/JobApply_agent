@@ -44,6 +44,7 @@ import jobapply.domain.Transition;
 import jobapply.harness.policies.BrowserToolPolicy;
 import jobapply.harness.policies.SubmitWords;
 import jobapply.harness.runtime.HarnessLoop;
+import jobapply.harness.runtime.ResumeMatch;
 import jobapply.persistence.AgentRunStore;
 import jobapply.persistence.AssetRegistry;
 import jobapply.persistence.AttachmentStore;
@@ -280,23 +281,37 @@ public final class ApplicationRunner implements AutoCloseable {
         }
 
         // C008-fix / C021：已选定简历时作为文件 1 直接打开页面填表；尚未选定简历时先在工作台内做简历匹配与修改建议
+        // C004-A-fix：选定的原件要还在本 Project 里（删了、改到别的 Project 就先重排）；选的是对话里发来的附件时，
+        // 重置上传区之前先读出来，重置后放进这个申请的附件区当文件 1（不进资料库）
         String resume = job.extra().get("resume_choice") instanceof Map<?, ?> choice
-                && choice.get("asset") instanceof String key && assets.find(key).isPresent() ? key : null;
+                && choice.get("asset") instanceof String key && assets.findVisible(projectId, key).isPresent()
+                ? key : null;
+        AttachmentStore.Stored sent = resume == null ? ResumeMatch.chosenAttachment(layout, job).orElse(null) : null;
+        byte[] sentBytes = null;
+        if (sent != null) {
+            try {
+                sentBytes = Files.readAllBytes(sent.path());
+            } catch (IOException e) {
+                sent = null;
+            }
+        }
         boolean skipped = job.extra().get("resume_choice") instanceof Map<?, ?> choice
                 && choice.get("skipped") != null;
         String opening;
-        if (resume != null) {
+        if (resume != null || sent != null) {
+            String chosenName = resume != null ? assets.find(resume).get().fileName() + "（" + resume + "）"
+                    : sent.name() + "（用户在对话里发来的，只用于这次申请）";
             opening = "开始申请：" + job.posting().company() + " · " + job.posting().title()
                     + "。先看页面：判断要不要登录、怎么进入申请表，然后按工作方法填写，停在最终提交之前。"
-                    + "\n简历：已选定用 " + assets.find(resume).get().fileName() + "（" + resume
-                    + "），已经是文件 1，到简历上传位置直接 browser_file_upload 文件 1，不用再问。填项目、实习、教育和描述"
+                    + "\n简历：已选定用 " + chosenName
+                    + "，已经是文件 1，到简历上传位置直接 browser_file_upload 文件 1，不用再问。填项目、实习、教育和描述"
                     + "之前先 read_resume 读文件 1 的原文。";
         } else if (skipped) {
             opening = "开始申请：" + job.posting().company() + " · " + job.posting().title()
                     + "。先看页面：判断要不要登录、怎么进入申请表，然后按工作方法填写，停在最终提交之前。";
         } else {
             opening = "开始申请：" + job.posting().company() + " · " + job.posting().title()
-                    + "。第一步先在工作台里帮用户匹配简历：调用 read_jd 读岗位要求、list_resumes 和 read_resume 读全部简历原件，"
+                    + "。第一步先在工作台里帮用户匹配简历：调用 read_jd 读岗位要求、list_resumes 和 read_resume 读本 Project 的全部简历，"
                     + "在回复里给出一张简历匹配度排名表（名次 | 简历 | 匹配理由 | 缺口）和针对本岗位的简历修改建议，"
                     + "然后用 ask_user 请用户确认用哪一份（用户也可以直接上传改好的简历，或说不用排直接投）。"
                     + "用户确认后调用 choose_resume 选定简历，再打开岗位页面填写申请表，停在最终提交前。";
@@ -307,6 +322,10 @@ public final class ApplicationRunner implements AutoCloseable {
         if (resume != null) {
             run = run.withFiles(stage(run, List.of(new Choice(
                     new AgentRun.FileSlot("resume", "简历", null, true, null), resume, null))));
+        } else if (sent != null) {
+            AttachmentStore.Stored copy = new AttachmentStore(layout.jobAttachmentsDir(jobId)).save(sent.name(), sentBytes);
+            run = run.withFiles(stage(run, List.of(new Choice(
+                    new AgentRun.FileSlot("resume", "简历", null, true, null), null, copy))));
         }
         moveTo(run, PrepState.PREPARING, Actor.USER, "开始申请线程");
         runs.save(run);
@@ -645,7 +664,7 @@ public final class ApplicationRunner implements AutoCloseable {
         String report = reports.isDraft(run.project(), jobId).map(draft -> draft ? "draft" : "final").orElse(null);
         return new ApplicationStatus(jobId, run.project(), run.session(), status,
                 AgentRun.RUNNING.equals(status) ? null : run.message(), run.questions(), run.fileSlots(),
-                run.fileSlots().isEmpty() ? List.of() : assets.list(), storedAttachments(jobId), disconnected,
+                run.fileSlots().isEmpty() ? List.of() : assets.visibleTo(run.project()), storedAttachments(jobId), disconnected,
                 run.state(), run.usage(), prepState, report, run.round(), interrupted ? INTERRUPTED_ERROR : run.error(),
                 inbox.peek(jobId).stream().map(turn -> turn.text().substring(INSERTED.length())).toList());
     }
@@ -1013,8 +1032,8 @@ public final class ApplicationRunner implements AutoCloseable {
                 String id = key.substring(ATTACHMENT.length());
                 chosen.add(new Choice(slot, null, attached.find(id)
                         .orElseThrow(() -> new ApplicationException.BadRequest("没有这个附件：" + id))));
-            } else if (assets.find(key).isEmpty()) {
-                throw new ApplicationException.BadRequest("原件不存在：" + key);
+            } else if (assets.findVisible(run.project(), key).isEmpty()) {
+                throw new ApplicationException.BadRequest("原件不存在或不属于这个 Project：" + key);
             } else {
                 chosen.add(new Choice(slot, key, null));
             }

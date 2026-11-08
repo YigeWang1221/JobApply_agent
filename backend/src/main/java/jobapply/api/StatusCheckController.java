@@ -43,9 +43,10 @@ public class StatusCheckController {
         return runner.checkMany(ids(request));
     }
 
+    /** 不带 body（或 {@code jobIds} 为空）停下整批；带 {@code jobIds} 只停这些（C006-fix）。 */
     @PostMapping("/api/status-checks/stop")
-    public FollowupRunner.StatusChecks stop() {
-        return runner.stopChecks();
+    public FollowupRunner.StatusChecks stop(@RequestBody(required = false) JobIds request) {
+        return runner.stopChecks(ids(request));
     }
 
     @PostMapping(path = "/api/status-proposals/approve", consumes = MediaType.APPLICATION_JSON_VALUE)

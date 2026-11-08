@@ -303,15 +303,14 @@ public final class FollowupLoop {
 
         /** {@code resume_choice} 选定的那份原件的文字；没选、读不到时说原因。 */
         private String resume(Job job) {
-            String key = job.extra().get("resume_choice") instanceof Map<?, ?> choice
-                    && choice.get("asset") instanceof String asset ? asset : null;
-            if (key == null) {
+            if (!(job.extra().get("resume_choice") instanceof Map<?, ?> choice)
+                    || (choice.get("asset") == null && choice.get("attachment") == null)) {
                 return "（没有记下用哪份简历；需要时用 read_resume 带 key 读原件）";
             }
             try {
-                return resumes.read(key);
+                return resumes.readChosen(layout, job);
             } catch (IllegalArgumentException e) {
-                return "（读不出 " + key + "：" + e.getMessage() + "）";
+                return "（读不出选定的简历：" + e.getMessage() + "）";
             }
         }
 
@@ -466,14 +465,9 @@ public final class FollowupLoop {
         /** 没给 key 时读这份申请选定的简历。 */
         private String readResume(Job job, String key) {
             if (key != null) {
-                return resumes.read(key);
+                return resumes.read(project, key);
             }
-            String chosen = job.extra().get("resume_choice") instanceof Map<?, ?> choice
-                    && choice.get("asset") instanceof String asset ? asset : null;
-            if (chosen == null) {
-                throw new IllegalArgumentException("这份申请没有记下用哪份简历，带 key 读一份原件");
-            }
-            return resumes.read(chosen);
+            return resumes.readChosen(layout, job);
         }
 
         private String readJd(Job job) {

@@ -11,7 +11,7 @@ export function RecentSessions({ sessions }: { sessions: SessionSummary[] }) {
         <span className="boardnote">标签根据 Session 里实际发生的事自动生成</span>
       </div>
       {sessions.length === 0
-        ? <p className="empty">还没有 Session。点右上角「＋ 新建 Session」，让 Agent 去调研。</p>
+        ? <p className="empty">还没有 Session。点左边「新对话」，或在 Project 主页点「＋ 新建 Session」，让 Agent 去调研。</p>
         : (
           <div className="list">
             {sessions.slice(0, 4).map((s) => (
