@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -57,10 +58,11 @@ public final class FollowupRunner implements AutoCloseable {
 
     /**
      * 批量查状态的进度（C026）：排队的、在查的、查完的（按顺序），这一批一共几个，查完的里面查到 / 要手动登录 / 没找到状态页
-     * 各几个，没放进来的和原因。一批查完后数字留着，下一次 {@link #checkMany} 时清零。
+     * 各几个，没放进来的和原因；{@code opened}：整批查完后给用户在 Chrome 里开的页（C026-fix）。一批查完后数字留着，
+     * 下一次 {@link #checkMany} 时清零。
      */
     public record StatusChecks(List<String> queued, List<String> running, List<String> done, int total, int found,
-                               int needsLogin, int notFound, List<Skipped> skipped) {
+                               int needsLogin, int notFound, List<Skipped> skipped, List<String> opened) {
 
         public record Skipped(String jobId, String reason) {
         }
@@ -97,6 +99,9 @@ public final class FollowupRunner implements AutoCloseable {
     private int checkFound;
     private int checkNeedsLogin;
     private int checkNotFound;
+    /** 这一批里要登录、没找到状态页的：Job id → 整批查完后给用户开的网址（C026-fix）。 */
+    private final Map<String, String> checkToOpen = new LinkedHashMap<>();
+    private final List<String> checkOpened = new ArrayList<>();
 
     /** 事件日志、工具调用上限和 {@code applications} 共用。 */
     public FollowupRunner(StorageLayout layout, Clock clock, BrowserSession browser, Supplier<ChatModel> mainModel,
@@ -193,6 +198,8 @@ public final class FollowupRunner implements AutoCloseable {
             checkFound = 0;
             checkNeedsLogin = 0;
             checkNotFound = 0;
+            checkToOpen.clear();
+            checkOpened.clear();
         }
         for (String jobId : jobIds == null ? List.<String>of() : jobIds.stream().distinct().toList()) {
             String reason = queueProblem(jobId);
@@ -236,7 +243,7 @@ public final class FollowupRunner implements AutoCloseable {
     /** 批量查状态现在的进度。 */
     public synchronized StatusChecks checks() {
         return new StatusChecks(List.copyOf(checkQueue), List.copyOf(checkRunning), List.copyOf(checkDone), checkTotal,
-                checkFound, checkNeedsLogin, checkNotFound, List.copyOf(checkSkipped));
+                checkFound, checkNeedsLogin, checkNotFound, List.copyOf(checkSkipped), List.copyOf(checkOpened));
     }
 
     /** 这个 Job 的查状态：{@code queued} / {@code running}；没在查时为 null。 */
@@ -370,8 +377,14 @@ public final class FollowupRunner implements AutoCloseable {
             if (at != null && !at.equals(before) && now.extra().get("portal_check") instanceof Map<?, ?> check) {
                 switch (String.valueOf(check.get("result"))) {
                     case "found" -> checkFound++;
-                    case "needs_login" -> checkNeedsLogin++;
-                    case "not_found" -> checkNotFound++;
+                    case "needs_login" -> {
+                        checkNeedsLogin++;
+                        toOpen(now, check);
+                    }
+                    case "not_found" -> {
+                        checkNotFound++;
+                        toOpen(now, check);
+                    }
                     default -> {
                     }
                 }
@@ -380,6 +393,46 @@ public final class FollowupRunner implements AutoCloseable {
             log.warn("Job {} 查状态的结果没读出来：{}", jobId, rootMessage(e));
         }
         dispatchChecks();
+        if (checkQueue.isEmpty() && checkRunning.isEmpty() && !checkToOpen.isEmpty()) {
+            openForUser(List.copyOf(checkToOpen.values()));
+            checkToOpen.clear();
+        }
+    }
+
+    /** 记下这份申请整批查完后要给用户开的网址：Agent 停下时的那页，没有时用投递网址。 */
+    private void toOpen(Job job, Map<?, ?> check) {
+        Object url = check.get("url");
+        String target = url == null || String.valueOf(url).isBlank() ? job.posting().url() : String.valueOf(url);
+        if (target != null && !target.isBlank()) {
+            checkToOpen.put(job.id(), target);
+        }
+    }
+
+    /**
+     * 整批查完（C026-fix）：要登录、没找到状态页的门户在用户的 Chrome 里一次开好，一个网站一页，已经开着的不再开。
+     * 这些页属于用户，不记在任何运行名下。在线程池里开，不占着 this。
+     */
+    private void openForUser(List<String> urls) {
+        pool.submit(() -> {
+            List<String> safe = new ArrayList<>();
+            for (String url : urls) {
+                try {
+                    fetch.checkUrl(url);
+                    safe.add(url);
+                } catch (RuntimeException e) {
+                    log.warn("不给用户开这页 {}：{}", url, rootMessage(e));
+                }
+            }
+            try {
+                List<String> opened = browser.openForUser(safe);
+                synchronized (this) {
+                    checkOpened.addAll(opened);
+                }
+            } catch (RuntimeException e) {
+                log.warn("查状态结束后没能给用户开页：{}", rootMessage(e));
+            }
+            events.changed(null, null);
+        });
     }
 
     private static String checkedAt(Job job) {

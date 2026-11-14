@@ -236,7 +236,7 @@ export function CheckChip({ job }: { job: JobView }) {
     return <span className="chip wait" title={`${proposalText(job.proposal)}${quote}`}>待核准</span>;
   }
   if (job.phase !== "closed" && check?.result === "needs_login") {
-    return <span className="chip wait" title={`官网要登录，Agent 不替你登录；在 Chrome 里登录后再查${when}`}>要手动登录</span>;
+    return <span className="chip wait" title={`官网要登录，Agent 不替你登录；整批查完后会在 Chrome 里打开这家的页，你登录后再点查状态${when}`}>要手动登录</span>;
   }
   if (job.phase !== "closed" && check?.result === "not_found") {
     return <span className="chip bad" title={`Agent 没找到这份申请的状态页${when}`}>没找到状态页</span>;
