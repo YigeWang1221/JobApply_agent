@@ -1466,3 +1466,43 @@
   - 在已有的 C006-fix 全局 Dashboard 未提交改动之上做，没有回退它们。
 - 验证：`backend/` `mvn -B clean verify` 退出码 0；`frontend/` `npm run build` 退出码 0。`upgrade()` 用 scratchpad 里的临时 storage 跑过一次（3 行补分类、再跑 0 行、用户自加列保留）。真实页面、真实 Agent：未运行。未提交。
 - 偏差：「按文件名自动分类」也作为资料页上传的默认选项（用户可选简历 / 通用资料），工作台上传位置拖进的新文件同样按文件名分类、简历归这个 Job 的 Project。删除确认用行内「确认删除 / 取消」，没有另起弹框。
+
+## 2026-11-14 · C029 后端内存实测（只量，不改代码）
+
+- 指令：App 的 JVM 占约 1GB，先实测内存去向，再写压内存的计划，不改代码。
+- 做法：`backend/` 打 jar（`mvn -B -q -DskipTests package`），默认 profile、端口 8090、storage 指到 scratchpad 临时目录（放 3 个假的复盘文件），带 `-XX:NativeMemoryTracking=summary`；模型经 App 自己的 `POST /api/rag/download` 下载到临时目录。量 `ps` RSS、`vmmap -summary` 占用、`jcmd VM.native_memory summary`、`GC.heap_info`。另写 scratchpad 小程序单独量分词器和 ONNX 会话。启动的进程都已结束。
+- 结果：
+  - 默认参数（G1、MaxHeapSize 4GB）：空闲 RSS 350MB / 占用 328MB；模型已在本地时启动后即加载，RSS 1155–1187MB / 占用 1.0GB，其中 NMT 只有 413MB，约 740MB 是本机内存。
+  - 小程序：加载 `tokenizer.json` +504MB、创建 ONNX 会话 +200MB、推理 +28MB；会话选项几乎无差别；关掉两者后占用 806MB → 279MB。
+  - `-Xms64m -Xmx384m -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:ReservedCodeCacheSize=64m`：空闲 RSS 258MB / 占用 238MB；带模型 1168MB。所有试过的参数组合都能启动、建好索引、无 OutOfMemory。
+  - 原因：`ExperienceIndex.start()` 在模型已在本地时每次启动都调 `model.embedding()`，分词器和会话常驻。
+- 计划：`plan/coding/04-refinement/C029-jvm-memory.md`（JVM 参数 + 嵌入模型按需加载 / 闲置卸下），待用户确认。
+- 未运行：macapp profile 与打包后的 App（本机没有安装 `/Applications/JobApply.app`）；Agent 运行时的内存（会调 LLM 和浏览器，不在本次范围）；部分参数组合的占用值（见计划表中「未量」）。
+- 偏差：无。代码未改，未提交。
+
+## 2026-11-14 · C029 施工：JVM 参数 + 嵌入模型按需加载、闲置卸下
+
+- 指令：用户确认 C029，一次做完并测试。
+- 结果：`backend/src/main/java/jobapply/memory/ExperienceModel.java`（`embedding()` 返回轻包装，第一次算向量时加载，闲置后卸下；加载失败抛给调用方）、`backend/src/main/java/jobapply/config/RagConfiguration.java`（`jobapply.rag.model-idle`，默认 5m）；`appbuild/macos/JobApply/main.swift`、`appbuild/linux/build.sh`、`appbuild/windows/build.ps1` 加 `-Xmx384m -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:ReservedCodeCacheSize=64m`（`appbuild/` 原被 `.gitignore` 忽略；用户 2026-11-14 决定纳入 Git，已删去该忽略行，`releases/` 仍忽略）。施工记录在 `plan/coding/04-refinement/C029-jvm-memory.md`。
+- 验证：`backend/` `mvn -B clean verify` 退出码 0（668 + 1）。`swiftc -parse`、`bash -n` 通过。新参数下实跑（默认 profile、8090、临时 storage）：模型在本地且索引已对上时启动 RSS 319MB / 占用 299MB、不加载模型（改前 1155–1187MB / 1.0GB）；改一个复盘文件后启动建索引 1092MB / 1.0GB、状态 ready；闲置 60s 卸下后 929MB / 597MB。小程序：卸下后再算能重新加载、结果一致；4 线程 40 秒 79 次 0 失败。启动的进程都已结束。
+- 未运行：macOS App 打包与活动监视器；`build.ps1`；Linux / Windows 打包；Agent 真实检索。
+- 偏差：卸下后占用回到约 600MB，不是计划预期的约 300MB（约 300MB 本机内存关掉后没还给系统）。未提交。
+- 后续（用户决定）：`appbuild/` 纳入 Git（只有构建脚本和 Swift 外壳，已查无密钥、无个人路径）；卸下后约 600MB 暂不处理，不做嵌入子进程。
+
+## 2026-11-14 · C026-fix 施工：查状态遇到登录时留下登录页
+
+- 指令：用户要「要手动登录」的门户标签页留着（一家公司一页），登录后再点「查状态」能查到；查到后关掉那页（用户 2026-11-14 决定）。
+- 根因：`FollowupRunner` 后续段跑完一律 `Leave.CLOSE_ALL`；提示词不让模型先找开着的页、`browser_navigate` 总是新开；前端批量默认跳过 `needs_login`。
+- 结果：`BrowserSession.Leave` 加 `HAND_BACK`、`CLOSE_WITH_CURRENT`（`OwnerBrowser.leave` / `closeOwn`）；`FollowupRunner.leaveAfter` 按这次记下的 `portal_check` 选收拾方式；`FollowupAgent.CHECK` 和 `FollowupLoop` 的 `needs_login` 回执；前端 `CheckBar.tsx`、`status.tsx`；`plan/master/agent-runtime.md` 7.9 加一条。计划与施工记录：`plan/coding/04-refinement/C026-fix-keep-login-tabs.md`。
+- 验证：`frontend/` `npm run build` 退出码 0；`backend/` `mvn -B clean verify` 退出码 0（668 + 1）。
+- 未运行：真实 Chrome、真实模型下的查状态（等用户手动试）。
+- 偏差：无。未提交。
+
+## 2026-11-14 · C026-fix 第二版：整批查完后给用户开要登录的门户
+
+- 指令：用户试了第一版（交还登录页 + 模型复用开着的页）：查到了的页没自动关、有些页反复被打开。用户改定逻辑：每次查完都关页；要登录 / 没找到的进清单；整批查完一次打开，一个网站一页、已开着的不再开，属于用户；下次照常查要登录的。
+- 根因（按代码推断，未从日志确认）：交还的页没有主人，复用全靠模型 `select`；模型直接 `browser_navigate` 时总是新开一页，交还的页既没被关、又一次次多出来。
+- 结果：还原第一版的 `BrowserSession` / `OwnerBrowser` / `FollowupRunner` / `FollowupAgent` / `FollowupLoop` 改动；新增 `BrowserSession.openForUser`，`FollowupRunner` 记清单、整批结束时调用，`StatusChecks` 加 `opened`；前端 `api.ts`、`CheckBar.tsx`（结束后显示开了哪些页）、`status.tsx`；`agent-runtime.md` 7.9 改写那一条。计划：`plan/coding/04-refinement/C026-fix-keep-login-tabs.md`。
+- 验证：`frontend/` `npm run build` 退出码 0；`backend/` `mvn -B clean verify` 退出码 0（668 + 1）。
+- 未运行：真实 Chrome、真实模型下的查状态（等用户手动试）。
+- 偏差：无。未提交。

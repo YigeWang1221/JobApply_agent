@@ -161,11 +161,26 @@ export function CheckBar({ jobs, filtered, filter, onFilter, projectId, onDays }
     }, 2000);
     return () => window.clearInterval(timer);
   }, [running]);
+  // 一批查完后，后端把要登录 / 没找到状态页的门户在 Chrome 里开好（C026-fix）：再取两次进度，拿到开了哪些页
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (running) {
+      wasRunning.current = true;
+      return;
+    }
+    if (!wasRunning.current) {
+      return;
+    }
+    wasRunning.current = false;
+    const timers = [1500, 6000].map((ms) => window.setTimeout(() => {
+      api.statusChecks().then(setChecks).catch(() => {});
+    }, ms));
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, [running]);
+  const opened = running ? [] : (checks?.opened ?? []);
 
-  const loginOnly = filter.portal === "needs_login";
-  const candidates = filtered.filter((j) => checkable(j) && !j.checking);
-  const ids = candidates.filter((j) => loginOnly || j.portalCheck?.result !== "needs_login").map((j) => j.id);
-  const skippedLogin = candidates.length - ids.length;
+  // 要手动登录的也查（C026-fix）：用户在 Chrome 里登录后再点这里，Agent 自己开页再查一次
+  const ids = filtered.filter((j) => checkable(j) && !j.checking).map((j) => j.id);
 
   async function start() {
     try {
@@ -229,10 +244,14 @@ export function CheckBar({ jobs, filtered, filter, onFilter, projectId, onDays }
             <button className="linkbtn" onClick={() => void stop()}>停止</button>
           </>
         )}
+        {opened.length > 0 && (
+          <small className="muted" title={opened.join("\n")}>
+            {`已在 Chrome 里打开 ${opened.length} 页给你登录 / 查看：${opened.map(hostOf).join("、")}`}
+          </small>
+        )}
         <button className="primary" disabled={ids.length === 0}
-          title="只查上面筛出来的、已投递还没结束的申请；Agent 不登录、不填密码，遇到登录页就记「要手动登录」"
+          title="只查上面筛出来的、已投递还没结束的申请；Agent 不登录、不填密码，查完关掉自己的页。要登录、没找到状态页的门户在整批查完后一次在 Chrome 里打开（一个网站一页），你登录后再点查状态"
           onClick={() => void start()}>查状态（{ids.length}）</button>
-        {skippedLogin > 0 && <small className="muted">跳过 {skippedLogin} 个要手动登录的</small>}
         <CheckDays projectId={projectId} onDays={onDays} />
       </div>
     </div>
@@ -305,4 +324,12 @@ function CheckDays({ projectId, onDays }: { projectId: string; onDays?: (days: n
       )}
     </span>
   );
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
 }

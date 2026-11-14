@@ -528,6 +528,8 @@ export type StatusChecks = {
   needsLogin: number;
   notFound: number;
   skipped: { jobId: string; reason: string }[];
+  // 整批查完后给用户在 Chrome 里开的页（C026-fix：要登录、没找到状态页的门户，一个网站一页）
+  opened: string[];
 };
 
 export type ProposalResult = { done: string[]; failed: { jobId: string; reason: string }[] };

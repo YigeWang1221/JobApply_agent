@@ -1,5 +1,6 @@
 package jobapply.config;
 
+import java.time.Duration;
 import jobapply.memory.ExperienceIndex;
 import jobapply.memory.ExperienceModel;
 import jobapply.persistence.StorageLayout;
@@ -17,8 +18,10 @@ public class RagConfiguration {
     @Bean(destroyMethod = "close")
     ExperienceModel experienceModel(StorageLayout layout,
                                     @Value("${jobapply.rag.model-url:" + ExperienceModel.DEFAULT_BASE_URL + "}")
-                                    String modelUrl) {
-        return new ExperienceModel(layout.ragModelDir(), modelUrl);
+                                    String modelUrl,
+                                    // 最后一次算向量后多久卸下模型（C029）
+                                    @Value("${jobapply.rag.model-idle:5m}") Duration idle) {
+        return new ExperienceModel(layout.ragModelDir(), modelUrl, idle);
     }
 
     @Bean(destroyMethod = "close")

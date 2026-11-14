@@ -18,17 +18,27 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.embedding.AbstractEmbeddingModel;
 import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.embedding.EmbeddingRequest;
+import org.springframework.ai.embedding.EmbeddingResponse;
 
 /**
  * 经验检索的本地嵌入模型（C022）：multilingual-e5-small 的量化 ONNX 和分词器，放在 {@code storage/model/RAG/}。
  * 不随 App 打包；第一次用到时（检索、或设置页点「下载」）在后台下载，带进度，下载完校验 SHA-256。已经下载过就直接读本地
  * 文件，不再联网。下载失败时状态是 {@code failed}，原因留在 {@link Status#message()}，检索照常退回关键词检索。
+ * <p>
+ * 分词器和 ONNX 会话加载后约占 700MB 本机内存（C029 实测），所以只在真要算向量时加载，闲置 {@code idle} 后关掉，
+ * 下次用到再加载。
  */
 public final class ExperienceModel implements AutoCloseable {
 
@@ -63,7 +73,8 @@ public final class ExperienceModel implements AutoCloseable {
 
     private final Path dir;
     private final String baseUrl;
-    private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
+    private final Duration idle;
+    private final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread thread = new Thread(r, "rag-model");
         thread.setDaemon(true);
         return thread;
@@ -72,11 +83,18 @@ public final class ExperienceModel implements AutoCloseable {
     private final List<Runnable> readyListeners = new CopyOnWriteArrayList<>();
     private State state;
     private String message;
-    private E5Embedding embedding;
+    private final LazyEmbedding embedding = new LazyEmbedding();
 
-    public ExperienceModel(Path dir, String baseUrl) {
+    /** 加载、使用、卸下分词器和会话都在这把锁里，正在算向量时不会被卸下。 */
+    private final Object useLock = new Object();
+    private E5Embedding loaded;
+    private ScheduledFuture<?> unload;
+
+    /** {@code idle}：最后一次算向量后多久卸下模型。 */
+    public ExperienceModel(Path dir, String baseUrl, Duration idle) {
         this.dir = dir;
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl : baseUrl + "/";
+        this.idle = idle;
         if (present()) {
             state = State.READY;
             message = MODEL_NAME + " 已在本地";
@@ -118,30 +136,90 @@ public final class ExperienceModel implements AutoCloseable {
     }
 
     /**
-     * 嵌入模型；文件还不在、或加载失败时为 null（加载失败时状态变成 {@code failed}，原因在 message 里）。
-     * 第一次调用会加载约 100MB 的模型，所以不在启动线程上调。
+     * 嵌入模型；文件还不在、或上次加载失败时为 null。返回的对象很轻：第一次真要算向量时才加载分词器和会话，
+     * 加载失败时状态变成 {@code failed}（原因在 message 里）、抛异常给调用方。
      */
     public synchronized EmbeddingModel embedding() {
-        if (state != State.READY) {
-            return null;
-        }
-        if (embedding == null) {
+        return state == State.READY ? embedding : null;
+    }
+
+    /** 拿到已加载的模型做一件事（没加载就先加载），做完重新开始闲置计时。 */
+    private <T> T use(Function<E5Embedding, T> work) {
+        synchronized (useLock) {
+            if (loaded == null) {
+                loaded = load();
+            }
             try {
-                // 分词器的本机库从依赖里解出来，放在模型目录下，不写到用户主目录
-                if (System.getProperty("DJL_CACHE_DIR") == null) {
-                    System.setProperty("DJL_CACHE_DIR", dir.resolve("djl").toString());
+                return work.apply(loaded);
+            } finally {
+                if (unload != null) {
+                    unload.cancel(false);
                 }
-                System.setProperty("OPT_OUT_TRACKING", "true");
-                embedding = new E5Embedding(dir.resolve(FILES.get(0).name()), dir.resolve(FILES.get(1).name()));
-            } catch (Exception | LinkageError e) {
-                state = State.FAILED;
-                message = "嵌入模型加载失败：" + e.getMessage() + "。可以在设置页重新下载";
-                log.warn("经验检索：{}", message, e);
-                deleteFiles();
-                return null;
+                unload = worker.schedule(this::unloadIdle, idle.toMillis(), TimeUnit.MILLISECONDS);
             }
         }
-        return embedding;
+    }
+
+    private E5Embedding load() {
+        synchronized (this) {
+            if (state != State.READY) {
+                throw new IllegalStateException("嵌入模型不能用：" + message);
+            }
+        }
+        try {
+            // 分词器的本机库从依赖里解出来，放在模型目录下，不写到用户主目录
+            if (System.getProperty("DJL_CACHE_DIR") == null) {
+                System.setProperty("DJL_CACHE_DIR", dir.resolve("djl").toString());
+            }
+            System.setProperty("OPT_OUT_TRACKING", "true");
+            E5Embedding model = new E5Embedding(dir.resolve(FILES.get(0).name()), dir.resolve(FILES.get(1).name()));
+            log.info("经验检索：已加载 {}，闲置 {} 后卸下", MODEL_NAME, idle);
+            return model;
+        } catch (Exception | LinkageError e) {
+            synchronized (this) {
+                state = State.FAILED;
+                message = "嵌入模型加载失败：" + e.getMessage() + "。可以在设置页重新下载";
+            }
+            log.warn("经验检索：{}", message, e);
+            deleteFiles();
+            throw new IllegalStateException(message, e);
+        }
+    }
+
+    /** 闲置计时到了：卸下分词器和会话（正在用的那次做完才会轮到这里）。 */
+    private void unloadIdle() {
+        synchronized (useLock) {
+            if (loaded != null) {
+                loaded.close();
+                loaded = null;
+                log.info("经验检索：闲置 {}，已卸下 {}", idle, MODEL_NAME);
+            }
+            unload = null;
+        }
+    }
+
+    /** {@link #embedding()} 给出去的对象：每次调用都经 {@link #use}。 */
+    private final class LazyEmbedding extends AbstractEmbeddingModel {
+
+        @Override
+        public float[] embed(String text) {
+            return use(model -> model.embed(text));
+        }
+
+        @Override
+        public float[] embed(Document document) {
+            return use(model -> model.embed(document));
+        }
+
+        @Override
+        public EmbeddingResponse call(EmbeddingRequest request) {
+            return use(model -> model.call(request));
+        }
+
+        @Override
+        public int dimensions() {
+            return E5Embedding.DIMENSIONS;
+        }
     }
 
     private boolean present() {
@@ -243,11 +321,13 @@ public final class ExperienceModel implements AutoCloseable {
     }
 
     @Override
-    public synchronized void close() {
+    public void close() {
         worker.shutdownNow();
-        if (embedding != null) {
-            embedding.close();
-            embedding = null;
+        synchronized (useLock) {
+            if (loaded != null) {
+                loaded.close();
+                loaded = null;
+            }
         }
     }
 }

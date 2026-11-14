@@ -75,6 +75,8 @@
 | [C027](plan/coding/04-refinement/C027-thinking-strength.md) | DeepSeek 模型可选思考强度：用途分配里模型名含 deepseek 时多一个「思考」下拉（默认 / 关 / 低 / 高 / 最高），按 DeepSeek 的 `thinking` + `reasoning_effort` 发请求 | 已施工，等用户用真实模型试（2026-11-05；`npm run build` 0、`mvn -B clean verify` 0） |
 | [C027-fix](plan/coding/04-refinement/C027-fix-gemini-thinking.md) | Gemini 模型也可选思考强度：模型名含 gemini 时显示「思考」下拉（3.x：默认 / 低 / 中 / 高；2.5 Flash 多「关」），发 `reasoning_effort`；新增存值 `medium` | 已施工，等真实 Gemini 测试（2026-11-05；`npm run build` 0、`mvn -B clean verify` 0） |
 | [C028](plan/coding/04-refinement/C028-chatgpt-plan-signin.md) | 用 ChatGPT 登录：模型设置加「ChatGPT 套餐」提供方，用户在浏览器里登录（官方 SIWC，OAuth + PKCE，本机回调），用订阅额度走 Responses API，可分配给各用途 | 计划，待用户确认（2026-11-07） |
+| [C029](plan/coding/04-refinement/C029-jvm-memory.md) | 后端内存：实测带嵌入模型时约 1.1GB（分词器约 500MB、ONNX 会话约 200MB，启动就加载）；JVM 加上限和省内存参数，嵌入模型用时才加载、闲置后卸下 | 已施工，等用户重新打包 App 在本机看（2026-11-14；`mvn -B clean verify` 0；改后启动 299MB、建索引时 1.0GB、闲置卸下后 597MB） |
+| [C026-fix](plan/coding/04-refinement/C026-fix-keep-login-tabs.md) | 查状态遇到要登录 / 没找到状态页：每份查完照旧关页，整批查完后在 Chrome 里一次打开这些门户（一个网站一页、已开着的不再开，属于用户）；批量不再默认跳过要手动登录的（第二版，第一版「交还登录页」用户试过不对） | 已施工，等用户在本机试（2026-11-14；`mvn -B clean verify` 0、`npm run build` 0；真实 Chrome 未跑） |
 | [C004-A-fix 原件](plan/coding/02-core-agent/C004-A-fix-resume-project.md) | 资料页能删除原件（软删进 `.trash/`，Job 记录保留文件名）；原件分「简历 / 通用资料」，简历归属一个 Project（资料页下拉框可改），通用资料所有 Project 共用；对话里发来的文件只用于那次申请、不进资料库；Agent 只看本 Project 的简历和通用资料；旧数据启动时自动分类 | 已施工，等用户在本机试（2026-11-07；`mvn -B clean verify` 0、`npm run build` 0） |
 
 ## 参考（不是施工步骤）

@@ -5,6 +5,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -480,6 +481,39 @@ public final class BrowserSession implements AutoCloseable {
             }
         });
         return serial == now ? urls : Set.of();
+    }
+
+    /**
+     * 给用户开页（C026-fix：一批查状态查完后，要登录、没找到状态页的门户）：用保活会话新开，不记在任何使用者名下，
+     * 以后谁停下都不会关它们。一个网站只开一页；Chrome 里已经开着这个网站的页就不再开。返回真的开了的网址。
+     */
+    public List<String> openForUser(List<String> urls) {
+        Set<String> sites = new HashSet<>();
+        keeperTabs().forEach(tab -> sites.add(BrowserToolPolicy.siteOf(tab.url())));
+        List<String> opened = new ArrayList<>();
+        for (String url : urls) {
+            String site = BrowserToolPolicy.siteOf(url);
+            if (site == null || !sites.add(site)) {
+                continue;
+            }
+            Connection current = connected();
+            try {
+                synchronized (keeperLock) {
+                    current.keeper().call(BrowserToolPolicy.TABS, Map.of("action", "new", "url", url));
+                }
+            } catch (BrowserException.ToolFailed e) {
+                log.warn("给用户开页没开成 {}：{}", url, e.getMessage());
+                continue;
+            } catch (BrowserException.Stalled e) {
+                throw stuckOrGone(current, e);
+            } catch (BrowserException.Disconnected e) {
+                lost(current, e);
+                throw e;
+            }
+            answered(current);
+            opened.add(url);
+        }
+        return opened;
     }
 
     /** 用保活会话列出浏览器里所有的标签页（给界面用）。 */

@@ -45,6 +45,5 @@ storage/example.data/
 # Claude Code 本地状态（worktree、设置）
 .claude/
 
-# 各平台构建与脚本
-appbuild/
+# 各平台构建产物
 releases/
