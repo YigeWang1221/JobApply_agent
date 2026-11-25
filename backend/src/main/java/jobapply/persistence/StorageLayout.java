@@ -365,6 +365,15 @@ public record StorageLayout(Path root) {
         return sessionDir(projectId, sessionId).resolve("transcript.jsonl");
     }
 
+    /** Subagent 的运行记录（C030 Slice 5）：一次子运行一个 {@code <subId>.json}，不进父运行的对话。 */
+    public Path subrun(String projectId, String subRunId) {
+        return subrunsDir(projectId).resolve(subRunId + ".json");
+    }
+
+    public Path subrunsDir(String projectId) {
+        return projectDir(projectId).resolve("subruns");
+    }
+
     public Path trackerDir(String projectId) {
         return projectDir(projectId).resolve("tracker");
     }

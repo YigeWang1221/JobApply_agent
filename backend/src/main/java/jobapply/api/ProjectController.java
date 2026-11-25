@@ -11,8 +11,8 @@ import jobapply.persistence.SessionRepository;
 import jobapply.persistence.StorageInitializer;
 import jobapply.persistence.StorageLayout;
 import jobapply.workflow.ApplicationException;
-import jobapply.workflow.ApplicationRunner;
-import jobapply.workflow.FollowupRunner;
+import jobapply.workflow.JobThreadService;
+import jobapply.workflow.StatusCheckBatch;
 import jobapply.workflow.SessionRunner;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -59,12 +59,12 @@ public class ProjectController {
     private final SessionRepository sessions;
     private final JobRepository jobs;
     private final JobLedger ledger;
-    private final ApplicationRunner applications;
+    private final JobThreadService applications;
     private final SessionRunner sessionRunner;
-    private final FollowupRunner followups;
+    private final StatusCheckBatch checks;
 
-    public ProjectController(StorageLayout layout, Clock clock, ApplicationRunner applications,
-                             SessionRunner sessionRunner, FollowupRunner followups) {
+    public ProjectController(StorageLayout layout, Clock clock, JobThreadService applications,
+                             SessionRunner sessionRunner, StatusCheckBatch checks) {
         this.layout = layout;
         this.clock = clock;
         this.projects = new ProjectRepository(layout, clock);
@@ -73,7 +73,7 @@ public class ProjectController {
         this.ledger = new JobLedger(layout, clock);
         this.applications = applications;
         this.sessionRunner = sessionRunner;
-        this.followups = followups;
+        this.checks = checks;
     }
 
     @GetMapping("/api/projects")
@@ -140,8 +140,8 @@ public class ProjectController {
     private List<Views.JobView> jobViews(String id) {
         LocalDate today = LocalDate.now(clock);
         // 侧栏的点要看后续段在不在跑（C024-fix）
-        return jobs.list(id).stream().map(job -> Views.job(job, applications, null, today, followups.statusOf(job),
-                        followups.checkingOf(job.id())))
+        return jobs.list(id).stream().map(job -> Views.job(job, applications, null, today, applications.followupStatusOf(job),
+                        checks.checkingOf(job.id())))
                 .toList();
     }
 
@@ -149,8 +149,8 @@ public class ProjectController {
     private List<Views.JobView> jobsWithEvents(String id) {
         LocalDate today = LocalDate.now(clock);
         return jobs.list(id).stream()
-                .map(job -> Views.job(job, applications, ledger.events(id, job.id()), today, followups.statusOf(job),
-                        followups.checkingOf(job.id())))
+                .map(job -> Views.job(job, applications, ledger.events(id, job.id()), today, applications.followupStatusOf(job),
+                        checks.checkingOf(job.id())))
                 .toList();
     }
 

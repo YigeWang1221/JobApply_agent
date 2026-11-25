@@ -1,11 +1,10 @@
 package jobapply.tools;
 
-import org.springframework.ai.tool.ToolCallback;
+import jobapply.memory.ExperienceIndex;
 import org.springframework.ai.tool.definition.ToolDefinition;
 
 /**
- * 跨工作台的经验检索工具（C022）：{@link #SEARCH_EXPERIENCE}。和 {@link ControlTools} 一样只有定义，{@code call()}
- * 一律抛异常；Agent 循环在本地调 {@link jobapply.memory.ExperienceIndex#searchTool} 执行，返回片段和出处。
+ * 跨工作台的经验检索工具（C022）：{@link #SEARCH_EXPERIENCE}，调 {@link ExperienceIndex#searchTool} 执行，返回片段和出处。
  * 工作台的投递段和后续段都给。
  */
 public final class ExperienceTools {
@@ -39,25 +38,20 @@ public final class ExperienceTools {
     private ExperienceTools() {
     }
 
-    public static ToolCallback definition() {
-        return new DefinitionOnly(SEARCH);
-    }
-
-    public static boolean isExperienceTool(String name) {
-        return SEARCH_EXPERIENCE.equals(name);
-    }
-
-    /** 只有定义的工具：由 Agent 循环在本地处理，{@code call()} 被用到说明调用方式错了。 */
-    private record DefinitionOnly(ToolDefinition definition) implements ToolCallback {
-
-        @Override
-        public ToolDefinition getToolDefinition() {
-            return definition;
-        }
-
-        @Override
-        public String call(String toolInput) {
-            throw new IllegalStateException("工具 " + definition.name() + " 由 Agent 循环处理，不应被 SDK 调用");
-        }
+    /** {@code search_experience}：经验检索没有接上时（测试里）回报不可用。 */
+    public static Tool create(RunContext ctx) {
+        return Tool.of(SEARCH, input -> {
+            ExperienceIndex experience = ctx.services().experience();
+            if (experience == null) {
+                return ToolOutcome.failed(input.call(), "失败：经验检索没有接上。");
+            }
+            try {
+                return ToolOutcome.done(input.call(), experience.searchTool(input.args()));
+            } catch (IllegalArgumentException e) {
+                return ToolOutcome.failed(input.call(), "失败：" + e.getMessage());
+            } catch (RuntimeException e) {
+                return ToolOutcome.failed(input.call(), "失败：经验检索出错：" + e.getMessage());
+            }
+        });
     }
 }

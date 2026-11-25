@@ -164,6 +164,7 @@ const OTHER: Record<string, [IconName, string]> = {
   mark_submitted: ["lead", "记为已投递"],
   record_status: ["lead", "记下投递进展"],
   read_skill: ["skill", "读 skill"],
+  delegate: ["tool", "交给子任务"],
   ask_user: ["ask", "问你"],
   update_plan: ["tool", "更新计划"],
   update_state: ["tool", "更新申请状态"],
@@ -248,15 +249,17 @@ export function summarize(steps: Step[], live: boolean): string {
   const searches = count(tool("web_search"));
   const pages = count((s) => s.name === "web_fetch" || s.name === "browser_navigate");
   const added = count(tool("add_lead"));
+  const delegated = count(tool("delegate"));
   const updated = count(tool("update_lead"));
   const browser = count((s) => !!s.name?.startsWith("browser_") && s.name !== "browser_navigate");
-  const known = thinking + searches + pages + added + updated + browser;
+  const known = thinking + searches + pages + added + updated + browser + delegated;
   const other = steps.length - known;
   if (thinking) parts.push("思考");
   if (searches) parts.push(`搜索了 ${searches} 次`);
   if (pages) parts.push(`读了 ${pages} 个页面`);
   if (added) parts.push(`加了 ${added} 个候选`);
   if (updated) parts.push(`更新了 ${updated} 个候选`);
+  if (delegated) parts.push(`交出 ${delegated} 个子任务`);
   if (browser) parts.push(`在浏览器里操作了 ${browser} 步`);
   if (other) parts.push(`${known ? "其他 " : ""}${other} 步`);
   const failed = count((s) => s.status === "failed" || s.status === "rejected");

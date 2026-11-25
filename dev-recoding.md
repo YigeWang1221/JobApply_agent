@@ -983,3 +983,17 @@
   - **Subagent 分情况回传矩阵**：区分「写共享台账 + SSE 直推 UI」与「向上级 Agent 回传精简上下文包」——`web-research` 直接持绑定 `projectId + rootSessionId` 的 `add_lead` 当场写 `JobLedger` 让岗位实时进右栏和候选池；`apply` 提交或失败后由轻量 Depth-2 `reflect` Subagent 仅读脱敏的 `run-log.jsonl`、`fill-report.md`、`ApplicationState.notes`，在有摩擦信号时静默更新站点/公司/Skill 记忆，避免几十轮 DOM 快照污染总结与后续面试对话。
   - **工作分支不写死**：撤回最初草稿里写的 `phase1-unified-runtime` 及 `C30-plugins` 硬编码，约定在用户当前所在分支按 Slice 1–6 推进。
 - 未决：用户审阅 [C030-unified-base-agent-and-detox.md](plan/coding/04-refinement/C030-unified-base-agent-and-detox.md) 后确认启动 Slice 1–6 施工；Phase 2（用量/压缩/流式/Skill 导入 UI）与 Phase 3（SQLite FTS5 替代 ONNX RAG、薄层 Node Playwright Bridge）排在 Phase 1 之后。
+
+## 2026-11-25 · C030 Slice 1–6：多 Agent 施工的取舍
+
+- 切片之间有依赖，并行只放在不碰同一批文件的地方：Slice 1（domain / persistence）在独立 worktree，与 Slice 2+3（harness / tools / agents）同时做；2 和 3 交给同一个 Agent，因为拆开会在循环和工具分派上反复冲突。之后 4 → 5 → 6 顺序。
+- `AgentRunStore` 的锁本属 Slice 4，提前放进 Slice 1：它在 persistence 层，和循环重构不碰同一批文件。
+- Mode 切换只看 `job.md` 的 phase：前端从哪个接口发消息不再决定走哪段，少一处要同步的状态。代价：prep 阶段的 Job 往后续接口发消息，从 409 变成按投递段处理。
+- 旧的细粒度 prep 状态不迁移文件，只在读时映射、下次写时变成新值；不批量改用户的 `storage/`。代价：原来在「你在提交 / 等验证 / 没确认」的 Job 会显示「等你审阅」，要用户再点一次「我已经提交了」。
+- 运行记录不合成 `thread.jsonl`，沿用 `runs/` 和 `followup/`：合并要迁移用户数据，收益只是少一个目录。
+- `reflect` 由模型按提示词决定什么时候派，不写成 `on(Finished)` 插件：符合「流程交给模型」；如果实跑发现模型老是不派，再改成插件。
+- 子运行最深 2 层（Session → Job 线程 → 子运行），深度 2 不再给 `delegate`，不另做递归检查。
+- 查状态改成 `portal-check` 子运行，不再往工作台后续对话里塞「查状态：」消息，主对话保持干净；工作台在查状态栏下单独显示最近一次的子任务卡。
+- 审查只做一轮；审查给出的 4 个小问题修 3 个，旧状态重新开放那一个是映射的有意结果，不改。
+
+未决：Master Plan 里写的 Depth=2/3、统一 `thread.jsonl`、`SessionService` / `SegmentBoundary` 与实现不一致，等用户决定改文档还是改实现。

@@ -18,11 +18,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import jobapply.domain.AgentRun;
 import jobapply.domain.Job;
+import jobapply.domain.SubRun;
 import jobapply.persistence.JobRepository;
 import jobapply.persistence.SessionRepository;
 import jobapply.persistence.StorageLayout;
 import jobapply.tools.BrowserState;
-import jobapply.workflow.ApplicationRunner;
+import jobapply.workflow.JobThreadService;
 import jobapply.workflow.RuntimeEvents;
 import jobapply.workflow.SessionRunner;
 import org.springframework.http.MediaType;
@@ -50,7 +51,7 @@ public class EventController {
     private final StorageLayout layout;
     private final RuntimeEvents events;
     private final SessionRunner sessions;
-    private final ApplicationRunner applications;
+    private final JobThreadService applications;
     private final SessionRepository sessionFiles;
     private final JobRepository jobs;
     private final ScheduledExecutorService heartbeat = Executors.newSingleThreadScheduledExecutor(runnable -> {
@@ -60,7 +61,7 @@ public class EventController {
     });
 
     public EventController(StorageLayout layout, Clock clock, RuntimeEvents events, SessionRunner sessions,
-                           ApplicationRunner applications) {
+                           JobThreadService applications) {
         this.layout = layout;
         this.events = events;
         this.sessions = sessions;
@@ -129,6 +130,7 @@ public class EventController {
             case RuntimeEvents.MESSAGE -> data.put("text", event.payload());
             case RuntimeEvents.STATUS -> data.put("status", event.payload());
             case RuntimeEvents.BROWSER -> data.put("browser", BrowserController.view((BrowserState) event.payload()));
+            case RuntimeEvents.SUBRUN -> data.put("subrun", Views.subRun((SubRun) event.payload(), false));
             default -> {
             }
         }

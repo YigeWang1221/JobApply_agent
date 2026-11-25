@@ -3,7 +3,7 @@
 - 对应：Master [ui.md](../../master/ui.md)「模型设置」。相关：[C025](C025-settings-ui-polish.md)（预设、提供方卡片）、[C027](C027-thinking-strength.md)（思考下拉）。
 - 依据：用户（2026-11-07）：模型设置里加一个「Sign in with ChatGPT / 用 ChatGPT 套餐额度」的提供方。用户在自己的浏览器里登录，JobApply 用他 ChatGPT 订阅里的 Work/Codex 额度调模型，和其它提供方一样能分配给主模型等用途。
 - 调研（2026-11-07 读）：OpenAI 官方 [Sign in with ChatGPT](https://developers.openai.com/siwc) 及其子页 `token-sharing-open-source/`（sign-in、token-reference、profiles-and-sessions、models-and-inference、preview-limitations、errors-and-recovery）和 ui-ux-guidelines。这个流程面向开源、本机运行的个人应用，不用注册 client，目前是 **preview**。上线时间（2026-09-29 DevDay）只来自二手来源。支持哪些套餐：cookbook 写 Plus/Pro，帮助页片段写 Go/Plus/Pro（未确认）。参考实现：opencode 走的是官方流程（`sst/opencode` 的 `packages/core/src/plugin/provider/chatgpt.ts`）。
-- 状态：**用户已确认（2026-11-07），施工中**。
+- 状态：**已施工并提交（`255d5c2`，2026-11-07）**；真实 ChatGPT 登录、拉模型、刷新、退出未运行，等用户在界面试。
 
 ## 目标
 

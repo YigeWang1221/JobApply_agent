@@ -7,7 +7,6 @@ import { Icon } from "./chat/icons";
 import { useGlobalChanges } from "./chat/useLiveUpdates";
 import Global from "./pages/Global";
 import JobPage from "./pages/JobPage";
-import ProjectPage from "./pages/ProjectPage";
 import SessionPage from "./pages/SessionPage";
 import Settings from "./pages/Settings";
 import { RenameInput } from "./RenameTitle";
@@ -103,8 +102,7 @@ export default function App() {
       <Toasts />
       <BrowserBanner />
       <main className={route.kind === "session" || route.kind === "job" ? "main full" : "main"}>
-        {route.kind === "global" && <Global projects={projects} selected={route.project} />}
-        {route.kind === "project" && <ProjectPage key={route.id} id={route.id} onChanged={refresh} />}
+        {route.kind === "global" && <Global projects={projects} selected={route.project} onChanged={refresh} />}
         {route.kind === "session" && <SessionPage key={route.id} id={route.id} onChanged={refresh} />}
         {route.kind === "job" && <JobPage key={route.id} id={route.id} onChanged={refresh} />}
         {route.kind === "settings" && <Settings tab={route.tab} />}
@@ -120,7 +118,8 @@ const SIDE_MIN = 180;
 // 对话页拖宽侧栏时，右栏至少还剩这么宽（和 ResizablePanel 的下限一致）
 const PANEL_MIN_RESERVE = 240;
 
-// 侧栏「Dashboard」：回到这次打开窗口里最后选的 Project；没选过就让页面自己选（C006-fix 全局 Dashboard）
+// 侧栏「Dashboard」：回到这次打开窗口里最后选的 Project；没选过就让页面自己选（C006-fix 全局 Dashboard）。
+// 点侧栏里的 Project 也是同一页，只是选中那个 Project（C030 IA：Project 主页和 Dashboard 合并）
 function openDashboard() {
   go({ kind: "global", project: lastDashboardProject() });
 }
@@ -129,8 +128,8 @@ function openDashboard() {
 function listedGone(route: Route, projects: ProjectSummary[]): boolean | null {
   const sessions = projects.flatMap((p) => p.sessions);
   switch (route.kind) {
-    case "project":
-      return !projects.some((p) => p.id === route.id);
+    case "global":
+      return route.project ? !projects.some((p) => p.id === route.project) : false;
     case "session":
       return !sessions.some((s) => s.id === route.id);
     case "job":
@@ -146,8 +145,8 @@ function projectFor(route: Route, projects: ProjectSummary[] | null): string | n
   if (!projects || projects.length === 0) {
     return null;
   }
-  if (route.kind === "project") {
-    return route.id;
+  if (route.kind === "global" && route.project && projects.some((p) => p.id === route.project)) {
+    return route.project;
   }
   if (route.kind === "session") {
     const owner = projects.find((p) => p.sessions.some((s) => s.id === route.id));
@@ -319,7 +318,7 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
   async function afterDelete(target: DeleteTarget) {
     const gone = target.kind === "session"
       ? route.kind === "session" && route.id === target.session.id
-      : (route.kind === "project" && route.id === target.project.id)
+      : (route.kind === "global" && route.project === target.project.id)
         || (route.kind === "session" && target.project.sessions.some((s) => s.id === route.id));
     if (gone) {
       go({ kind: "global" });
@@ -350,8 +349,8 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
                   onSave={async (title) => { await api.renameProject(p.id, title); await onCreated(); }} />
               : (
                 <div className="siderow">
-                  <button className="pbtn" aria-current={current({ kind: "project", id: p.id })} title={`${p.title}（${p.id}，双击改名）`}
-                    onClick={() => go({ kind: "project", id: p.id })} onDoubleClick={() => setRenaming(`project:${p.id}`)}>
+                  <button className="pbtn" aria-current={current({ kind: "global", project: p.id })} title={`${p.title}（${p.id}，双击改名）`}
+                    onClick={() => go({ kind: "global", project: p.id })} onDoubleClick={() => setRenaming(`project:${p.id}`)}>
                     <span>{p.title}</span>
                     {(p.counts.dueChecks ?? 0) > 0 && (
                       <span className="duebadge" title={`${p.counts.dueChecks} 个申请该查看了`}>{p.counts.dueChecks}</span>
@@ -503,7 +502,7 @@ function NewProject({ onCreated }: { onCreated: () => Promise<void> }) {
       setOpen(false);
       setId("");
       setTitle("");
-      go({ kind: "project", id: project.id });
+      go({ kind: "global", project: project.id });
     } catch (e) {
       setError(errorText(e));
     } finally {

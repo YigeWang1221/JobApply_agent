@@ -13,6 +13,7 @@ import jobapply.harness.policies.SubmitGuard;
 import jobapply.harness.policies.ToolNotAllowedException;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.definition.ToolDefinition;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -31,7 +32,10 @@ class BrowserToolsTest {
 
     @Test
     void definesExactlyTheModelWhitelistAndNeverExecutes() {
-        List<ToolCallback> tools = BrowserTools.definitions();
+        List<ToolDefinition> definitions = BrowserTools.definitions();
+        // 发给模型的是 ToolBox 的定义；执行由循环自己做，SDK 调 call() 说明调用方式错了
+        List<ToolCallback> tools = new jobapply.harness.runtime.ToolBox(definitions.stream()
+                .map(definition -> Tool.of(definition, input -> null)).toList()).callbacks();
 
         assertThat(tools).extracting(tool -> tool.getToolDefinition().name()).containsExactlyInAnyOrder(
                 BrowserToolPolicy.SNAPSHOT, BrowserToolPolicy.FIND, BrowserToolPolicy.NAVIGATE,
@@ -173,8 +177,8 @@ class BrowserToolsTest {
 
     private static Map<String, JsonNode> schemas() {
         Map<String, JsonNode> schemas = new java.util.LinkedHashMap<>();
-        for (ToolCallback tool : BrowserTools.definitions()) {
-            schemas.put(tool.getToolDefinition().name(), JSON.readTree(tool.getToolDefinition().inputSchema()));
+        for (ToolDefinition tool : BrowserTools.definitions()) {
+            schemas.put(tool.name(), JSON.readTree(tool.inputSchema()));
         }
         return schemas;
     }

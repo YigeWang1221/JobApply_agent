@@ -40,10 +40,10 @@ class DiscardWorkspaceTest {
 
         FakeBrowser fake = FakeBrowser.create(dir.resolve("browser"));
         try (BrowserSession browser = new BrowserSession(fake.launch());
-             ApplicationRunner runner = new ApplicationRunner(storage.layout, storage.clock, browser, () -> null, null)) {
+             JobThreadService runner = new JobThreadService(storage.layout, storage.clock, browser, () -> null, null)) {
 
             // ---- 模式一：deleteJob: false（只删工作台）----
-            ApplicationRunner.Discarded threadDiscarded = runner.discard(jobA, false);
+            JobThreadService.Discarded threadDiscarded = runner.discard(jobA, false);
             assertThat(threadDiscarded.id()).isEqualTo(jobA);
             assertThat(threadDiscarded.mode()).isEqualTo("thread");
 
@@ -68,7 +68,7 @@ class DiscardWorkspaceTest {
             answers.append("alpha", jobA, session, List.of(new JobAnswers.NewAnswer("论文指导教师", "张教授")));
             storage.write(storage.layout.uploadsDir(jobA).resolve("resume2.pdf"), "虚构2");
 
-            ApplicationRunner.Discarded jobDiscarded = runner.discard(jobA, true);
+            JobThreadService.Discarded jobDiscarded = runner.discard(jobA, true);
             assertThat(jobDiscarded.id()).isEqualTo(jobA);
             assertThat(jobDiscarded.mode()).isEqualTo("job");
 
@@ -110,23 +110,23 @@ class DiscardWorkspaceTest {
 
         FakeBrowser fake = FakeBrowser.create(dir.resolve("browser"));
         try (BrowserSession browser = new BrowserSession(fake.launch());
-             ApplicationRunner runner = new ApplicationRunner(storage.layout, storage.clock, browser, () -> null, null)) {
+             JobThreadService runner = new JobThreadService(storage.layout, storage.clock, browser, () -> null, null)) {
             ApplicationController controller = new ApplicationController(runner);
 
             // body 为 null：默认 deleteJob: false，返回 mode: "thread"
-            ApplicationRunner.Discarded d1 = controller.discardWorkspace(jobId, null);
+            JobThreadService.Discarded d1 = controller.discardWorkspace(jobId, null);
             assertThat(d1.id()).isEqualTo(jobId);
             assertThat(d1.mode()).isEqualTo("thread");
             assertThat(storage.layout.jobFile("alpha", jobId)).exists();
 
             // body 内 deleteJob 为 null：默认 deleteJob: false
-            ApplicationRunner.Discarded d2 = controller.discardWorkspace(jobId, new ApplicationController.DiscardRequest(null));
+            JobThreadService.Discarded d2 = controller.discardWorkspace(jobId, new ApplicationController.DiscardRequest(null));
             assertThat(d2.id()).isEqualTo(jobId);
             assertThat(d2.mode()).isEqualTo("thread");
             assertThat(storage.layout.jobFile("alpha", jobId)).exists();
 
             // body 内 deleteJob 为 true：mode 为 "job"，Job 移入回收站
-            ApplicationRunner.Discarded d3 = controller.discardWorkspace(jobId, new ApplicationController.DiscardRequest(true));
+            JobThreadService.Discarded d3 = controller.discardWorkspace(jobId, new ApplicationController.DiscardRequest(true));
             assertThat(d3.id()).isEqualTo(jobId);
             assertThat(d3.mode()).isEqualTo("job");
             assertThat(storage.layout.jobFile("alpha", jobId)).doesNotExist();

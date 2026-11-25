@@ -9,7 +9,6 @@ import java.util.Set;
 import jobapply.harness.policies.BrowserToolPolicy;
 import jobapply.harness.policies.FieldIntent;
 import jobapply.harness.policies.SubmitGuard;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
@@ -18,8 +17,8 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * 交给模型的浏览器工具：定义和参数翻译（agent-runtime.md 7.2）。
  * <p>
- * 定义是 Spring AI 的 {@link ToolCallback}，{@code call()} 一律抛异常：调用方直接调用 {@code ChatModel}，
- * 工具调用原样留在响应里，由 Harness 循环自己执行。工具名和 MCP 的工具名相同，和 {@link BrowserToolPolicy}
+ * 定义是 Spring AI 的 {@link ToolDefinition}，执行在 {@link BrowserFillTools}（申请）和 {@link BrowserReadTools}
+ * （调研、后续段只读）。工具名和 MCP 的工具名相同，和 {@link BrowserToolPolicy}
  * 的模型白名单一一对应（不开放 {@code handle_dialog}；{@code browser_tabs} 另由 {@link #tabs()} 定义，系统代发）。
  * <p>
  * 比 MCP 多出来的参数：{@code browser_fill_form} 的每个字段、{@code browser_type}、{@code browser_select_option}、
@@ -192,14 +191,20 @@ public final class BrowserTools {
             "index":{"type":"integer","minimum":0,"description":"For select: an index from list"}},\
             "required":["action"]}""");
 
-    /** 填写角色的全部浏览器工具定义。 */
-    public static List<ToolCallback> definitions() {
-        return DEFINITIONS.stream().map(BrowserTools::callback).toList();
+    /** 填写角色的全部浏览器工具定义（执行在 {@link BrowserFillTools} / {@link BrowserReadTools}）。 */
+    public static List<ToolDefinition> definitions() {
+        return DEFINITIONS;
     }
 
-    /** 申请 Agent 的标签页工具定义（{@link #TABS}）。 */
-    public static ToolCallback tabs() {
-        return callback(TABS_DEFINITION);
+    /** 浏览器工具里名字是 {@code name} 的那个定义。 */
+    public static ToolDefinition definition(String name) {
+        return DEFINITIONS.stream().filter(d -> d.name().equals(name)).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("没有这个浏览器工具：" + name));
+    }
+
+    /** 标签页工具的定义（{@link #TABS}）。 */
+    public static ToolDefinition tabsDefinition() {
+        return TABS_DEFINITION;
     }
 
     public static boolean isBrowserTool(String name) {
@@ -301,23 +306,5 @@ public final class BrowserTools {
 
     private static ToolDefinition definition(String name, String description, String schema) {
         return ToolDefinition.builder().name(name).description(description).inputSchema(schema).build();
-    }
-
-    private static ToolCallback callback(ToolDefinition definition) {
-        return new DefinitionOnly(definition);
-    }
-
-    /** 只有定义的工具：执行由 Harness 循环负责，{@code call()} 被用到说明调用方式错了。 */
-    private record DefinitionOnly(ToolDefinition definition) implements ToolCallback {
-
-        @Override
-        public ToolDefinition getToolDefinition() {
-            return definition;
-        }
-
-        @Override
-        public String call(String toolInput) {
-            throw new IllegalStateException("浏览器工具 " + definition.name() + " 由 Harness 循环执行，不应被 SDK 调用");
-        }
     }
 }

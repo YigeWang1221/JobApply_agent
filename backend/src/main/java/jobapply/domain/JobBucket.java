@@ -10,9 +10,8 @@ import java.util.Set;
  * <ul>
  *   <li>{@code lead}：候选池里还在考虑的（new / shortlisted）</li>
  *   <li>{@code ready}：停在提交前（prep:awaiting_review），等用户审阅、提交</li>
- *   <li>{@code waiting}：准备中、要用户做事：申请线程在等你 / 失败 / 中断，或者 prep_state 是 needs_input /
- *       needs_login / handoff_user / failed</li>
- *   <li>{@code preparing}：准备中的其余状态（选中、填写中、你在提交、先放着……）</li>
+ *   <li>{@code waiting}：准备中、要用户做事：申请线程在等你 / 失败 / 中断，或者 prep_state 是 needs_input / failed</li>
+ *   <li>{@code preparing}：准备中的其余状态（填写中、先放着）</li>
  *   <li>{@code applied}：投递以后、还没结束（applied / screening / assessment / interview / offer）</li>
  *   <li>{@code closed}：候选跳过 / 下线，或者申请已结束</li>
  * </ul>
@@ -20,11 +19,9 @@ import java.util.Set;
 public enum JobBucket {
     LEAD, PREPARING, WAITING, READY, APPLIED, CLOSED;
 
-    /** 投递以后、还没结束的阶段。 */
-    public static final Set<Phase> AFTER_APPLIED = EnumSet.of(Phase.APPLIED, Phase.SCREENING, Phase.ASSESSMENT,
-            Phase.INTERVIEW, Phase.OFFER);
-    private static final Set<PrepState> WAITING_PREP = EnumSet.of(PrepState.NEEDS_INPUT, PrepState.NEEDS_LOGIN,
-            PrepState.HANDOFF_USER, PrepState.FAILED);
+    /** 投递以后、还没结束的阶段（同 {@link Phase#AFTER_APPLIED}，留给已有的调用方）。 */
+    public static final Set<Phase> AFTER_APPLIED = Phase.AFTER_APPLIED;
+    private static final Set<PrepState> WAITING_PREP = EnumSet.of(PrepState.NEEDS_INPUT, PrepState.FAILED);
     /** 申请线程要用户做事的状态（重启后中断的也算）。 */
     private static final Set<String> WAITING_RUN = Set.of(AgentRun.WAITING_USER, AgentRun.FAILED,
             AgentRun.INTERRUPTED);

@@ -151,7 +151,7 @@ public final class JobRepository {
                     LeadStatus.of(string(fm, "lead_status")),
                     string(fm, "skip_reason"),
                     fm.get("phase") == null ? null : Phase.of(string(fm, "phase")),
-                    fm.get("prep_state") == null ? null : PrepState.of(string(fm, "prep_state")),
+                    fm.get("prep_state") == null ? null : PrepState.fromStorage(string(fm, "prep_state")),
                     fm.get("outcome") == null ? null : Outcome.of(string(fm, "outcome")),
                     evidenceFromMap(evidence));
             Map<String, Object> extra = new LinkedHashMap<>();

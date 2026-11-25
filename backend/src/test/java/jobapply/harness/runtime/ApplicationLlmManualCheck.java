@@ -39,7 +39,7 @@ import jobapply.tools.BrowserTools;
 import jobapply.tools.FakeBrowser;
 import jobapply.tools.PageSnapshot;
 import jobapply.tools.SnapshotIndex;
-import jobapply.workflow.ApplicationRunner;
+import jobapply.workflow.JobThreadService;
 import jobapply.workflow.ApplicationStatus;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ChatModel;
@@ -47,7 +47,7 @@ import org.springframework.ai.chat.model.ChatModel;
 /**
  * 真实 LLM 试跑（dev-limit.md「真实 LLM 测试」，C004-D「怎么确认能用」）：用户配置的主模型
  * （读 {@code storage/settings/models.yaml}，Key 由程序从 {@code .env} 解析）+ 假 MCP 服务端，在每个表单夹具上跑
- * 申请线程（{@link ApplicationRunner}），一直跑到停在提交前、失败，或者回复了 {@link #MAX_REPLIES} 次。
+ * 申请线程（{@link JobThreadService}），一直跑到停在提交前、失败，或者回复了 {@link #MAX_REPLIES} 次。
  * 资料全部虚构，写进临时 storage，不碰用户真实的 storage。
  * <p>
  * Agent 问用户时，这里扮演用户：有上传位置就放进虚构的 PDF；有问题就选第一个选项或者写一个虚构的回答；
@@ -80,7 +80,7 @@ class ApplicationLlmManualCheck {
 
         Path temp = Files.createTempDirectory("jobapply-llm-check-");
         Set<String> allowed = new HashSet<>();
-        BrowserTools.definitions().forEach(tool -> allowed.add(tool.getToolDefinition().name()));
+        BrowserTools.definitions().forEach(tool -> allowed.add(tool.name()));
         allowed.add("browser_tabs");
         List<String> problems = new ArrayList<>();
         Map<String, String> summary = new LinkedHashMap<>();
@@ -96,7 +96,7 @@ class ApplicationLlmManualCheck {
             storage.ledger().transition(PROJECT, job, session, Actor.USER, new Transition.Convert());
             long started = System.nanoTime();
             try (BrowserSession browser = new BrowserSession(fake.launch());
-                 ApplicationRunner runner = new ApplicationRunner(storage.layout, storage.clock, browser, () -> model,
+                 JobThreadService runner = new JobThreadService(storage.layout, storage.clock, browser, () -> model,
                          HarnessProperties.defaults())) {
                 ApplicationStatus status = runner.start(job, PROJECT, session);
                 int replies = 0;
@@ -141,7 +141,7 @@ class ApplicationLlmManualCheck {
     }
 
     /** 扮演用户：选文件、回答问题、需要时替用户登录，然后回复。 */
-    private static ApplicationRunner.Reply actAsUser(String fixture, ApplicationStatus status, TestStorage storage,
+    private static JobThreadService.Reply actAsUser(String fixture, ApplicationStatus status, TestStorage storage,
                                                      BrowserSession browser, String job, String session)
             throws IOException {
         List<String> files = null;
@@ -170,7 +170,7 @@ class ApplicationLlmManualCheck {
                 text = "这一步我先不处理。把你能做的做完，然后结束（finish）。";
             }
         }
-        return new ApplicationRunner.Reply(session, text, answers.isEmpty() ? null : answers, files);
+        return new JobThreadService.Reply(session, text, answers.isEmpty() ? null : answers, files);
     }
 
     private static String oneLine(String message, String error) {

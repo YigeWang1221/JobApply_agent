@@ -5,6 +5,7 @@ import { Composer } from "../chat/Composer";
 import { readDraft, writeDraft } from "../chat/draft";
 import { Icon } from "../chat/icons";
 import { MessageList } from "../chat/MessageList";
+import { SubRunsProvider, useSubRuns } from "../chat/SubRuns";
 import { useAttachments } from "../chat/useAttachments";
 import { useLiveUpdates } from "../chat/useLiveUpdates";
 import { go } from "../route";
@@ -41,6 +42,7 @@ export default function SessionPage({ id, onChanged }: { id: string; onChanged?:
 
   const running = view?.status === "running";
   const sse = useLiveUpdates({ session: id }, running, load);
+  const subruns = useSubRuns({ session: id });
   const upload = useCallback((file: File) => api.sessionAttachment(id, file), [id]);
   const attach = useAttachments(upload);
 
@@ -135,6 +137,7 @@ export default function SessionPage({ id, onChanged }: { id: string; onChanged?:
           </button>
         </header>
         {error && <p className="error small pad">刷新失败：{error}</p>}
+        <SubRunsProvider runs={subruns}>
         <MessageList messages={view.messages} running={running} jobs={view.jobs}
           activity={sse.activity !== undefined ? sse.activity : view.activity}
           pending={pending}
@@ -149,6 +152,7 @@ export default function SessionPage({ id, onChanged }: { id: string; onChanged?:
               <p className="muted">说说想找什么岗位、投哪几个，或者更新一下面试情况。</p>
             </div>
           } />
+        </SubRunsProvider>
         <div className="composerwrap">
           {view.jobs.filter(awaitingSubmit).map((job) => <SubmitConfirm key={job.id} job={job} onDone={load} />)}
           <Composer value={text} onChange={edit} running={running} disabled={!!pending && !pending.failed}

@@ -108,12 +108,17 @@ export function MessageList(props: MessageListProps) {
   );
 }
 
-// 只读地列出一段已经结束的对话（不滚动、不能重新生成）：工作台后续段上面的投递段（C022）
-export function TranscriptTurns({ messages, jobs = [] }: { messages: ChatMessage[]; jobs?: JobView[] }) {
+// 只读地列出一段对话（不滚动、不能重新生成）：工作台后续段上面的投递段（C022）、子任务的步骤（C030，running 时还在跑）
+export function TranscriptTurns({ messages, jobs = [], running = false }: {
+  messages: ChatMessage[];
+  jobs?: JobView[];
+  running?: boolean;
+}) {
+  const turns = toTurns(messages, running);
   return (
     <>
-      {toTurns(messages, false).map((turn) => (
-        <TurnView key={turn.key} turn={turn} jobs={jobs} live={false} last={false} />
+      {turns.map((turn, i) => (
+        <TurnView key={turn.key} turn={turn} jobs={jobs} live={running && i === turns.length - 1} last={false} />
       ))}
     </>
   );

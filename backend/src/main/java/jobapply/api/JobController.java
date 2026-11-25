@@ -23,9 +23,9 @@ import jobapply.persistence.JobRepository;
 import jobapply.persistence.SessionRepository;
 import jobapply.persistence.StorageLayout;
 import jobapply.workflow.ApplicationException;
-import jobapply.workflow.ApplicationRunner;
+import jobapply.workflow.JobThreadService;
 import jobapply.workflow.ApplicationStatus;
-import jobapply.workflow.FollowupRunner;
+import jobapply.workflow.StatusCheckBatch;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -54,7 +54,7 @@ public class JobController {
      * @param session     从这个页面发消息用哪个 Session：申请线程的、发现它的，都删了时用这个 Project 最新的一个；
      *                    一个都没有时为 null（C013）
      * @param deletedSessions 记录里引用、但已经删除的 Session（界面上显示「会话已删除」，C013）
-     * @param followup    工作台的后续段（C022）：投递过才有（C024，{@link FollowupRunner#open}）；没投递过时为 null
+     * @param followup    工作台的后续段（C022）：投递过才有（C024，{@link JobThreadService#followupOpen}）；没投递过时为 null
      */
     public record JobDetail(Views.JobView job, List<EventView> events, ApplicationStatus application,
                             List<Views.ChatMessage> steps, Views.Activity activity, String session,
@@ -83,43 +83,43 @@ public class JobController {
     private final StorageLayout layout;
     private final JobRepository jobs;
     private final JobLedger ledger;
-    private final ApplicationRunner applications;
+    private final JobThreadService threads;
     private final Clock clock;
     private final SessionRepository sessions;
-    private final FollowupRunner followups;
+    private final StatusCheckBatch checks;
 
-    public JobController(StorageLayout layout, Clock clock, ApplicationRunner applications, FollowupRunner followups) {
+    public JobController(StorageLayout layout, Clock clock, JobThreadService threads, StatusCheckBatch checks) {
         this.layout = layout;
         this.jobs = new JobRepository(layout);
-        this.ledger = new JobLedger(layout, clock, applications.events()::changed);
-        this.applications = applications;
+        this.ledger = new JobLedger(layout, clock, threads.events()::changed);
+        this.threads = threads;
         this.clock = clock;
         this.sessions = new SessionRepository(layout, clock);
-        this.followups = followups;
+        this.checks = checks;
     }
 
     /** 这个 Job 的视图；「该查看了」按服务器今天的日期算。 */
     private Views.JobView view(Job job) {
-        return Views.job(job, applications, null, LocalDate.now(clock), followups.statusOf(job),
-                followups.checkingOf(job.id()));
+        return Views.job(job, threads, null, LocalDate.now(clock), threads.followupStatusOf(job),
+                checks.checkingOf(job.id()));
     }
 
     @GetMapping
     public JobDetail get(@PathVariable String id) {
         Job job = find(id);
         List<EventView> events = ledger.events(job.project(), id).stream().map(JobController::event).toList();
-        ApplicationStatus status = applications.statusIfAny(id).orElse(null);
+        ApplicationStatus status = threads.statusIfAny(id).orElse(null);
         List<String> referenced = Stream.of(status == null ? null : status.session(), job.discoveredIn())
                 .filter(Objects::nonNull).distinct().toList();
         String usable = referenced.stream().filter(s -> sessions.exists(job.project(), s)).findFirst()
                 .orElseGet(() -> sessions.list(job.project()).stream().findFirst().map(s -> s.id()).orElse(null));
         return new JobDetail(view(job), events, status,
-                applications.run(id).map(run -> Views.messages(run.conversation(), applications.events().jobInFlight(id),
+                threads.run(id).map(run -> Views.messages(run.conversation(), threads.events().jobInFlight(id),
                                 "/api/jobs/" + id + "/application/attachments"))
                         .orElse(List.of()),
-                Views.activity(applications.events().jobActivity(id)), usable,
+                Views.activity(threads.events().jobActivity(id)), usable,
                 referenced.stream().filter(s -> !sessions.exists(job.project(), s)).toList(),
-                FollowupRunner.open(job) ? FollowupController.view(followups, id) : null);
+                JobThreadService.followupOpen(job) ? FollowupController.view(threads, id) : null);
     }
 
     @PatchMapping(path = "/lead", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -141,16 +141,16 @@ public class JobController {
     }
 
     /**
-     * 用户在 Chrome 里亲自提交了：{@code → user_submitting → applied}（C007）。准备中的任何状态都接受（C006-fix
+     * 用户在 Chrome 里亲自提交了：{@code → applied}（C007）。准备中的任何状态都接受（C006-fix
      * 第 3 节）；已经投递过的原样返回。
      */
     @PostMapping(path = "/submitted", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Views.JobView submitted(@PathVariable String id, @RequestBody(required = false) SubmittedRequest request) {
         Job job = find(id);
         // 申请 Agent 还在填时用户已经自己提交了：先请它停下
-        applications.statusIfAny(id).ifPresent(status -> applications.stop(id));
+        threads.stop(id);
         Job next = ledger.markSubmitted(job.project(), id, sessionOf(job), request == null ? null : request.note());
-        applications.closeTabs(id);
+        threads.closeTabs(id);
         return view(next);
     }
 
@@ -172,7 +172,7 @@ public class JobController {
         if (job.status().prepState() == PrepState.PAUSED) {
             return view(job);
         }
-        applications.statusIfAny(id).ifPresent(status -> applications.stop(id));
+        threads.stop(id);
         Job next = ledger.transition(job.project(), id, sessionOf(job), Actor.USER,
                 new Transition.ChangePrepState(PrepState.PAUSED, note == null ? "用户说还没提交" : note));
         return view(next);
@@ -196,11 +196,11 @@ public class JobController {
         if (job.status().outcome() == outcome) {
             return view(job);
         }
-        applications.statusIfAny(id).ifPresent(status -> applications.stop(id));
+        threads.stop(id);
         String session = sessionOf(job);
         Job next = ledger.recordOutcome(job.project(), id, session, outcome, request.reason());
-        applications.closeTabs(id);
-        applications.noteToSession(job.project(), session, id, JobLedger.outcomeNote(next));
+        threads.closeTabs(id);
+        threads.noteToSession(job.project(), session, id, JobLedger.outcomeNote(next));
         return view(next);
     }
 
@@ -213,7 +213,7 @@ public class JobController {
         Outcome was = job.status().outcome();
         String session = sessionOf(job);
         Job next = ledger.reopen(job.project(), id, session);
-        applications.noteToSession(job.project(), session, id, JobLedger.reopenNote(next, was));
+        threads.noteToSession(job.project(), session, id, JobLedger.reopenNote(next, was));
         return view(next);
     }
 
@@ -232,13 +232,13 @@ public class JobController {
         }
         Transition transition;
         if (job.status().leadStatus() == LeadStatus.CONVERTED) {
-            applications.statusIfAny(id).ifPresent(status -> applications.stop(id));
+            threads.stop(id);
             transition = new Transition.Close(Outcome.POSTING_CLOSED, note);
         } else {
             transition = new Transition.MarkLead(LeadStatus.CLOSED, note);
         }
         Job next = ledger.transition(job.project(), id, sessionOf(job), Actor.USER, transition);
-        applications.closeTabs(id);
+        threads.closeTabs(id);
         return view(next);
     }
 
@@ -261,7 +261,7 @@ public class JobController {
 
     /** 申请线程所在的 Session；没有申请线程时用发现它的 Session。 */
     private String sessionOf(Job job) {
-        String session = applications.run(job.id()).map(AgentRun::session).orElse(job.discoveredIn());
+        String session = threads.run(job.id()).map(AgentRun::session).orElse(job.discoveredIn());
         if (session == null) {
             throw new ApplicationException.Conflict("Job " + job.id() + " 没有记录所在的 Session");
         }

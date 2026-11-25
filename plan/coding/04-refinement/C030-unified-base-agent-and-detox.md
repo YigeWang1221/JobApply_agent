@@ -1,7 +1,7 @@
 # C030 · 统一 Base Agent 运行时与安全排毒（Phase 1）
 
 - 对应 Master：[agent-runtime.md](../../master/agent-runtime.md)、[architecture.md](../../master/architecture.md)、[workflow.md](../../master/workflow.md)、[memory.md](../../master/memory.md)、[tracking.md](../../master/tracking.md)、[ui.md](../../master/ui.md)
-- 状态：**进行中（Slice 0 已施工，Slice 1–6 待确认后按切片施工）**
+- 状态：**Slice 0–6 已施工（2026-11-25，多 Agent），等用户在本机用真实 Chrome + 真实模型试**
 - 日期：2026-11-25
 - 参考材料（非施工依据）：[research-agent-platform.md](../../reference/research-agent-platform.md)、[plan-A-java.md](../../reference/agent-platform/plan-A-java.md)
 
@@ -189,3 +189,56 @@ Subagent 采用 **Depth=2/3 单向树**（仅父向子单向委托，不可反�
   - `backend/` 下在 JDK 25（`/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home`）执行 `mvn -B -f backend/pom.xml clean verify`：退出码 `0`，`BUILD SUCCESS`（耗时 `01:13 min`）；surefire `Tests run: 566, Failures: 0, Errors: 0, Skipped: 0`（瘦身前 668）；failsafe `Tests run: 1, Failures: 0, Errors: 0, Skipped: 0`（`MemoryLedgerScenarioIT`）。
   - 文档内链检查 `BROKEN: 0`；`git status` 确认 `storage/` 无任何变更。
   - 前端 `npm run build`、真实 Chrome 端到端试跑：未运行（Slice 0 未改前端与浏览器运行链路；Slice 1–6 待用户确认后实施）。
+  - 测试数更正（2026-11-25 审查核对）：上面写的 surefire 566 与 HEAD 不符，按源码静态计数 HEAD 约 546。
+
+---
+
+## Slice 1–6 施工记录（2026-11-25，多 Agent）
+
+施工方式：主会话协调，子 Agent 施工。Slice 1（独立 worktree）与 Slice 2+3 并行，其后 4 → 5 → 6 顺序，一轮独立审查，审查的小问题一次修完。均未提交。
+
+### Slice 1：领域状态
+- `PrepState` 收成 5 个：`preparing`、`needs_input`、`awaiting_review`、`paused`、`failed`。`PrepState.fromStorage()` 映射旧值：`selected`→`preparing`；`needs_login`、`handoff_user`→`needs_input`；`user_submitting`、`verification_pending`、`unconfirmed`→`awaiting_review`。下次更新时写成新值。
+- 状态机：Convert 从 `preparing` 开始；MarkApplied 任何 prep 状态都可（只看证据）；`JobLedger.markSubmitted` 直接到 applied。`JobBucket.WAITING` = `needs_input` 或 `failed`。
+- `Outcome.NOT_SUBMITTED` 保留；`Job.extra` 原本已能往返，未改。
+- `Phase.applySegment` / `JobStatus.applySegment()`：无 phase 或 prep → apply Mode，applied 及之后 → followup Mode。
+- 夹具测试 `JobLedgerTest.oldFormatJobFilesLoadAndRoundTrip`（旧 prep 值、NOT_SUBMITTED、未知字段）。
+
+### Slice 2+3：ToolRegistry、唯一循环核、PluginChain、Mode
+- 删除 `AgentLoop`、`HarnessLoop`、`SessionLoop`、`FollowupLoop`、`ReadOnlyTab`、`ToolArgs`、`ApplyAgent`、`ResearchAgent`、`FollowupAgent` 和 5 个 `DefinitionOnly`。
+- `harness/runtime/AgentLoopEngine`（唯一循环）+ `Loop`、`LoopEvent`、`LoopEnd`、`RunControl`、`ToolRegistry`、`ToolBox`。
+- `harness/plugins/`：`Plugin`（`prompt`、`tools`、`context`、`response`、`toolBefore`、`toolAfter`、`on`）、`PluginChain`；标准插件 `ApplicationStatePlugin`、`PageElisionPlugin`、`LoopReminderPlugin`、`JobPagePlugin`、`ConversationEndingPlugin`、`OldResultsPlugin`、`ResearchContextPlugin`、`FollowupContextPlugin`、`LimitNotePlugin`。
+- `tools/`：`Tool`、`ToolInput`、`ToolOutcome`、`RunContext`、`AgentServices`、`Workbench`；工具组 `BrowserFillTools`、`BrowserReadTools`、`ControlTools`、`ResearchTools`、`FollowupTools`、`WorkbenchTools`、`ExperienceTools`。
+- `agents/BaseAgent`、`agents/Modes`；`resources/modes/{session,apply,followup}.md`（frontmatter：工具组、`allow-tools`、插件、`subagents`、上限、skill 范围；正文为提示词，与旧类逐字一致）。
+- 硬提交守卫、`FieldClassGuard`、`{KEY}` 替换（`withRealValues`）、`SnapshotRedactor` 全在 `BrowserFillTools` 内；回车 / 空格 / `submit:true` 拦截仍在 `BrowserToolPolicy`。
+
+### Slice 4：统一 Job 线程
+- `workflow/JobThreadService`（原 `ApplicationRunner`，并入 `FollowupRunner` 的单 Job 部分）：一个 Worker 池、一张运行表、每个 Job 最多一个在跑的运行。`reply()` 是用户消息唯一入口，在跑时进 Inbox（steer）。Mode 只看 `job.md` phase，`/application/reply` 与 `/followup/messages` 走同一路。
+- `persistence/JobThreadStore`（取代 `AgentRunStore`、`FollowupRepository`）：路径不变（`runs/<job>.json`、`jobs/<id>/followup/`），每个运行文件一把锁（静态 map），JSON 解析在锁外。
+- 附件双路径：当前段目录为主、另一段为后备。
+- `workflow/StatusCheckBatch`（原 `FollowupRunner`）只做批量查状态协调，批末 `openForUser` 照旧。
+
+### Slice 5：Subagent
+- `agents/SubagentExecutor`：Session 深度 0，Job 线程深度 1，子运行深度 2（`MAX_DEPTH = 2`，深度 2 没有 `delegate`）。父 Mode 只能派给自己 `subagents:` 列出的子 Mode。子运行 TabOwner `sub:<subRunId>`，`finally` 里 `browser.release(owner)` 关自己的页；继承父的停止和调用上限，不继承用户 Inbox。
+- 记录在 `projects/<project-id>/subruns/<subId>.json`（`domain/SubRun`、`persistence/SubRunStore`），不进父对话。
+- `delegate {mode, task, job?}`，父只拿回「子任务 <mode>（<subId>）做完了/停下了/出错了：<结果>」，截到 3000 字。
+- 子 Mode：`web-research`（A1/A2，`add_lead` 绑定 Project + 根 Session，当场写台账）、`reflect`（`read_apply_record` 读脱敏记录，经 `remember` 沉淀；何时派由模型按提示词判断）、`portal-check`（查状态改为子运行，不进后续对话）、`resume-match`、`interview-prep`。
+
+### Slice 6：API 与界面
+- `api/SubRunController`：`GET /api/sessions/{id}/subruns`、`GET /api/jobs/{id}/subruns`、`GET /api/projects/{project}/subruns/{subId}`。SSE `subrun` 事件带子运行内容（不含步骤）。
+- 工作台能停自己那次查状态（已有的 `POST /api/status-checks/stop {jobIds:[id]}`）。
+- 前端：5 个准备状态标签（`needs_input` 显示「等你处理」）；`chat/SubRuns.tsx` 子任务折叠卡；工作台查状态栏下显示最近一次 portal-check；Project 页并入 Dashboard（删除 `pages/ProjectPage.tsx`，旧 `#/project/<id>` 链接跳到 Dashboard）。
+
+### 审查（一轮）与修正
+- 结论：两条底线完整，旧 `storage/` 能读，无死锁或丢更新。
+- 修正的小问题：单个查状态在后台线程失败时只记日志（改为同步报错 / 显示在查状态状态里）；`SubRunStore.list` 每次全量解析带步骤的文件；Session 里 `delegate` 漏了 `job` 时直接开跑然后出错（改为立即返回工具错误）。修正结果见 `dev-log.md`。
+- 有意保留：旧的 `user_submitting` / `verification_pending` / `unconfirmed` Job 映射成「等你审阅」后可以重新开始，需要用户再点一次「我已经提交了」。
+
+### 与 Master Plan 的出入（待用户确认是否回写）
+- Master 写 Depth=2/3；实现为最深 2 层（Session 0 → Job 线程 1 → 子运行 2）。
+- Master 写统一 `thread.jsonl`；实现沿用原来的 `runs/<job>.json` 和 `followup/` 路径，不迁移。
+- Master 写 `SessionService`、`SegmentBoundary`、`SubagentExecutor` 在 `workflow/`；实现保留 `SessionRunner`，Mode 切换直接用 `applySegment`，`SubagentExecutor` 在 `agents/`。
+
+### 已知未做
+- 有查状态在跑时侧栏工作台没有提示点；同时选中「Dashboard」和某个 Project 时两行都高亮；深度 2 的子运行只在父卡片里显示。
+- 真实 Chrome + 真实模型端到端：未运行（等用户）。

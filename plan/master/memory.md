@@ -78,7 +78,7 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 ├── review/                           # 复盘（跨 Project，按人汇总），详见 tracking.md
 │   ├── questions.md                  # 生成：常考题库（按主题、出现次数）
 │   ├── companies/<company>.md        # 生成：某公司历次各轮问过什么
-│   └── lessons.md                    # 经验总结（候选经用户确认后写入）
+│   └── lessons.md                    # 经验总结（由 Agent 直接维护或由 reflect 子 Agent 沉淀）
 │
 ├── playbook/                         # 流程记忆（跨 Project 共享，和个人侧重无关）；按「它是什么」组织，不按站点（用户确认，2026-10-22）
 │   ├── skills/                       # 格式兼容 Hermes / agentskills（见 research-hermes.md §5）；上下文里只放名字和描述，需要时读正文
@@ -90,7 +90,7 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 ├── jobs-index.md                     # 生成：所有 Project 的岗位与申请总台账（防止跨 Project 重复投递）
 ├── settings/                         # 应用设置，见 ui.md「模型设置」
 │   ├── models.yaml                   # 模型供应商、接口格式、Base URL、模型名、用途分配；只写 key 的变量名
-│   └── .env                          # API key（用户确认：保存在本地 .env）；权限 600，开发代理不读
+│   └── .env                          # API key（保存在本地 .env，底线见 dev-limit.md）
 ├── browser/sites.md                  # 站点登录登记（全局，因为浏览器只有一个）
 ├── uploads/                          # MCP 允许读取的上传暂存区（等字节副本）
 ├── model/RAG/                        # C022：本地 ONNX 嵌入模型（multilingual-e5-small），第一次用时下载

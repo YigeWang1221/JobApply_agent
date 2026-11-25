@@ -104,7 +104,7 @@ DeepSeek 模型（OpenAI 格式、模型名含 `deepseek`）在用途分配里�
 
 ### 密钥存放（用户已确认，2026-10-22：本地 `.env`）
 
-- API key 保存在本地 `storage/settings/.env`（后端在设置页保存时写入并设权限 600，页面只显示末四位）；`settings/models.yaml` 里只写占位符 `${变量名}`（`base_url` 也可使用占位符），程序运行时从 `.env` 或进程环境变量解析填进请求。
+- API key 保存在本地 `storage/settings/.env`（设置页保存写入，页面只显示末四位）；`settings/models.yaml` 里只写占位符 `${变量名}`（`base_url` 也可使用占位符），程序运行时从 `.env` 或进程环境变量解析填进请求。
 - 提供方可以带**自定义请求头**（设置页「高级」里的键 / 值表，C025）：值支持 `${变量名}`，勾选「密钥」的值同样写进 `.env`，`models.yaml` 里只留占位符 `${<提供方>_HEADER_<名字>}`。
 - 秘密文件读写与防外泄底线见 `dev-limit.md`。
 

@@ -2,9 +2,9 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 
 // 主区域显示什么，记在 location.hash 里（不加路由库）：刷新、前进后退都能回到同一页
 export type Route =
-  // Dashboard（C006-fix 全局 Dashboard）：project 是下拉框选中的那个；不带时页面自己选
+  // Project / Dashboard 合并视图（C030 IA）：project 是下拉框选中的那个；不带时页面自己选。
+  // 旧的 #/project/<id> 链接也落到这里
   | { kind: "global"; project?: string }
-  | { kind: "project"; id: string }
   | { kind: "session"; id: string }
   | { kind: "job"; id: string }
   | { kind: "settings"; tab: "models" | "profile" };
@@ -13,12 +13,12 @@ export function parseRoute(hash: string): Route {
   const [kind, raw] = hash.replace(/^#\/?/, "").split("/");
   const id = raw ? decodeURIComponent(raw) : "";
   switch (kind) {
-    case "project":
     case "session":
     case "job":
       return id ? { kind, id } : { kind: "global" };
     case "settings":
       return { kind: "settings", tab: id === "profile" ? "profile" : "models" };
+    case "project":
     case "global":
       return id ? { kind: "global", project: id } : { kind: "global" };
     default:

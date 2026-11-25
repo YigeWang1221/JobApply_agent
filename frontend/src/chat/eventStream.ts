@@ -1,10 +1,10 @@
-import type { Activity, BrowserState } from "../api";
+import type { Activity, BrowserState, SubRunView } from "../api";
 
 // 应用级事件流（C006-fix 第 1 节）：GET /api/events（全局）、?session=、?job=。
 // 同一个地址只开一条 EventSource，订阅的人都退出了才关。浏览器自己会带 Last-Event-ID 重连；
 // 只有连接被判定为关死（例如后端没起来时代理回了 5xx）才由这里过几秒重新建一条，新连接收到 caught_up 时页面整页重读。
-// browser（浏览器连接状态变了）只在全局流里
-export const EVENT_NAMES = ["activity", "step", "message", "status", "changed", "browser", "caught_up", "reset"] as const;
+// browser（浏览器连接状态变了）只在全局流里；subrun 是 Subagent 开始 / 结束（C030，payload 不带步骤）
+export const EVENT_NAMES = ["activity", "step", "message", "status", "changed", "browser", "subrun", "caught_up", "reset"] as const;
 export type EventName = (typeof EVENT_NAMES)[number];
 
 export interface LiveEvent {
@@ -13,6 +13,7 @@ export interface LiveEvent {
   job?: string | null;
   activity?: Activity | null;
   browser?: BrowserState | null;
+  subrun?: SubRunView | null;
 }
 
 export type Connection = "open" | "connecting";

@@ -4,7 +4,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import jobapply.config.StorageLocation;
-import jobapply.workflow.ApplicationRunner;
+import jobapply.workflow.JobThreadService;
 import jobapply.workflow.SessionRunner;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -32,10 +32,10 @@ public class AppStorageController {
     }
 
     private final StorageLocation location;
-    private final ApplicationRunner applications;
+    private final JobThreadService applications;
     private final SessionRunner sessions;
 
-    public AppStorageController(StorageLocation location, ApplicationRunner applications, SessionRunner sessions) {
+    public AppStorageController(StorageLocation location, JobThreadService applications, SessionRunner sessions) {
         this.location = location;
         this.applications = applications;
         this.sessions = sessions;

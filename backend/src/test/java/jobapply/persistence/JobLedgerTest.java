@@ -15,6 +15,7 @@ import jobapply.domain.Job;
 import jobapply.domain.JobEvent;
 import jobapply.domain.JobPosting;
 import jobapply.domain.LeadStatus;
+import jobapply.domain.Outcome;
 import jobapply.domain.Phase;
 import jobapply.domain.PrepState;
 import jobapply.domain.Transition;
@@ -129,10 +130,10 @@ class JobLedgerTest {
             Job converted = ledger.transition(PROJECT, chosen.id(), session, Actor.USER, new Transition.Convert());
 
             assertThat(converted.status().phase()).isEqualTo(Phase.PREP);
-            assertThat(converted.status().prepState()).isEqualTo(PrepState.SELECTED);
+            assertThat(converted.status().prepState()).isEqualTo(PrepState.PREPARING);
             Map<String, Object> fm = FrontmatterFile.read(storage.layout.jobFile(PROJECT, chosen.id())).frontmatter();
             assertThat(fm).containsEntry("lead_status", "converted").containsEntry("phase", "prep")
-                    .containsEntry("prep_state", "selected");
+                    .containsEntry("prep_state", "preparing");
             assertThat(storage.read(storage.layout.trackerDir(PROJECT).resolve("leads.md"))).contains("城市不合适");
         }
 
@@ -179,9 +180,7 @@ class JobLedgerTest {
                     new LinkedHashMap<>(Map.of("qualification", Map.of("text", "学历要求原文（虚构）")))));
 
             for (Transition step : List.of(new Transition.MarkLead(LeadStatus.SHORTLISTED, null), new Transition.Convert(),
-                    new Transition.ChangePrepState(PrepState.PREPARING),
                     new Transition.ChangePrepState(PrepState.AWAITING_REVIEW),
-                    new Transition.ChangePrepState(PrepState.USER_SUBMITTING),
                     new Transition.MarkApplied(EVIDENCE))) {
                 ledger.transition(PROJECT, job.id(), session, Actor.USER, step);
             }
@@ -192,6 +191,43 @@ class JobLedgerTest {
             assertThat(evidence(fm)).containsEntry("qualification", Map.of("text", "学历要求原文（虚构）"));
             assertThat(submitted(fm)).containsEntry("kind", "success-page")
                     .containsEntry("screenshot", "uploads/success.png");
+        }
+
+        /** C030 之前写下的 job.md：旧的细粒度 prep_state、旧结局 not_submitted、手工加的未知键，读回、更新、写回都不丢。 */
+        @Test
+        void oldFormatJobFilesLoadAndRoundTrip() {
+            Job open = ledger.addLead(PROJECT, session, Actor.AGENT, TestStorage.posting("示例公司甲", "JD-001"), null);
+            Job closed = ledger.addLead(PROJECT, session, Actor.AGENT, TestStorage.posting("示例公司乙", "JD-002"), null);
+            Path openFile = storage.layout.jobFile(PROJECT, open.id());
+            editFrontmatter(openFile, fm -> {
+                fm.put("lead_status", "converted");
+                fm.put("phase", "prep");
+                fm.put("prep_state", "needs_login");
+                fm.put("legacy_flag", Map.of("kept", true));
+                fm.put("next_action", "等用户登录");
+            });
+            editFrontmatter(storage.layout.jobFile(PROJECT, closed.id()), fm -> {
+                fm.put("lead_status", "converted");
+                fm.put("phase", "closed");
+                fm.put("outcome", "not_submitted");
+            });
+            JobRepository jobs = new JobRepository(storage.layout);
+
+            assertThat(jobs.load(PROJECT, open.id()).status().prepState()).isEqualTo(PrepState.NEEDS_INPUT);
+            assertThat(jobs.load(PROJECT, closed.id()).status().outcome()).isEqualTo(Outcome.NOT_SUBMITTED);
+            for (String old : List.of("selected", "handoff_user", "user_submitting", "verification_pending",
+                    "unconfirmed")) {
+                editFrontmatter(openFile, fm -> fm.put("prep_state", old));
+                assertThat(jobs.load(PROJECT, open.id()).status().phase()).isEqualTo(Phase.PREP);
+            }
+
+            editFrontmatter(openFile, fm -> fm.put("prep_state", "needs_login"));
+            ledger.transition(PROJECT, open.id(), session, Actor.AGENT, new Transition.ChangePrepState(PrepState.PREPARING));
+
+            Map<String, Object> fm = FrontmatterFile.read(openFile).frontmatter();
+            assertThat(fm).containsEntry("prep_state", "preparing")
+                    .containsEntry("legacy_flag", Map.of("kept", true))
+                    .containsEntry("next_action", "等用户登录");
         }
 
         @Test
@@ -286,15 +322,13 @@ class JobLedgerTest {
             JobLedger ledger = storage.ledger();
             Job job = ledger.addLead(PROJECT, session, Actor.AGENT, TestStorage.posting("示例公司甲", "JD-001"), null);
             ledger.transition(PROJECT, job.id(), session, Actor.USER, new Transition.Convert());
-            ledger.transition(PROJECT, job.id(), session, Actor.AGENT,
-                    new Transition.ChangePrepState(PrepState.PREPARING));
 
             Map<String, String> before = storage.snapshot();
 
             assertThatThrownBy(() -> ledger.transition(PROJECT, job.id(), session, Actor.AGENT,
                     new Transition.MarkApplied(null))).isInstanceOf(IllegalTransitionException.class);
             assertThatThrownBy(() -> ledger.transition(PROJECT, job.id(), session, Actor.AGENT,
-                    new Transition.ChangePrepState(PrepState.USER_SUBMITTING)))
+                    new Transition.ChangePrepState(PrepState.PREPARING)))
                     .isInstanceOf(IllegalTransitionException.class);
             assertThatThrownBy(() -> ledger.transition(PROJECT, job.id(), session, Actor.AGENT,
                     new Transition.Convert())).isInstanceOf(IllegalTransitionException.class);
@@ -317,12 +351,10 @@ class JobLedgerTest {
             JobLedger ledger = storage.ledger();
 
             Job job = ledger.addLead(PROJECT, session, Actor.AGENT, TestStorage.posting("示例公司甲", "JD-001"), null);
-            ledger.transition(PROJECT, job.id(), session, Actor.USER, new Transition.Convert());
-            Job preparing = ledger.transition(PROJECT, job.id(), session, Actor.AGENT,
-                    new Transition.ChangePrepState(PrepState.PREPARING));
+            Job preparing = ledger.transition(PROJECT, job.id(), session, Actor.USER, new Transition.Convert());
 
             assertThat(preparing.status().phase()).isEqualTo(Phase.PREP);
-            assertThat(ledger.events(PROJECT, job.id())).hasSize(3);
+            assertThat(ledger.events(PROJECT, job.id())).hasSize(2);
             assertThat(storage.read(storage.layout.trackerDir(PROJECT).resolve("applications.md")))
                     .contains("prep · preparing");
             assertThat(storage.read(storage.layout.jobsIndex())).contains("示例公司甲");

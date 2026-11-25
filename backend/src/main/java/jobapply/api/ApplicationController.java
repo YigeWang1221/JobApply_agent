@@ -4,7 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import jobapply.workflow.ApplicationException;
-import jobapply.workflow.ApplicationRunner;
+import jobapply.workflow.JobThreadService;
 import jobapply.workflow.ApplicationStatus;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
@@ -47,9 +47,9 @@ public class ApplicationController {
 
     static final MediaType MARKDOWN = new MediaType("text", "markdown", StandardCharsets.UTF_8);
 
-    private final ApplicationRunner runner;
+    private final JobThreadService runner;
 
-    public ApplicationController(ApplicationRunner runner) {
+    public ApplicationController(JobThreadService runner) {
         this.runner = runner;
     }
 
@@ -69,11 +69,14 @@ public class ApplicationController {
     @PostMapping(path = "/application/reply", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<ApplicationStatus> reply(@PathVariable String jobId, @RequestBody ReplyRequest request) {
         require(request.session(), "session");
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(runner.reply(jobId, new ApplicationRunner.Reply(
-                request.session(), request.text(), request.answers(), request.files(), request.attachments())));
+        // 回复交给这个 Job 的线程：投递段还是后续段只看 job.md 的 phase（C030）；返回投递段的状态，没有投递段时 404
+        runner.status(jobId);
+        runner.reply(jobId, new JobThreadService.Reply(
+                request.session(), request.text(), request.answers(), request.files(), request.attachments()));
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(runner.status(jobId));
     }
 
-    /** 上传一个附件（C006 附件），存进 {@code uploads/<job-id>/attachments/}；回复时带上返回的 {@code id}。没有申请线程时 404。 */
+    /** 上传一个附件（C006 附件），按 phase 存进这一段的附件目录（投递段 {@code uploads/<job-id>/attachments/}）；回复时带上返回的 {@code id}。Job 不存在时 404。 */
     @PostMapping(path = "/application/attachments", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<Views.UploadedAttachment> attach(@PathVariable String jobId,
                                                            @RequestParam("file") MultipartFile file) {
@@ -90,7 +93,9 @@ public class ApplicationController {
 
     @PostMapping("/application/stop")
     public ApplicationStatus stop(@PathVariable String jobId) {
-        return runner.stop(jobId);
+        runner.status(jobId);
+        runner.stop(jobId);
+        return runner.status(jobId);
     }
 
     /** 填写报告的 Markdown（草稿或定稿）；没有申请线程、还没有报告时 404。 */
@@ -102,7 +107,7 @@ public class ApplicationController {
     }
 
     @DeleteMapping("/workspace")
-    public ApplicationRunner.Discarded discardWorkspace(
+    public JobThreadService.Discarded discardWorkspace(
             @PathVariable String jobId,
             @RequestBody(required = false) DiscardRequest request) {
         boolean deleteJob = request != null && Boolean.TRUE.equals(request.deleteJob());
