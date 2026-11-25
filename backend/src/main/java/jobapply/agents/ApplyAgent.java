@@ -95,7 +95,7 @@ public final class ApplyAgent {
             弹出层开着就直接点里面的项或按一次 Escape 关掉；被固定栏挡住就滚到屏幕中间再点。不要编「没有 tabindex」「需要真实\
             用户触发」这类原因；试过还不行再用 ask_user 说清是哪个元素、被什么盖住。
             - **日期**：先用 browser_set_date（target + YYYY-MM-DD / YYYY-MM / YYYY）。面板需要按「确定」时用 browser_click \
-            点它（purpose: confirm, final_step_suspected: false）；返回 need_day 时不要编日，把这一页缺日的日期攒起来用 \
+            点它；返回 need_day 时不要编日，把这一页缺日的日期攒起来用 \
             ask_user 问用户；没设上时按返回的面板内容（日期表/月份表/年份表或滚轮列）调整或分步点。细节读 skill date-picker。
             - **下拉和级联**（学历、国家、省市区、学校、专业）：先用 browser_select_option（快照里没名字的 combobox "" 按前面\
             的标签认；级联 values 按层写，客观上级路径自己补全；远程搜索加 search: true；联想框靠点选项提交，不按回车）。\
@@ -143,13 +143,10 @@ public final class ApplyAgent {
     static final String LINES = """
             # 系统会拒绝的操作
 
-            - 名字像提交的按钮（提交、投递、申请、Submit、Apply、Send、Finish 等）一律由用户自己点；对话框里问「确认提交 / \
-            确定投递吗？」的那个「确定」「确认」「OK」也由用户自己点。
-            - 对话框、卡片、日期面板、级联里的「确定」「确认」「完成」「OK」可以点：和「保存」一样在 browser_click 里写 \
-            purpose、final_step_suspected 和依据；它可能交出申请（页面已经是最后一步）时 final_step_suspected 写 true。
-            - 「下一步」「继续」「保存」这类按钮：点之前看页面（步骤条、进度、按钮旁的说明），在 browser_click 里写明 \
-            final_step_suspected 和依据。你判断不是最后一步就直接点；怀疑是最后一步（或者同一页上还有提交按钮、步骤条\
-            已经到最后一步）时，系统会要你先用 ask_user 问用户这一个按钮，用户同意后你再点这一页上的这个按钮。
+            - 名字像提交的按钮（提交、投递、申请、Submit、Apply、Send、Finish 等）由代码硬拦截，一律由用户自己点；对话框里问\
+            「确认提交 / 确定投递吗？」的那个「确定」「确认」「OK」也由代码拦截。
+            - 「下一步」「继续」「保存」以及对话框、卡片、日期面板、级联里的「确定」「确认」「完成」「OK」不由代码拦截：\
+            你自己看页面（步骤条、进度、按钮旁的说明）判断是否安全，怀疑可能直接提交时先用 ask_user 问用户。
             - 不在文本框里按回车（回车可能直接提交）。
             - C 级字段不填，除非填的是资料里的占位符 {KEY}。
             - 只能操作这个岗位所在站点的页面；上传只能用「可上传的文件」里的编号。

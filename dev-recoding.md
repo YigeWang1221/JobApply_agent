@@ -973,3 +973,13 @@
 - 「没找到状态信息」按 `not_found` 算；跑出错、被停下、没记结果的不进清单。
 
 未决：用户中途停下批量时，已查完里要登录 / 没找到的也会在结束时打开，暂按这样。
+
+## 2026-11-25 · C030 Slice 0：安全排毒与单 Base Agent + Depth=2/3 Subagent 总设计收口
+
+- 原意：用户在审视整个项目后指出三件事：（1）三个垂直拆分的 Agent（调研/整理、申请、后续）维护成本高，改一处要改三处，希望收敛成「1 个 Base Agent + Plugin / Skill / Mode 切换」+「Depth=2/3、单向传递、受控回传的 Subagent 树」，且一次性完成 Phase 1 骨架与状态/工作台瘦身以免后续偏离；（2）历史文档与测试代码里安全措辞过重（占比高、过时规则未删、安全测试成为模仿样本），诱导编码代理反复做安全实验；（3）工作分支由用户决定，文档不写死分支名。
+- 取舍：
+  - **先排毒再重构（Slice 0）**：把 `dev-limit.md` 收束到 4 条真底线并删掉「未写入放宽一律禁止」的默认拒绝条款；在 `AGENTS.md` 显式写明「不主动新增防御守卫、输入净化层或安全/负向测试」；同步清掉早已停用的 `GuardDecision.AskUser/Explain`、`SubmitGuard.Approval` 和死代码 `SiteNotes.confirmedButtons`，避免后续 Slice 1–6 重构 `HarnessLoop` 时把死守卫一并搬过去。
+  - **测试瘦身守住真底线**：删掉反射检查、`@AfterEach` 响应体扫描、`Origin` 403、Posix `rw-------`/`---------` 权限、CSV `=SUM(1)` 注入和大量路径穿越模糊测试（566 vs 原 668），但完整保留硬提交守卫与 `FieldClassGuardTest` / `SnapshotRedactorTest` / `PersonalPlaceholderTest`（验证 `{KEY}` 占位符仅在填表时替换）。
+  - **Subagent 分情况回传矩阵**：区分「写共享台账 + SSE 直推 UI」与「向上级 Agent 回传精简上下文包」——`web-research` 直接持绑定 `projectId + rootSessionId` 的 `add_lead` 当场写 `JobLedger` 让岗位实时进右栏和候选池；`apply` 提交或失败后由轻量 Depth-2 `reflect` Subagent 仅读脱敏的 `run-log.jsonl`、`fill-report.md`、`ApplicationState.notes`，在有摩擦信号时静默更新站点/公司/Skill 记忆，避免几十轮 DOM 快照污染总结与后续面试对话。
+  - **工作分支不写死**：撤回最初草稿里写的 `phase1-unified-runtime` 及 `C30-plugins` 硬编码，约定在用户当前所在分支按 Slice 1–6 推进。
+- 未决：用户审阅 [C030-unified-base-agent-and-detox.md](plan/coding/04-refinement/C030-unified-base-agent-and-detox.md) 后确认启动 Slice 1–6 施工；Phase 2（用量/压缩/流式/Skill 导入 UI）与 Phase 3（SQLite FTS5 替代 ONNX RAG、薄层 Node Playwright Bridge）排在 Phase 1 之后。

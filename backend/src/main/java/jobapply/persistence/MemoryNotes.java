@@ -52,7 +52,6 @@ public final class MemoryNotes {
         Map<String, Object> frontmatter = new LinkedHashMap<>();
         frontmatter.put(SiteNotes.HOST, host);
         frontmatter.put(SiteNotes.PLATFORM, "");
-        frontmatter.put(SiteNotes.CONFIRMED_BUTTONS, new ArrayList<>());
         return edit(layout.playbookSite(host), frontmatter, "# 观察记录", action, text, oldText);
     }
 

@@ -1,7 +1,6 @@
 package jobapply.tools;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -47,14 +46,5 @@ class DirectoryBrowserTest {
         assertThat(browser.list("文件来自于「" + home.resolve("projects") + "」").directories())
                 .extracting(DirectoryBrowser.Entry::name).containsExactly("demo");
         assertThat(browser.list(home.resolve("storage/base").toString()).registrable()).isFalse();
-    }
-
-    @Test
-    void badPathsAreRefused() {
-        DirectoryBrowser browser = new DirectoryBrowser(temp.resolve("storage"));
-        assertThatThrownBy(() -> browser.list("relative/dir")).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> browser.list(temp.resolve("missing").toString()))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThat(browser.list(null).path()).isNotBlank();
     }
 }

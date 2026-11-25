@@ -103,10 +103,4 @@ class SourceControllerTest {
         assertThat(response.status()).isEqualTo(429);
         assertThat(response.get("error")).asString().contains("额度用完");
     }
-
-    @Test
-    void webPagesThatAreNotOurFrontendAre403() {
-        assertThat(api.get("/api/sources", "Origin", "https://evil.example.com").status()).isEqualTo(403);
-        assertThat(api.get("/api/sources", "Origin", "http://127.0.0.1:5173").status()).isEqualTo(200);
-    }
 }

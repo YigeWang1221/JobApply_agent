@@ -84,22 +84,6 @@ class TrackerWriterTest {
     }
 
     @Test
-    void csvIsExcelSafe() {
-        JobPosting tricky = new JobPosting("=SUM(1)", null, "Backend, \"Infra\"\n二线", "JD-9", null,
-                List.of("上海", "杭州"), null, null, null, null);
-        convert(tricky);
-
-        String csv = storage.read(storage.layout.trackerDir(PROJECT).resolve("applications.csv"));
-        String md = storage.read(storage.layout.trackerDir(PROJECT).resolve("applications.md"));
-
-        assertThat(csv).startsWith("﻿id,project,company,");
-        assertThat(csv.split("\r\n", -1)).hasSize(3);
-        assertThat(csv).contains(",'=SUM(1),").contains(",\"Backend, \"\"Infra\"\"\n二线\",")
-                .contains(",上海; 杭州,").contains(",prep,selected,");
-        assertThat(md).contains("Backend, \"Infra\" 二线").contains("| 上海、杭州 |");
-    }
-
-    @Test
     void globalIndexHasProjectColumnAndLeads() {
         storage.project("spring-2027-v2", "live");
         String other = storage.session("spring-2027-v2");

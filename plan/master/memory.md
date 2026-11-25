@@ -33,7 +33,7 @@
 - 关系：Project 1─N Job，Project 1─N Session，Session N─N Job（通过事件日志里的 `session` 字段关联），Company 1─N Job。
 - **Session 的类型不需要预先选**。系统根据 Session 里实际发生的事自动打标签：`research`（新增了候选）、`apply`（推进了申请）、`review`（记录了轮次或复盘），可以同时有多个标签。
 - **跨 Session 接力**：每个 Session 结束时生成一段交接摘要，例如「本次调研出 12 个候选，投了 2 个，另有 1 个停在关卡 B」。新开 Session 时，Agent 先读候选池和未完成的事项，主动提出「下一家投什么」。
-- **申请流程的 Checkpoint 按 Job 存，不按 Session 存**：线程 id 是 job id。一个申请可以在 Session A 里填到一半，停在关卡 B，再到 Session B 里继续。
+- **申请与后续共用统一 Job Thread**：线程 id 是 job id，由 `JobThreadStore` 统一存盘到 `jobs/<job-id>/thread.jsonl`（兼容读取旧 `runs/<job-id>.json` 与 `followup/transcript.jsonl`）。一个申请可以在 Session A 里填到一半，停在关卡 B，再到工作台或另一个 Session 里继续，投递后同一线程通过 `SegmentBoundary` 切换为 `followup` Mode。
 - **Project 命名**：Project 代表「资料版本 + 偏好」，不代表岗位类别，里面的岗位不必和名字一致。建议用资料版本来命名，例如「2025 秋招 · 资料 v2」「2024 版 · 后端简历」。名字可以随时修改，修改不影响内部数据。
 
 ## storage 目录
@@ -68,10 +68,11 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 │   │   ├── events.jsonl              # 追加式事件；每条事件带 session 字段（C024 加 reopened：撤销投递失败 / 不投了）
 │   │   ├── run-log.jsonl             # 填写过程日志：工具、守卫结论、按钮用途、用户反馈；不记填写的值和快照全文
 │   │   ├── fill-report.md            # 关卡 B 的填写报告
-│   │   └── followup/                 # C022：工作台后续段的对话（和投递段 AgentRun 分开存）
+│   │   └── thread.jsonl              # C030：统一 Job Thread（含 apply → SegmentBoundary → followup；JobThreadStore 兼容读取旧 runs/<job-id>.json 与 followup/transcript.jsonl）
 │   ├── sessions/<session-id>/        # 一次对话：调研 / 投递 / 复盘的任意组合
 │   │   ├── session.md                # 标题、自动标签、涉及的 job 列表、结束时的交接摘要
 │   │   └── transcript.jsonl          # 对话原文（不压缩，可追溯）
+│   ├── subruns/<subId>.json          # C030：Depth=2/3 Subagent 独立运行记录与精简回传摘要
 │   └── tracker/                      # 生成：leads / applications / rounds 各一组 md + csv，以及 dashboard.md 快照
 │
 ├── review/                           # 复盘（跨 Project，按人汇总），详见 tracking.md
@@ -84,7 +85,7 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 │   │   ├── apply-form/SKILL.md       # 通用：读快照、多页表单、保存并回读、按钮用途怎么判断
 │   │   ├── components/<name>/SKILL.md  # 按 UI 组件：级联城市、日期、只读下拉、上传、简历解析校正……任何公司官网都能用
 │   │   └── platforms/<name>/SKILL.md   # 按招聘系统：Moka、飞书、Workday……观察到再加
-│   └── sites/<host>.md               # 不是 skill：平台猜测、用户确认过的软边界按钮、观察记录
+│   └── sites/<host>.md               # 不是 skill：平台猜测、站点观察记录
 ├── companies/<company>.md            # 公司记忆（跨 Project 共享）：招聘项目、额度规则及证据、已用额度、账号标识、排除原因
 ├── jobs-index.md                     # 生成：所有 Project 的岗位与申请总台账（防止跨 Project 重复投递）
 ├── settings/                         # 应用设置，见 ui.md「模型设置」
@@ -94,8 +95,7 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 ├── uploads/                          # MCP 允许读取的上传暂存区（等字节副本）
 ├── model/RAG/                        # C022：本地 ONNX 嵌入模型（multilingual-e5-small），第一次用时下载
 ├── cache/                            # 可以随时删除：rag/（经验检索的向量索引，可重建）、lead-groups.json（候选池公司名 / 地点归并映射，可删除重建）、web/（抽取结果）、playwright-mcp/（MCP 输出目录，每次连接和关闭时清空）
-├── checkpoints.sqlite                # LangGraph4j 持久化 Checkpoint（sqlite-saver），按 session-id 区分
-├── index.sqlite                      # 可重建的查询索引（台账、Dashboard、题库 FTS5），删掉也能从文件重建
+├── index.sqlite                      # （Phase 3 未来扩展）可重建的查询索引（FTS5 全文检索），删掉也能从文件重建
 └── exports/                          # 全局台账的 csv（各 Project 的 csv 在各自 tracker/ 下）
 ```
 
@@ -138,11 +138,12 @@ status: active | archived
 
 ## Session 与 Job
 
-- **Checkpoint 有两类线程**，都存在 `checkpoints.sqlite`：
-  - 对话线程：thread id = session id，管这次对话；
-  - 申请线程：thread id = job id，管一个岗位的申请流程。申请可以在任何 Session 里暂停和继续。
+- **运行时线程分为三类，均以 JSON / JSONL 文件存盘**：
+  - 对话线程（thread id = session id）：存放在 `sessions/<session-id>/transcript.jsonl`，管这次对话；
+  - 统一 Job 线程（thread id = job id）：由 `JobThreadStore` 统一存放在 `jobs/<job-id>/thread.jsonl`（兼容读取旧版 `runs/<job-id>.json` 与 `followup/transcript.jsonl`），通过 `SegmentBoundary` 事件在同一线程内从 `apply` 切至 `followup` Mode；
+  - Subagent 运行记录（C030）：存放在 `projects/<project-id>/subruns/<subId>.json`，记录 Depth=2/3 子任务状态与回传摘要。
 
-  关闭应用、隔天再打开，都能从暂停点继续，这取代了旧流程里手写的「明日继续」文件。
+  关闭应用、隔天再打开，都能直接读回这些文件继续运行。
 - 对话原文完整保存在 `transcript.jsonl`。给模型的上下文可以压缩，但原文不压缩。
 - **候选池**：调研产出的岗位写成 `jobs/<job-id>/job.md`，`lead_status` 取值为 `new`（新发现）/ `shortlisted`（你标记想投）/ `skipped`（跳过，注明原因；界面上和投递失败 / 不投了一起在 Dashboard 的 Failures，C024-fix）/ `converted`（已转为申请）。生成的 `tracker/leads.md` 按公司分组，同一家公司的多个岗位排在一起，同时生成 `tracker/leads.csv`。
 - **转为申请**：你在对话里说「投澜川的这两个」，或者在候选池里勾选，对应的 Job 就从候选转为申请（`phase: prep`）。转换前先查 `jobs-index.md` 和 `companies/<company>.md`：别的 Project 是否已经投过这个岗位，这家公司的额度还剩多少（未核实就写未核实）。命中时提示你，由你决定是否继续。
@@ -268,19 +269,9 @@ Project 的 `overrides.md` 仍然覆盖第 3 层，继承规则不变（见「�
 | B 个人信息 | 姓名、手机、邮箱、照片、精确日期、地址 | base / overrides（`class: B`） | **Agent 能填的统一填完，再交给你在关卡 B 审核**（用户已确认，2026-10-22）；报告里高亮这一类字段 |
 | C 敏感 / 法律 | 证件号、工作授权、签证担保、人口统计、健康、薪资期望、法律声明 | 资料里只存占位符 `{KEY}`，真实值在用户自己维护的 `storage/settings/personal.env`（用户确认，2026-10-24，C014） | 有占位符且 personal.env 有值：Agent 填占位符，系统发给浏览器时换成真实值，模型、日志、报告只看到占位符；没有占位符的照旧由你在浏览器里亲自填写 |
 
-## Memory 写入（Agent 直接写入，用户确认，2026-10-24，C014）
+## Memory 写入（Agent 直接写入，用户确认，2026-10-24，C014；C030 补充）
 
-**2026-10-24 改**：Agent（对话和申请）发现值得留下的个人事实、站点观察、公司记忆、经验时，用 `remember` 直接写进本地 memory，不再走「候选 → 用户确认」；写了什么在回复里提一句，用户不满意就说，Agent 再改。C 级明文仍然拒绝，只能登记占位符。个人事实默认写进当前 Project。下面是原来的设计，保留作历史。
-
-
-1. Session 结束（或你回报结果）后，Agent 提出候选，分为三类：
-   - 个人事实
-   - 通用流程经验
-   - 站点观察
-2. 后端检查候选：是否重复、是否冲突、是否属于 C 级（是就丢弃），作用域是否正确。
-3. 候选**默认写回本 Project**（`candidates.md` → 你确认 → `overrides.md`）。要写进 `base/`，必须你明确同意。候选**不会横向复制到兄弟 Project**。
-4. 站点特有的事实写进 `playbook/sites/<host>.md`；可以复用的经验修补对应的组件或平台 skill，标注 `observed_count`；在 ≥2 类站点上出现过、并经你同意后，才写进通用的 `skills/apply-form`。分工见 workflow.md「流程优化的安全边界 · 谁来改什么」。
-5. storage 不做任何版本控制（用户确认，2026-10-23）。
+Agent（对话、申请与后续工作台）发现值得留下的个人事实、站点观察、公司记忆、经验时，通过 `Memory` 插件的 `remember` 直接写进本地 memory，写了什么在回复里提一句，用户不满意就说、Agent 再改。C030 投递后如出现摩擦信号，还会派生 Depth-2 `reflect` 子 Agent 读取 `run-log.jsonl` 与 `fill-report.md` 直接优化本地 Memory / Skills。C 级明文仍然拒绝写入，只能登记 `{KEY}` 占位符。个人事实默认写进当前 Project；`storage/` 不做版本控制（2026-10-23 用户确认）。
 
 ## Job 记录（`job.md` frontmatter）
 
@@ -301,7 +292,7 @@ city: [<城市>]
 url: <岗位链接>
 history_url: <官方投递历史页>
 phase: interview                      # 只在 lead_status=converted 后才有；固定阶段，由 rounds 推导，见 tracking.md
-prep_state: null                      # 只在 phase=prep 时使用：preparing / needs_input / awaiting_review …
+prep_state: null                      # 只在 phase=prep 时使用（5 态）：PREPARING / NEEDS_INPUT / AWAITING_REVIEW / PAUSED / FAILED（兼容旧值读取）
 outcome: null                         # 只在 phase=closed 时使用：accepted / rejected / withdrawn / apply_failed / gave_up …
 outcome_reason: null                  # C024：结束的原因（用户原话）；投递失败 / 不投了必填，其它结局有原因时也写
 closed_at: null                       # C024：结束的时间
@@ -345,45 +336,42 @@ blocker: <阻塞原因>
 
 | 方式 | 典型代表 | 优点 | 缺点 |
 | --- | --- | --- | --- |
-| 1. 纯 Markdown 文件 | Claude Code 的 `CLAUDE.md` 和 memory 目录、Codex 的 `AGENTS.md`、Cursor rules；你旧工作区的 PROFILE / WORK_BY_STEPS | 人和 AI 都能直接读；git 能看差异；零依赖 | 没有结构，程序难以准确更新；容易膨胀和重复（旧工作区的痛点） |
+| 1. 纯 Markdown 文件 | Claude Code 的 `CLAUDE.md` 和 memory 目录、Codex 的 `AGENTS.md`、Cursor rules；你旧工作区的 PROFILE / WORK_BY_STEPS | 人和 AI 都能直接读；零依赖 | 没有结构，程序难以准确更新；容易膨胀和重复（旧工作区的痛点） |
 | 2. Markdown + YAML frontmatter | Obsidian 笔记、Claude Code 带 frontmatter 的 memory 文件、静态站点内容 | 兼顾可读和结构：frontmatter 能被程序解析和校验，正文自由书写 | 跨文件查询（统计、搜索）要靠程序扫描全部文件 |
 | 3. JSON / JSONL | 事件溯源日志、对话记录；MCP 官方 memory server 用 JSONL 存知识图谱 | 只追加，适合记录历史；易于重放 | 不适合人去编辑 |
-| 4. SQLite（+ FTS5 全文检索） | 大量本地应用和 Agent；LangGraph / LangGraph4j 的 SQLite checkpointer；Spring AI 的 JDBC ChatMemory | 查询、聚合、全文检索都很快；单个文件；支持事务 | 人和 AI 不能直接读；git 看不了差异 |
+| 4. SQLite（+ FTS5 全文检索） | 大量本地应用和 Agent；Spring AI 的 JDBC ChatMemory | 查询、聚合、全文检索都很快；单个文件；支持事务 | 人和 AI 不能直接读；需从文件重建 |
 | 5. 本地向量库 | Chroma、LanceDB、Qdrant 本地模式、sqlite-vec；mem0、Letta 的 archival memory | 语义检索，例如「找相似的题目」 | 结果不精确、难以溯源；要有 embedding 模型（会把文本发给外部服务，除非用本地模型）；对小数据量来说是过度设计 |
 | 6. 知识图谱 | Graphiti / Zep、Neo4j、MCP memory server | 适合实体关系复杂、随时间演变的数据 | 运维和建模成本高 |
-| 7. Memory 框架 | mem0（自动抽取事实，存进向量库，可选图）、Letta / MemGPT（core memory 块 + archival + recall）、LangMem（按命名空间的 KV + 可选向量） | 开箱即用的「抽取 → 存储 → 检索」 | 自动抽取不经过人确认，和本项目「候选 → 确认 → 写入」以及 C 级字段不落盘的规则冲突；大多是 Python 生态 |
+| 7. Memory 框架 | mem0（自动抽取事实，存进向量库，可选图）、Letta / MemGPT（core memory 块 + archival + recall）、LangMem（按命名空间的 KV + 可选向量） | 开箱即用的「抽取 → 存储 → 检索」 | 自动抽取机制与本项目 C 级字段不落盘、显式作用域等规则冲突；大多是 Python 生态 |
 
-### 本项目的方案：文件是事实来源，SQLite 是可重建的索引（用户已同意，2026-10-22）
+### 本项目的方案：文件是事实来源
 
 | 数据 | 格式 | 理由 |
 | --- | --- | --- |
-| 个人事实、Project 覆盖、偏好、Playbook、公司记忆、Job 记录、Session 摘要、轮次复盘、经验总结 | **Markdown + YAML frontmatter**（方式 2） | 这些是需要你确认、阅读、偶尔手改的内容；git 能看差异；AI 直接可读 |
-| 事件日志、对话原文 | **JSONL**（方式 3） | 只追加，可追溯，也可以重放 |
-| 台账、Dashboard 数据、题库检索、跨 Project 去重 | **SQLite 索引**（方式 4，`storage/index.sqlite`），含 FTS5 全文检索 | 后端启动时（或文件变化时）从上面两类文件**重建**；删掉也不丢数据。Dashboard 的聚合和「搜一道题」都靠它 |
-| LangGraph4j Checkpoint | **SQLite**（`langgraph4j-sqlite-saver` 1.9.6，Maven Central 已确认存在；`storage/checkpoints.sqlite`） | 官方模块，可以跨天恢复；Checkpoint 只是运行状态，不是记忆，不需要人读 |
-| 生成视图（台账、题库、`dashboard.md`） | Markdown | 给你和 AI 看的，每次重新生成 |
+| 个人事实、Project 覆盖、偏好、Playbook、公司记忆、Job 记录、Session 摘要、轮次复盘、经验总结 | **Markdown + YAML frontmatter**（方式 2） | 这些是需要你确认、阅读、偶尔手改的内容；在 Obsidian 和编辑器里直接可读；AI 直接可读 |
+| 事件日志、对话原文、统一 Job Thread（`thread.jsonl`）、Subagent 记录（`subruns/*.json`） | **JSON / JSONL**（方式 3） | 只追加或结构化落盘，可追溯、可直接恢复重放 |
+| 跨工作台经验检索 | **本地 ONNX 向量索引**（`cache/rag/`） | 仅对轮次、复盘、填写报告建索引；不联网、删掉可重建 |
+| 可重建查询索引（`storage/index.sqlite`，含 FTS5） | **SQLite 索引（Phase 3 未来扩展）** | 当前按文件直读 + `cache/rag/` 即可满足；后续数据量大时再作为可重建加速层 |
+| 生成视图（台账、题库、`dashboard.md`） | Markdown + CSV | 给你、AI 和 Excel 看的，每次重新生成 |
 
 规则：
-- **写入顺序**：先写文件，再更新索引。索引和文件不一致时，以文件为准，重建索引。
-- **SQLite 驱动**：`org.xerial:sqlite-jdbc`（Maven Central 最新 3.53.4.0，施工时钉精确版本）。
-- **对话记忆**：Spring AI 2.0.1 有 `spring-ai-model-chat-memory-repository-jdbc`，可以把模型上下文窗口接到 SQLite；原文仍以 `transcript.jsonl` 为准。是否采用，施工时再定。
+- **写入顺序**：先写文件（以文件为唯一事实来源），派生索引或缓存可删掉重建。
 - **Obsidian 兼容**（用户要求）：`storage/` 可以直接作为 Obsidian vault 打开浏览。
-  - 文件内的链接用相对路径的 Markdown 链接，Obsidian 和 GitHub 都能识别，并显示在反向链接和关系图里。
+  - 文件内的链接用相对路径的 Markdown 链接，Obsidian 和编辑器都能识别，并显示在反向链接和关系图里。
   - frontmatter 的常用字段尽量平铺（`company`、`phase`、`project`、`tags`、日期等），这样能在 Obsidian 的 Properties 面板里正常显示；嵌套结构（`materials`、`evidence`、`rounds`）只给程序使用。
   - 用 `tags` 字段标注 `jobapply/session`、`jobapply/round`、`topic/system-design` 等，在 Obsidian 里可以按标签筛选。
   - 生成的文件（台账、题库、`dashboard.md`）也是普通 Markdown 表格，在 Obsidian 里直接可读。
   - `.sqlite`、`.jsonl` 文件 Obsidian 默认不显示，不影响浏览。
   - 不依赖任何 Obsidian 插件。以后可以选用 Dataview 做查询，但这不是必需的。
-- **向量检索后置**：题库归并先靠模型建议 + 你确认 `canonical`。以后题目多了要做相似题检索，再加 sqlite-vec，并且只用本地 embedding 模型，不把复盘内容发到外部。
+- **题库相似题检索后置**：题库归并先靠模型建议 + 你确认 `canonical`。
 
 ### 借鉴 Hermes 的约束（见 [research-hermes.md](../reference/research-hermes.md) §4、§5）
 
 - **字符预算**：`base/facts.md`、Project `overrides.md`、`playbook/skills/` 下的 skill 这些会注入上下文的文件各设字符上限；超出时提示整理，不让它们越写越长。
-- **写入前检测**：Memory 候选和 Playbook 修补在写入前检测注入指令和不可见 Unicode，来自 JD 或网页的内容尤其需要。
 - **冻结快照**：Session 开始时把有效资料冻结成快照放进上下文；中途确认的新事实从下一轮生效。
 - **事实与流程分开**：事实写进 Memory，流程写进 Playbook skill；写陈述句，不写命令句。
-- **修补优先**：复盘出来的站点经验，优先修补已有的站点 skill，不新建；修补同样要你确认。
-- **历史检索**：`index.sqlite` 用 FTS5 支持「搜历史 Session 和复盘」。
+- **修补优先**：复盘出来的站点经验，优先修补已有的站点 skill，不新建，减少规则膨胀。
+- **历史检索（Phase 3 未来扩展）**：未来可通过 `index.sqlite` FTS5 支持更快的全量历史搜索。
 
 ## 经验检索（用户确认，2026-10-28，C022）
 
@@ -391,7 +379,7 @@ blocker: <阻塞原因>
 
 ## 不做
 
-- 现在不做向量检索（见上方「存储格式」的后置说明）。
+- 题目规模扩大前暂不做专门的题库相似题聚类向量库（当前仅保留 `cache/rag/` 本地 ONNX 经验检索）。
 - 不照搬 Hermes 的后台自动写 memory / skill。
 - 原件只在 `base/originals/` 保存；Project 目录不放原件，`uploads/` 只放上传时临时的等字节副本。
 - 对话（Session / 工作台）里发来的文件不进资料库：只在那次对话、那个 Job 里用（2026-11-07，C004-A-fix）。

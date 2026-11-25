@@ -24,8 +24,8 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>
  * 比 MCP 多出来的参数：{@code browser_fill_form} 的每个字段、{@code browser_type}、{@code browser_select_option}、
  * {@code browser_set_date}（C016，不是 MCP 的工具，系统用固定脚本代发）可以带 {@code fact}、{@code confidence}、{@code language}（都可选，写了就进报告）
- * 和 {@code field}（申请状态里的字段 id，C019）（{@link FieldIntent}）；{@code browser_click} 可以带
- * {@code purpose}、{@code final_step_suspected}、{@code evidence}（{@code final_step_suspected} 决定软边界按钮放不放行）（{@link SubmitGuard.ClickIntent}）；
+ * 和 {@code field}（申请状态里的字段 id，C019）（{@link FieldIntent}）；{@code browser_click} 可以带可选的
+ * {@code purpose}、{@code evidence}（只进日志）（{@link SubmitGuard.ClickIntent}）；
  * {@code browser_file_upload} 只收文件编号（{@code files}，从 1 开始；可带上传位置的 {@code target}），系统换成 {@code storage/uploads/<job-id>/}
  * 下的路径，模型看不到路径。{@link #translate} 先取出这些参数并去掉，再交给白名单和守卫。
  */
@@ -80,16 +80,12 @@ public final class BrowserTools {
                     "Click a button, link, tab, dropdown or option. Buttons whose name looks like submitting "
                             + "(Submit, Apply, Send, 提交, 投递, 申请...) are rejected: the user clicks those. So is a "
                             + "Confirm / OK / 确定 / 确认 inside a dialog that asks whether to submit or send the application. "
-                            + "For Next / Continue / Save buttons and for confirm buttons (确定, 确认, 完成, Confirm, Done) in "
-                            + "dialogs, cards, date panels and cascaders, look at the page first (step indicator, progress, text "
-                            + "near the button) and pass final_step_suspected with evidence: false lets the click through; "
-                            + "true means the system asks the user first (via ask_user) for this one button on this page. "
-                            + "Without final_step_suspected such buttons are not clicked. Other elements need no notes.",
+                            + "For Next / Continue / Save / Confirm buttons, judge from the page context whether it is safe "
+                            + "to click; if it looks like the final step that submits the application, ask the user first via ask_user.",
                     """
                     {"type":"object","properties":{%s,\
                     "purpose":{"type":"string","enum":["next_step","save_draft","confirm","open_control","unsure"]},\
-                    "final_step_suspected":{"type":"boolean"},\
-                    "evidence":{"type":"string","description":"Why, e.g. progress shows step 2 of 4"}},\
+                    "evidence":{"type":"string","description":"Optional note, e.g. progress shows step 2 of 4"}},\
                     "required":["target"]}""".formatted(TARGET)),
             definition(BrowserToolPolicy.TYPE,
                     "Type text into one editable field (replaces its content). Use it for one field, rich text areas and "

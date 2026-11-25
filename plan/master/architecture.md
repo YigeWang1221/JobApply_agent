@@ -1,8 +1,6 @@
 # JobApply 文件架构
 
-状态：**已确认**（2026-10-22）。目录已按此建好，但每个包只有 `package-info.java`。日期：2026-10-22。
-
-参照 `../Eco_Agent/plan/afts-architecture.md` 精简而来：去掉了 Python 执行层（`execution/`、`python/`）和动态委托（`workflow/delegation`），因为 JobApply 目前没有这类需求。需要时再加回，并更新本文件。
+状态：**已确认**（2026-10-22；2026-11-25 按 C030 目标演进对齐）。
 
 Spring Boot 在 `backend/`。图中的 `backend/` 子目录是包，物理路径为 `backend/src/main/java/jobapply/...`。
 
@@ -11,20 +9,20 @@ Spring Boot 在 `backend/`。图中的 `backend/` 子目录是包，物理路径
 ```text
 JobApply_Agent/
 ├── backend/                    # Spring Boot
-│   ├── config/
-│   ├── agents/                 # Agent 角色与 Catalog
-│   ├── harness/                # 自定义 Agent Loop
-│   │   ├── runtime/
-│   │   ├── context/
-│   │   └── policies/
-│   ├── workflow/               # 申请线程：Worker 池（并发 + 超出排队，C011）、运行状态、台账（不用图引擎）
-│   ├── memory/                 # 长期记忆（如用户求职画像）
-│   ├── tools/                  # Agent Tool 接口
+│   ├── config/                 # 系统、模型与运行配置
+│   ├── agents/                 # 外置 Mode 规格与角色装配
+│   ├── harness/                # 单 Base Agent 运行时
+│   │   ├── runtime/            # AgentLoopEngine、ToolRegistry、EventBus
+│   │   ├── plugins/            # PluginChain、6 个 Capability Plugins、SegmentBoundaryPlugin
+│   │   ├── context/            # 上下文构建与裁剪
+│   │   └── policies/           # 硬提交词与 C 级占位符策略
+│   ├── workflow/               # 统一工作流：SessionService、JobThreadService、SubagentExecutor、Worker 池与台账
+│   ├── memory/                 # 资料、Skill、站点与公司记忆、本地 RAG 检索
+│   ├── tools/                  # Agent Tool 接口与工具网关
 │   ├── domain/                 # 业务数据结构
-│   ├── persistence/            # 数据持久化
-│   ├── observability/          # 事件与追踪
-│   └── api/
-├── frontend/                   # 前端，框架未定
+│   ├── persistence/            # 文件持久化（Markdown / YAML frontmatter / JSONL）
+│   └── api/                    # 本地 Web / SSE API
+├── frontend/                   # 前端：React + Vite + TypeScript
 ├── storage/                    # 数据与产物（隐私数据不进 Git）
 └── docs/
 ```
@@ -34,24 +32,16 @@ JobApply_Agent/
 | 路径 | 模块 | 职责 |
 | --- | --- | --- |
 | `backend/config` | 系统配置 | 系统、模型与运行配置 |
-| `backend/agents` | Agent Management | 角色定义、Catalog、实例生命周期 |
-| `backend/harness` | Custom Harness | 自研单 Agent loop。子包 `runtime`、`context`、`policies` |
-| `backend/workflow` | Workflow | 申请线程：开始、回复、停止、状态；运行状态存 `storage/runs/<job-id>.json`。流程由 harness 里的模型决定，不用 LangGraph4j（用户确认，2026-10-23，见 agent-runtime.md 第 7 节） |
-| `backend/memory` | Memory | Session / 用户画像等 |
-| `backend/tools` | Tool Gateway | Agent 可调用的工具 |
-| `backend/domain` | 领域结构 | 业务数据结构 |
-| `backend/persistence` + `storage/` | Persistence | 任务、Session、产物 |
-| `backend/observability` | 观测 | 追踪、审计 |
-| `backend/api` | 对外接口 | Web / API。只监听 127.0.0.1；带 `Origin` 请求头的请求，只放行允许名单里的本机前端地址（默认 `127.0.0.1:5173`、`localhost:5173`），不带的照常放行（用户确认，2026-10-22；C003 时是一律拒绝） |
-| `frontend/` | 前端 | 产品界面。React + Vite + TypeScript；开发时用 Vite 开发服务器（只监听 127.0.0.1）代理 `/api`；由 Spring Boot 提供打包后的静态文件留到第 7 段 |
+| `backend/agents` | Mode & 装配 | 声明式 `resources/modes/*.md` 解析与上下文装配 |
+| `backend/harness` | Base Agent Harness | 统一单个 `AgentLoopEngine` + `ToolRegistry` + `PluginChain` + `EventBus`。`plugins/` 承载 `WebSearch`、`BrowserRead`、`BrowserFill`（内嵌硬提交守卫与 `{KEY}` 占位符替换/遮值）、`ApplicationState`、`Tracking`、`Memory` 与 `SegmentBoundaryPlugin` |
+| `backend/workflow` | Workflow | 统一工作流：`SessionService`（Session 对话）、`JobThreadService`（单 Job Thread 上经 `SegmentBoundary` 切换 `apply` / `followup` Mode）、`SubagentExecutor`（Depth=2/3 单向 Subagent 树与 `subruns/<subId>.json`）、Worker 池（并发 + 排队）与台账生成 |
+| `backend/memory` | Memory | 个人资料四层记忆、Skill、站点/公司记录、本地 ONNX 经验检索（`cache/rag/`） |
+| `backend/tools` | Tool Gateway | Agent 可调用工具注册与分发 |
+| `backend/domain` | 领域结构 | Project、Session、Job、Round、Fact、PrepState（5 态）等业务数据结构 |
+| `backend/persistence` + `storage/` | Persistence | 统一读写 `storage/` 下的 Markdown / YAML frontmatter / JSONL（含统一 `thread.jsonl` 与 `subruns/<subId>.json`） |
+| `backend/api` | 对外接口 | 仅监听 `127.0.0.1` 的 REST 与 SSE（`/api/events`）接口 |
+| `frontend/` | 前端 | React + Vite + TypeScript；开发时通过 Vite 代理 `/api`，打包后由 Spring Boot 提供静态资源 |
 
-## 领域对象（来自 2026-10-22 的设计）
+## 领域对象与存储演进
 
-`domain` 至少会有 Project、Session、Application 状态、Fact（带作用域与来源）、Company 额度。Project / Session 的含义和 storage 布局见 [memory.md](memory.md)。`persistence` 负责把它们读写到 `storage/` 下的 Markdown / JSONL，并维护可重建的 `storage/index.sqlite`；申请线程的运行状态存到 `storage/runs/<job-id>.json`。storage 不做版本控制。存储格式见 [memory.md](memory.md)「存储格式」。
-
-## 暂不固定
-
-- 具体 Agent 角色、职责与工具
-- 主图的节点与人工确认点
-- 存储技术、前端框架
-- 是否需要 Python 层或动态委托
+`domain` 涵盖 Project、Session、Job（`phase` + `PrepState` + `rounds`）、Fact（带作用域与来源）、Company 额度。所有状态的单一事实来源均是 `storage/` 下的 Markdown / YAML frontmatter 与 JSONL 文件（`JobThreadStore` 统一管理 `jobs/<job-id>/thread.jsonl` 并兼容读取旧 `runs/<job-id>.json` 与 `followup/transcript.jsonl`）；`storage/` 不做版本控制。SQLite + FTS5 全文检索索引（`index.sqlite`）保留为 **Phase 3 未来扩展**，当前由文件直读与 `cache/rag/` 本地向量检索承载。存储格式见 [memory.md](memory.md)「存储格式」。

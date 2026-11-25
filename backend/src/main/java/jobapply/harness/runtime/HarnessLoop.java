@@ -95,8 +95,7 @@ import org.springframework.ai.chat.model.ChatResponse;
  *   <li>用户要求停止；</li>
  *   <li>这一次运行的工具调用到了上限：让模型总结做到哪了，交给用户决定要不要继续。</li>
  * </ul>
- * 代码只拒绝提交类按钮（{@link SubmitGuard}；「下一步」类按钮由模型判断是不是最后一步，怀疑是时先问用户，批准只对那一页的
- * 那个按钮有效一次）、C 级字段（{@link FieldClassGuard}）和白名单以外的操作
+ * 代码只拒绝提交类按钮（{@link SubmitGuard}）、C 级字段（{@link FieldClassGuard}）和白名单以外的操作
  * （{@link BrowserToolPolicy}），拒绝的原因作为工具结果交回模型。重复操作、页面出现验证或弹窗都只在结果里提醒。
  * <p>
  * 申请状态（C019，{@link ApplicationState}）：模型用 {@code update_state} 改，填写工具的结果出来时系统自动记（填了、
@@ -265,10 +264,6 @@ public final class HarnessLoop {
         private Set<String> placeholders;
         private SkillCatalog catalog;
         private PageSnapshot latest;
-        /** 这次运行里守卫要求先问用户的那一次点击（页面 + ref + 名字）；模型接着 {@code ask_user} 时记成批准。 */
-        private SubmitGuard.Approval pendingApproval;
-        /** 用户批准过的一次点击（存在 {@link AgentRun#lastPage()} 里）；用过或者翻到别的网址就清掉。 */
-        private SubmitGuard.Approval approval;
 
         Round(AgentRun run, BooleanSupplier stop, Consumer<AgentRun> progress, LoopObserver observer,
               Supplier<List<AgentRun.Turn>> inbox) {
@@ -297,9 +292,6 @@ public final class HarnessLoop {
             draft.company = run.company();
             draft.title = run.title();
             draft.round = run.round();
-            AgentRun.ApprovedClick approved = run.lastPage() == null ? null : run.lastPage().approved();
-            this.approval = approved == null ? null
-                    : new SubmitGuard.Approval(approved.url(), approved.ref(), approved.button());
         }
 
         AgentRun go() {
@@ -335,7 +327,6 @@ public final class HarnessLoop {
                 String message = "读不到当前页面（" + e.getMessage() + "）。确认 Chrome 里这个页面开着，然后回复，我再试一次。";
                 return told(waiting(message), message);
             }
-            seen(latest);
             if (latest != null) {
                 loop.showPage(latest);
                 detector.startAt(pageText(latest));
@@ -432,13 +423,6 @@ public final class HarnessLoop {
         private static String handedText(BrowserSession.TabInfo tab) {
             return "用户把标签页 " + tab.index() + "（" + (tab.title() == null || tab.title().isBlank() ? "无标题"
                     : tab.title()) + "，" + tab.url() + "）交给你了。";
-        }
-
-        /** 页面变了：记下最新的页面；批准过的那次点击不是这一页的就作废。 */
-        private void seen(PageSnapshot page) {
-            if (approval != null && (page == null || !approval.url().equals(page.url()))) {
-                approval = null;
-            }
         }
 
         @Override
@@ -542,40 +526,17 @@ public final class HarnessLoop {
             String ref = translated.args().get("target") instanceof String target ? target : null;
             PageSnapshot before = latest;
 
-            if (BrowserToolPolicy.CLICK.equals(tool)) {
-                switch (SubmitGuard.click(latest, ref, translated.click(), approval)) {
-                    case GuardDecision.Reject reject -> {
-                        return rejected(call, translated, ref, reject.reason(), buttonName(latest, ref));
-                    }
-                    case GuardDecision.AskUser ask -> {
-                        pendingApproval = new SubmitGuard.Approval(latest.url(), ref, ask.button());
-                        log(RunLog.Entry.guard(run.session(), step(), tool, ref, element(latest, ref), "ask_user",
-                                page(latest), ask.reason()));
-                        return rejectedResult(call, "没有点：" + ask.reason() + "。先用 ask_user 问用户「" + ask.button()
-                                + "」能不能点（说明你的依据）。");
-                    }
-                    case GuardDecision.Explain explain -> {
-                        return rejectedResult(call, "没有点：" + explain.reason() + "。");
-                    }
-                    default -> {
-                        if (approval != null && approval.matches(latest, ref, buttonName(latest, ref))) {
-                            approval = null; // 批准只用一次
-                        }
-                    }
-                }
+            if (BrowserToolPolicy.CLICK.equals(tool)
+                    && SubmitGuard.click(latest, ref) instanceof GuardDecision.Reject reject) {
+                return rejected(call, translated, ref, reject.reason(), buttonName(latest, ref));
             }
             String targetRole = SnapshotIndex.of(latest).find(ref).map(SnapshotIndex.Node::role).orElse(null);
             if ((BrowserToolPolicy.SELECT_OPTION.equals(tool) || BrowserToolPolicy.SET_DATE.equals(tool))
                     && ("button".equals(targetRole) || "generic".equals(targetRole))) {
                 // 选下拉、设日期会真实点击 target 来打开它（C016）：target 是按钮或没有角色的元素时照点击守卫判断，
                 // 提交类按钮一样不点（下拉框、输入框本身点了不会提交，不拦）
-                GuardDecision opens = SubmitGuard.click(latest, ref);
-                if (opens instanceof GuardDecision.Reject reject) {
+                if (SubmitGuard.click(latest, ref) instanceof GuardDecision.Reject reject) {
                     return rejected(call, translated, ref, reject.reason(), buttonName(latest, ref));
-                }
-                if (!(opens instanceof GuardDecision.Allow)) {
-                    return rejected(call, translated, ref, tool + " 会点击 target 来打开它，只用在下拉框和日期框上；"
-                            + "这个元素像是翻页或保存按钮，不能用它点", null);
                 }
             }
             if (!translated.fields().isEmpty()) {
@@ -635,7 +596,6 @@ public final class HarnessLoop {
             }
 
             latest = after;
-            seen(after);
             boolean changedPage = !(after.url() + after.title()).equals(before.url() + before.title());
             String notice = browser.takeNotice(run.job());
             if (translated.write()) {
@@ -735,7 +695,6 @@ public final class HarnessLoop {
                     PageSnapshot before = latest;
                     PageSnapshot after = browser.select(run.job(), number.intValue());
                     latest = after;
-                    seen(after);
                     log(RunLog.Entry.toolCall(run.session(), step(), BrowserTools.TABS, null, null, null, null,
                             page(after), before == null || !after.url().equals(before.url()) ? "page_changed" : "ok"));
                     StringBuilder text = new StringBuilder("已切到标签页 ").append(number.intValue())
@@ -871,7 +830,6 @@ public final class HarnessLoop {
             } catch (BrowserException.ToolFailed e) {
                 return failed(call, translated.tool(), null, translated.args().toString(), false, e.getMessage());
             }
-            seen(latest);
             if (latest != null) {
                 detector.startAt(pageText(latest));
             }
@@ -935,11 +893,6 @@ public final class HarnessLoop {
                 }
             }
             log(RunLog.Entry.waiting(run.session(), step(), "ask_user", page(latest), null));
-            if (pendingApproval != null) {
-                // 守卫刚要求问的那一次点击：用户回复后，同一页上的这个按钮放行一次
-                approval = pendingApproval;
-                pendingApproval = null;
-            }
             return ended(call, "已经交给用户，等用户回复。",
                     current -> current.waiting(message, questions, slots));
         }
@@ -1453,11 +1406,9 @@ public final class HarnessLoop {
         private AgentRun current() {
             AgentRun progressed = run.withFiles(files)
                     .withProgress(state, new AgentRun.Usage(modelCalls, toolCalls(), tokens), loop.turns());
-            // 最后的页面地址（接着做时按它认回原页）和用户批准过的那一次点击
+            // 最后的页面地址（接着做时按它认回原页）
             String url = latest != null ? latest.url() : run.lastPage() == null ? null : run.lastPage().url();
-            AgentRun.ApprovedClick approved = approval == null ? null
-                    : new AgentRun.ApprovedClick(approval.url(), approval.ref(), approval.button());
-            return progressed.withLastPage(new AgentRun.LastPage(url, approved, false));
+            return progressed.withLastPage(new AgentRun.LastPage(url, null, false));
         }
 
         private int step() {

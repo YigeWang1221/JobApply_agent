@@ -78,14 +78,17 @@
 | [C029](plan/coding/04-refinement/C029-jvm-memory.md) | 后端内存：实测带嵌入模型时约 1.1GB（分词器约 500MB、ONNX 会话约 200MB，启动就加载）；JVM 加上限和省内存参数，嵌入模型用时才加载、闲置后卸下 | 已施工，等用户重新打包 App 在本机看（2026-11-14；`mvn -B clean verify` 0；改后启动 299MB、建索引时 1.0GB、闲置卸下后 597MB） |
 | [C026-fix](plan/coding/04-refinement/C026-fix-keep-login-tabs.md) | 查状态遇到要登录 / 没找到状态页：每份查完照旧关页，整批查完后在 Chrome 里一次打开这些门户（一个网站一页、已开着的不再开，属于用户）；批量不再默认跳过要手动登录的（第二版，第一版「交还登录页」用户试过不对） | 已施工，等用户在本机试（2026-11-14；`mvn -B clean verify` 0、`npm run build` 0；真实 Chrome 未跑） |
 | [C004-A-fix 原件](plan/coding/02-core-agent/C004-A-fix-resume-project.md) | 资料页能删除原件（软删进 `.trash/`，Job 记录保留文件名）；原件分「简历 / 通用资料」，简历归属一个 Project（资料页下拉框可改），通用资料所有 Project 共用；对话里发来的文件只用于那次申请、不进资料库；Agent 只看本 Project 的简历和通用资料；旧数据启动时自动分类 | 已施工，等用户在本机试（2026-11-07；`mvn -B clean verify` 0、`npm run build` 0） |
+| [C030](plan/coding/04-refinement/C030-unified-base-agent-and-detox.md) | 统一 Base Agent 运行时与安全排毒（Phase 1）：Slice 0 清理软边界与防御性测试样本、同步文档；Slice 1–6 直接在用户当前分支落地 1 个 Base Agent + Plugin/Skill/Mode + Depth=2/3 单向 Subagent 树 + 统一 Job 线程 + `JobStatus`/侧栏 IA 瘦身，保持 `storage/` 向后兼容 | 进行中（Slice 0 已施工，Slice 1–6 待确认后按切片施工，2026-11-25） |
 
 ## 参考（不是施工步骤）
 
 - `../Eco_Agent/`：同栈参考仓库，只读。
 - [plan/reference/research-codex.md](plan/reference/research-codex.md)：旧 Codex 投递工作区复盘。
 - [plan/reference/research-hermes.md](plan/reference/research-hermes.md)：Hermes Agent 设计参考。
+- [plan/reference/gap-context-compaction.md](plan/reference/gap-context-compaction.md)：待做，对话上下文压缩（compact），只记录，未排期（2026-11-25）。
+- [plan/reference/research-agent-platform.md](plan/reference/research-agent-platform.md)：调研，把 Agent 换成可插件化的基底（opencode 等）、外部 skill 导入；方向待用户选（2026-11-25）。
 - Dashboard 与界面示意页（虚构数据）：https://claude.ai/artifact/4K6eE85i51GvrLUGz8cARD
 
 ## 停靠点
 
-2026-10-23 晚暂停：标签页改回提示词、C008、真实跑通的修补都已提交（分支 C008，最新 7613292）。申请 2026-10-23-001 停在「浏览器断开」。明天按 dev-log.md 最后一条「暂停交接」：先接着跑完这次申请，再定第 18 条和 C009，再修 9、12、16、17 和 token。
+2026-11-25：Slice 0 安全排毒、Master Plan 同步及 [C030](plan/coding/04-refinement/C030-unified-base-agent-and-detox.md) 统一架构计划已落盘；待用户确认后直接在用户当前分支上按序开展 C030 Slice 1–6 施工。

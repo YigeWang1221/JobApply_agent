@@ -8,7 +8,6 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import jobapply.config.BrowserMcpProperties;
 import jobapply.harness.policies.BrowserToolPolicy;
 import jobapply.harness.policies.ToolNotAllowedException;
@@ -179,21 +178,6 @@ class PlaywrightMcpClientTest {
         assertThat(launch.roots()).containsExactly(layout.uploadsDir());
         assertThat(launch.outputDir()).isEqualTo(layout.mcpOutputDir());
         assertThat(layout.mcpOutputDir()).startsWithRaw(layout.root().resolve("cache"));
-    }
-
-    @Test
-    void childProcessOnlySeesPathAndHome() {
-        FakeBrowser fake = FakeBrowser.create(dir);
-
-        try (PlaywrightMcpClient ignored = PlaywrightMcpClient.start(fake.launch())) {
-            // 只需要启动
-        }
-        List<String> names = fake.lastEnvNames();
-        assertThat(names).contains("PATH", "HOME");
-        assertThat(names).doesNotContain("USER", "LOGNAME", "SHELL", "TERM", "JAVA_HOME");
-        // macOS 的 java 启动器会给自己加 JAVA_MAIN_CLASS_<pid> 一类的变量；除此之外不应有别的
-        assertThat(names.stream().filter(name -> !Set.of("PATH", "HOME").contains(name)))
-                .allMatch(name -> name.startsWith("JAVA_MAIN_CLASS_") || name.startsWith("__CF"));
     }
 
     @Test
