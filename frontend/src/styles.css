@@ -1492,12 +1492,6 @@ pre.report {
   overflow: auto;
 }
 
-/* Agent 写给用户的话：保留换行 */
-.message {
-  white-space: pre-wrap;
-  font-weight: 500;
-}
-
 /* 事件时间线 */
 .events {
   list-style: none;

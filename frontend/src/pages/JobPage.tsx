@@ -541,7 +541,7 @@ function StatusNote({ status, job }: { status: ApplicationStatus | null; job: Jo
           : `状态：${APPLICATION[status.status] ?? status.status}`}
       </p>
       {status.status === "running" && <p className="muted small">Agent 正在做。它要你做什么时，这里会显示。</p>}
-      {status.message && <p className="message">{status.message}</p>}
+      {status.message && <Markdown text={status.message} />}
       {status.error && <p className="error">出错：{status.error}</p>}
       {status.disconnected && <p className="warn small">浏览器连接断开了。准备好后回复，系统会先重新连接。</p>}
       {WAITING.has(status.status) && <p className="muted small">在下面的输入框回复；这里的回答和文件选择会一起发出。</p>}

@@ -1565,3 +1565,11 @@
 - 验证：`cd frontend && npm run build` 退出码 `0`（323 modules，`tsc -b && vite build`）；`swiftc -typecheck -module-cache-path /tmp/swift-module-cache -target arm64-apple-macos13.0 -framework AppKit -framework WebKit appbuild/macos/JobApply/main.swift` 退出码 `0`；`git status --short` 确认 `storage/` 与 `backend/` 零改动。
 - 未运行：完整 `appbuild/build.sh macos` 打包及真实浏览器 / macOS App 视觉预览（留待用户确认并试跑）。
 - 偏差：无（C030 遗留的侧栏工作台单岗 `portal-check` 运行状态点因后端 `WorkspaceSummary` 未返回该字段且本轮不改后端，按计划未强加）。未提交。
+
+## 2026-11-25 · 修复：工作台右栏把 Agent 原文当纯文本显示（md 渲染）
+
+- 指令：用户反馈右边栏 Markdown 渲染不对（标题、表格、粗体都显示成原文）。
+- 原因：`JobPage.tsx` 的 `StatusNote` 用 `<p className="message">` 直接输出 `status.message`；这个字段是模型写的原文（`ask_user.message`、`finish` 的 `summary` + 结尾说明、只回文字时的整段回复），常含 `##`、GFM 表格和 `**`。`styles.css` 的 `.message { white-space: pre-wrap }` 又把换行原样保留。左栏对话里的同一段文字走 `Markdown`（remark-gfm），所以只有右栏是原文。
+- 改动：`frontend/src/pages/JobPage.tsx` 改为 `<Markdown text={status.message} />`；删掉因此不再使用的 `.message` 样式（无其它引用）。
+- 验证：`cd frontend && npm run build` 退出码 0（323 modules）。真实界面未运行（等用户刷新看）。
+- 未做：右栏只显示摘要 / 首句（与左栏完整回复重复）先不改，等用户定。
