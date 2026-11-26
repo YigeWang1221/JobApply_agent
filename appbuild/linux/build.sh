@@ -50,6 +50,7 @@ echo "jar: $JAR"
 
 mkdir -p "$TMP/input"
 cp "$JAR" "$TMP/input/jobapply.jar"
+"$SCRIPT_DIR/../slim-jar.sh" "$TMP/input/jobapply.jar" linux
 
 stage "3/6 jdeps + jlink 裁剪 JRE 运行时"
 mkdir -p "$TMP/jar"
@@ -99,6 +100,13 @@ echo "node: $NODE ($("$NODE" --version))"
 mkdir -p "$RES/node"
 cp "$NODE" "$RES/node/node"
 chmod +x "$RES/node/node"
+# 去调试符号，缩小体积；没有 strip 就跳过
+if command -v strip >/dev/null; then
+  chmod u+w "$RES/node/node"
+  strip "$RES/node/node"
+else
+  echo "未找到 strip，node 保留调试符号"
+fi
 
 # 预装 @playwright/mcp
 PATH="$(dirname "$NODE"):$PATH" "$(dirname "$NODE")/npm" install -g --prefix "$RES/node" "@playwright/mcp@$MCP_VERSION"

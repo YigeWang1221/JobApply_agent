@@ -31,6 +31,7 @@ mkdir -p "$REPO/releases"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$RES"
 cp "$JAR" "$RES/jobapply.jar"
+"$MACOS_DIR/../slim-jar.sh" "$RES/jobapply.jar" macos
 cp -R "$REPO/frontend/dist" "$RES/web"
 
 stage "3/7 jdeps + jlink 运行时"
@@ -56,6 +57,11 @@ NODE="$(cd "$(dirname "$NODE")" && pwd -P)/$(basename "$NODE")"
 echo "node: $NODE ($("$NODE" --version))"
 mkdir -p "$RES/node/bin"
 cp "$NODE" "$RES/node/bin/node"
+# 去调试符号（约 116→84 MB）；strip 会破坏原签名，arm64 必须有签名才能运行，单独重新 ad-hoc 签
+# （后面的 codesign --deep 不会签 Resources 里的可执行文件）
+chmod u+w "$RES/node/bin/node"
+strip "$RES/node/bin/node"
+codesign --force -s - "$RES/node/bin/node"
 PATH="$(dirname "$NODE"):$PATH" "$(dirname "$NODE")/npm" install -g --prefix "$RES/node" "@playwright/mcp@$MCP_VERSION"
 MCP_PKG="$RES/node/lib/node_modules/@playwright/mcp"
 MCP_BIN="$("$NODE" -e 'const b=require(process.argv[1]+"/package.json").bin; console.log(typeof b==="string"?b:Object.values(b)[0])' "$MCP_PKG")"
@@ -107,6 +113,7 @@ DMG="$REPO/releases/JobApply-macos-arm64.dmg"
 mkdir -p "$TMP/dmg"
 cp -R "$APP" "$TMP/dmg/"
 ln -s /Applications "$TMP/dmg/Applications"
-hdiutil create -volname JobApply -srcfolder "$TMP/dmg" -ov -format UDZO "$DMG" >/dev/null
+# ULMO = LZMA 压缩（需 macOS 10.15+，App 最低 13）；ULMO 配默认 APFS 会报 No space left，所以指定 HFS+
+hdiutil create -volname JobApply -srcfolder "$TMP/dmg" -fs HFS+ -ov -format ULMO "$DMG" >/dev/null
 du -sh "$DMG"
 echo "完成: $DMG"

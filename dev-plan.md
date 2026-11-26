@@ -60,6 +60,7 @@
 | [C016](plan/coding/03-features/C016-dropdowns.md) | 下拉框、级联、日期控件：参考开源做法改工具和 skill | 已施工；实跑后修正（下拉淡入、弹出层留整页、发回思考、去掉来回提醒、日期 need_day、第 18 条放行）已施工，等用户在真实网站试（2026-10-25） |
 | [C017](plan/coding/03-features/C017-macos-app.md) | 打包成本机自用的 macOS App：Swift 窗口外壳 + 自带 Java 运行时、node 和 Playwright MCP；数据位置由用户在首次打开和设置页里选 | 已施工，等用户双击试（2026-10-27） |
 | [C017-fix](plan/coding/03-features/C017-fix-chrome-port.md) | App 连不上 Chrome：macOS 不让 App 读 Chrome 资料夹里的端口文件，改成直接连 127.0.0.1:9222；关闭 App 卡 30 秒、强制退出留下后端 | 已施工，等用户在 Air 上试（2026-10-27） |
+| [C017-fix 瘦身](plan/coding/03-features/C017-fix-app-size.md) | App 打包瘦身：onnxruntime 与分词器只留本平台本机库、去调试符号；node 去符号；DMG 改 LZMA（App 实测 489 MB / DMG 388 MB） | 已施工，等用户双击试（2026-11-25；App 322 MB、DMG 208 MB；Linux / Windows 未运行） |
 | [C017-fix 返回](plan/coding/03-features/C017-fix-back-navigation.md) | App 里没有返回上一页：侧栏顶部返回按钮 + ⌘[，前端内存里的页面栈，跳过已删掉的页，每次窗口加载（启动、重启后端、⌘R）都从空栈开始 | 已施工，等用户在 App 里试（2026-11-07；`npm run build` 0） |
 | [C018](plan/coding/03-features/C018-tool-call-limits.md) | 工具调用上限在设置页由用户自己定（申请每次运行、对话每轮），可设为不限 | 已施工，等用户试（2026-10-25） |
 | [C019](plan/coding/03-features/C019-application-state.md) | 每次投递一份申请状态（字段清单 + 计划），模型每步在它上面读和更新，不再每步重读整页 | 已施工，等用户试（2026-10-25） |
@@ -79,6 +80,7 @@
 | [C026-fix](plan/coding/04-refinement/C026-fix-keep-login-tabs.md) | 查状态遇到要登录 / 没找到状态页：每份查完照旧关页，整批查完后在 Chrome 里一次打开这些门户（一个网站一页、已开着的不再开，属于用户）；批量不再默认跳过要手动登录的（第二版，第一版「交还登录页」用户试过不对） | 已施工，等用户在本机试（2026-11-14；`mvn -B clean verify` 0、`npm run build` 0；真实 Chrome 未跑） |
 | [C004-A-fix 原件](plan/coding/02-core-agent/C004-A-fix-resume-project.md) | 资料页能删除原件（软删进 `.trash/`，Job 记录保留文件名）；原件分「简历 / 通用资料」，简历归属一个 Project（资料页下拉框可改），通用资料所有 Project 共用；对话里发来的文件只用于那次申请、不进资料库；Agent 只看本 Project 的简历和通用资料；旧数据启动时自动分类 | 已施工，等用户在本机试（2026-11-07；`mvn -B clean verify` 0、`npm run build` 0） |
 | [C030](plan/coding/04-refinement/C030-unified-base-agent-and-detox.md) | 统一 Base Agent 运行时与安全排毒（Phase 1）：Slice 0 清理软边界与防御性测试样本、同步文档；Slice 1–6 直接在用户当前分支落地 1 个 Base Agent + Plugin/Skill/Mode + Depth=2/3 单向 Subagent 树 + 统一 Job 线程 + `JobStatus`/侧栏 IA 瘦身，保持 `storage/` 向后兼容 | Slice 0 已提交（`a48fc48`）；Slice 1–6 已施工、经一轮审查，等用户在本机用真实 Chrome 试（2026-11-25；`mvn -B clean verify` 0、`npm run build` 0；未提交） |
+| [C030-fix Mode 放 storage](plan/coding/04-refinement/C030-fix-storage-modes.md) | Mode 文件可放在 `storage/modes/`：同名覆盖内置、可新加子任务 Mode，下一次运行生效，不重新打包；写错时报出文件和项 | 已施工，等用户试（2026-11-25；`mvn -B clean verify` 0） |
 
 ## 参考（不是施工步骤）
 

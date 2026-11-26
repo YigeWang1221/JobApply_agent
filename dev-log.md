@@ -1538,3 +1538,18 @@
 - 测试数说明：Slice 0 记录的 surefire 566 与 HEAD 不符（静态计数约 546）；本次减少主要来自 `everyPrepPair` 从 10×10 变 5×5，没有删掉非防御性测试。
 - 未运行：真实 Chrome、真实模型端到端（等用户）；真实 `subrun` SSE 事件。
 - 偏差：与 Master Plan 有三处出入（深度、`thread.jsonl`、`SessionService`），记在 C030 与 `dev-recoding.md`，等用户决定。未提交。
+
+## 2026-11-25 · C030-fix：Mode 文件放在 storage 里
+
+- 指令：用户要通过加 / 改文件扩展 Agent，不重新打包；先写计划 `plan/coding/04-refinement/C030-fix-storage-modes.md` 再施工。
+- 结果：`agents/Modes`（先读 `storage/modes/<name>.md`、再读内置，不缓存）、`agents/Mode`（`source`）、`BaseAgent`、`SubagentExecutor`、`persistence/StorageLayout.modesDir()`；`plan/master/memory.md` 加 `modes/`；新测试 `ModesTest`。
+- 验证：`backend/` `mvn -B clean verify` BUILD SUCCESS（单元 477、IT 1）；临时 storage 里写错工具组、坏 YAML 报出完整路径；`storage/` 零改动。
+- 未运行：插件名 / `allow-tools` 写错的报错（只读代码）；真实模型下用新 Mode。
+- 其它：清理了会话临时目录（本会话 scratchpad、20 个旧的空目录、2 个旧会话的链接目录）。未提交。
+
+## 2026-11-25 · C017-fix：App 打包瘦身
+
+- 指令：调研 App 为什么这么大（3 个 Agent 并行：jar 构成、App 构成、业界做法），用户选做 1–4；计划 `plan/coding/03-features/C017-fix-app-size.md`，两个 Agent 并行施工。
+- 结果：`appbuild/slim-jar.sh`、`appbuild/windows/slim-jar.ps1`（新），`appbuild/macos/build.sh`、`appbuild/linux/build.sh`、`appbuild/windows/build.ps1`（调用瘦身；macOS / Linux node 去符号，macOS 重新签名；DMG `-fs HFS+ -format ULMO`）。
+- 验证：本机完整跑 `appbuild/build.sh macos` 退出码 0：App 489→322 MB，DMG 388→208 MB（jar 305→169、node 134→102）。签名校验通过；App 内 node 跑 MCP 正常；App 自带 Java 运行 jar（临时 storage）接口正常、空载 RSS 303 MB；瘦身 jar 断网下能加载 onnxruntime 和分词器本机库。`releases/` 的旧包被新包覆盖（可从 git 重打）。
+- 未运行：双击 App 界面、App 内真实检索、Linux / Windows 打包、PowerShell 语法检查。未提交。

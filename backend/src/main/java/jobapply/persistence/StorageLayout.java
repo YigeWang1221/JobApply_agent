@@ -169,6 +169,11 @@ public record StorageLayout(Path root) {
         return uploadsDir(jobId).resolve("attachments");
     }
 
+    /** 用户自己的 Mode 文件（C030-fix）：{@code modes/<name>.md} 同名覆盖内置的，也可以新加。 */
+    public Path modesDir() {
+        return root.resolve("modes");
+    }
+
     public Path playbookDir() {
         return root.resolve("playbook");
     }

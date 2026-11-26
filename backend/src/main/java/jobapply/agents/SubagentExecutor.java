@@ -69,7 +69,8 @@ public final class SubagentExecutor {
         return new Subagents() {
             @Override
             public List<Choice> choices() {
-                return allowed.stream().map(name -> new Choice(name, Modes.get(name).description())).toList();
+                return allowed.stream()
+                        .map(name -> new Choice(name, Modes.get(services.layout(), name).description())).toList();
             }
 
             @Override
@@ -81,7 +82,7 @@ public final class SubagentExecutor {
                 if (target == null && NEEDS_JOB.contains(mode)) {
                     throw new IllegalArgumentException("交给 " + mode + " 要写 job（这件事针对的 Job id），请带上 job 再调一次");
                 }
-                SubRun run = run(Modes.get(mode), parent.project(), parent.session(), target, frame.runId(),
+                SubRun run = run(Modes.get(services.layout(), mode), parent.project(), parent.session(), target, frame.runId(),
                         frame.depth() + 1, task, new RunControl(control.stop(), null, LoopObserver.NONE,
                                 control.toolCallLimit()));
                 return forParent(run);
