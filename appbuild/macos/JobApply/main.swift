@@ -120,12 +120,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         if #available(macOS 13.3, *) { webView.isInspectable = true }
 
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820),
-                          styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                           backing: .buffered, defer: false)
         window.title = "JobApply"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.minSize = NSSize(width: 940, height: 640)
+        window.backgroundColor = NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return isDark
+                ? NSColor(calibratedRed: 0.122, green: 0.122, blue: 0.114, alpha: 1.0)
+                : NSColor(calibratedRed: 0.980, green: 0.976, blue: 0.961, alpha: 1.0)
+        }
+        webView.setValue(false, forKey: "drawsBackground")
         window.contentView = webView
+        if !window.setFrameUsingName("JobApplyMain") {
+            window.center()
+        }
         window.setFrameAutosaveName("JobApplyMain")
-        window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
@@ -137,7 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
     // 启动后端并在就绪后加载界面；失败时窗口里显示原因和日志路径。
     func launchBackend() {
-        showMessage("正在启动 JobApply…", detail: "")
+        showMessage("正在启动 JobApply…", detail: "本地服务准备就绪后将自动进入工作区", isError: false)
         do { try backend.start() } catch let e as ShellError { return showError(e.message) }
         catch { return showError("无法启动后端：\(error.localizedDescription)") }
         backend.waitReady { [weak self] ok in
@@ -149,7 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     }
 
     func restartBackend() {
-        showMessage("正在重启后端…", detail: "")
+        showMessage("正在重启后端…", detail: "正在应用新配置并重新连接本地服务", isError: false)
         DispatchQueue.global().async {
             self.backend.stop()
             DispatchQueue.main.async { self.launchBackend() }
@@ -157,22 +169,90 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     }
 
     func showError(_ reason: String) {
-        showMessage("JobApply 没能启动", detail: "\(reason)<br><br>日志：<code>\(escape(backend.logURL.path))</code>")
+        showMessage("JobApply 没能启动",
+                    detail: "\(escape(reason))<div class=\"log\">日志：<code>\(escape(backend.logURL.path))</code></div>",
+                    isError: true)
     }
 
-    func showMessage(_ title: String, detail: String) {
+    func showMessage(_ title: String, detail: String, isError: Bool = false) {
+        let indicator = isError
+            ? """
+              <div class="badge err" aria-hidden="true">!</div>
+              """
+            : """
+              <div class="badge ok" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21c-4.5-3.2-7-7.2-7-11.2A7 7 0 0 1 19 9.8c0 4-2.5 8-7 11.2z"/><path d="M12 10v7"/></svg>
+              </div>
+              <div class="spinner" aria-hidden="true"></div>
+              """
+        let actions = isError
+            ? """
+              <div class="actions">
+                <button class="primary" onclick="window.webkit?.messageHandlers?.jobapply?.postMessage({type:'retryBackend'})">重试启动</button>
+                <button onclick="window.webkit?.messageHandlers?.jobapply?.postMessage({type:'openLog'})">在 Finder 中打开日志</button>
+              </div>
+              """
+            : ""
         let html = """
-        <html><body style="font-family:-apple-system;padding:48px;color:#222">
-        <h2>\(escape(title))</h2><p style="line-height:1.6">\(detail)</p></body></html>
+        <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>
+        :root {
+          color-scheme: light dark;
+          --bg: #faf9f5; --surface: #ffffff; --ink: #1c1b18; --muted: #6e6b63;
+          --line: rgba(28, 27, 24, 0.1); --accent: #2d6a4f; --accent-ink: #ffffff;
+          --wash: rgba(45, 106, 79, 0.1); --crit: #c8433e; --crit-wash: rgba(200, 67, 62, 0.12);
+          --shadow: 0 8px 28px rgba(28, 27, 24, 0.08);
+        }
+        @media (prefers-color-scheme: dark) {
+          :root {
+            --bg: #1f1f1d; --surface: #262624; --ink: #f2f1ec; --muted: #98968d;
+            --line: rgba(255, 255, 255, 0.1); --accent: #52b788; --accent-ink: #0f2419;
+            --wash: rgba(82, 183, 136, 0.16); --crit: #ef746e; --crit-wash: rgba(239, 116, 110, 0.15);
+            --shadow: 0 10px 32px rgba(0, 0, 0, 0.36);
+          }
+        }
+        * { box-sizing: border-box; }
+        html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink);
+          font-family: -apple-system, "PingFang SC", sans-serif; -webkit-user-select: none; }
+        .drag { position: fixed; top: 0; left: 0; right: 0; height: 42px; }
+        .wrap { min-height: 100%; display: grid; place-items: center; padding: 32px; }
+        .card { width: min(460px, 100%); background: var(--surface); border: 1px solid var(--line);
+          border-radius: 14px; padding: 28px 28px 24px; box-shadow: var(--shadow); text-align: center; }
+        .badge { width: 42px; height: 42px; border-radius: 11px; margin: 0 auto 14px;
+          display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; }
+        .badge.ok { background: var(--wash); color: var(--accent); }
+        .badge.err { background: var(--crit-wash); color: var(--crit); }
+        .spinner { width: 18px; height: 18px; margin: 0 auto 14px; border-radius: 50%;
+          border: 2px solid var(--line); border-top-color: var(--accent); animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        h2 { margin: 0 0 8px; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+        .detail { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--muted); }
+        .log { margin-top: 12px; padding: 8px 10px; border-radius: 8px; background: var(--bg);
+          border: 1px solid var(--line); font-size: 12px; text-align: left; word-break: break-all; }
+        code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; color: var(--ink); -webkit-user-select: text; }
+        .actions { display: flex; justify-content: center; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+        button { font: inherit; font-size: 13px; padding: 7px 14px; border-radius: 7px; cursor: pointer;
+          border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+        button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 500; }
+        </style></head><body>
+        <div class="drag" onmousedown="window.webkit?.messageHandlers?.jobapply?.postMessage({type:'startDrag'})"></div>
+        <main class="wrap"><section class="card">
+          \(indicator)
+          <h2>\(escape(title))</h2>
+          <div class="detail">\(detail)</div>
+          \(actions)
+        </section></main>
+        </body></html>
         """
         webView.loadHTMLString(html, baseURL: nil)
     }
 
     func escape(_ s: String) -> String {
-        s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
+        s.replacingOccurrences(of: "&", with: "&amp;")
+         .replacingOccurrences(of: "<", with: "&lt;")
+         .replacingOccurrences(of: ">", with: "&gt;")
     }
 
-    // 网页小桥：pickFolder / restartBackend / reveal。
+    // 网页小桥：pickFolder / restartBackend / reveal / startDrag / setTheme / retryBackend / openLog。
     func userContentController(_ c: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let msg = message.body as? [String: Any], let type = msg["type"] as? String else { return }
         switch type {
@@ -189,9 +269,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             }
         case "restartBackend":
             restartBackend()
+        case "retryBackend":
+            launchBackend()
+        case "openLog":
+            NSWorkspace.shared.activateFileViewerSelecting([backend.logURL])
         case "reveal":
             if let path = msg["path"] as? String {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+            }
+        case "startDrag":
+            if let event = NSApp.currentEvent {
+                window.performDrag(with: event)
+            }
+        case "setTheme":
+            let mode = msg["mode"] as? String ?? "system"
+            switch mode {
+            case "light":
+                window.appearance = NSAppearance(named: .aqua)
+            case "dark":
+                window.appearance = NSAppearance(named: .darkAqua)
+            default:
+                window.appearance = nil
             }
         default:
             break
@@ -277,7 +375,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         let main = NSMenu()
         let appItem = NSMenuItem(); main.addItem(appItem)
         let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "关于 JobApply", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "设置…", action: #selector(openSettings), keyEquivalent: ",")
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "隐藏 JobApply", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "隐藏其他", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+            .keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(withTitle: "全部显示", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "退出 JobApply", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
@@ -293,16 +398,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         edit.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = edit
 
+        let viewItem = NSMenuItem(); main.addItem(viewItem)
+        let view = NSMenu(title: "显示")
+        view.addItem(withTitle: "重新加载", action: #selector(reload), keyEquivalent: "r")
+        view.addItem(.separator())
+        view.addItem(withTitle: "放大", action: #selector(zoomIn), keyEquivalent: "=")
+        view.addItem(withTitle: "缩小", action: #selector(zoomOut), keyEquivalent: "-")
+        view.addItem(withTitle: "实际大小", action: #selector(zoomReset), keyEquivalent: "0")
+        view.addItem(.separator())
+        let full = view.addItem(withTitle: "进入全屏", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+        full.keyEquivalentModifierMask = [.command, .control]
+        viewItem.submenu = view
+
+        let navItem = NSMenuItem(); main.addItem(navItem)
+        let nav = NSMenu(title: "前往")
+        nav.addItem(withTitle: "返回", action: #selector(goBack), keyEquivalent: "[")
+        navItem.submenu = nav
+
         let winItem = NSMenuItem(); main.addItem(winItem)
         let win = NSMenu(title: "窗口")
         win.addItem(withTitle: "关闭", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         win.addItem(withTitle: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
-        win.addItem(withTitle: "重新加载", action: #selector(reload), keyEquivalent: "r")
         winItem.submenu = win
         NSApp.mainMenu = main
     }
 
-    @objc func reload() { loadUI() }
+    @objc func openSettings() {
+        webView.evaluateJavaScript("window.location.hash = '#/settings/models'")
+    }
+
+    @objc func goBack() {
+        webView.evaluateJavaScript("window.__jobapplyShell && window.__jobapplyShell.back && window.__jobapplyShell.back()")
+    }
+
+    @objc func zoomIn() {
+        webView.pageZoom = min(2.0, webView.pageZoom + 0.1)
+    }
+
+    @objc func zoomOut() {
+        webView.pageZoom = max(0.6, webView.pageZoom - 0.1)
+    }
+
+    @objc func zoomReset() {
+        webView.pageZoom = 1.0
+    }
+
+    @objc func reload() {
+        if let url = webView.url, url.host == "127.0.0.1" || url.host == "localhost" {
+            webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData))
+        } else {
+            loadUI()
+        }
+    }
 
     // 不用 WKWebView 磁盘缓存里的旧 index.html：装了新版也会先显示上一版界面（C024-fix 第 12 节）
     func loadUI() { webView.load(URLRequest(url: backendURL, cachePolicy: .reloadIgnoringLocalCacheData)) }

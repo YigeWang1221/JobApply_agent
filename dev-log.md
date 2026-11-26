@@ -1553,3 +1553,15 @@
 - 结果：`appbuild/slim-jar.sh`、`appbuild/windows/slim-jar.ps1`（新），`appbuild/macos/build.sh`、`appbuild/linux/build.sh`、`appbuild/windows/build.ps1`（调用瘦身；macOS / Linux node 去符号，macOS 重新签名；DMG `-fs HFS+ -format ULMO`）。
 - 验证：本机完整跑 `appbuild/build.sh macos` 退出码 0：App 489→322 MB，DMG 388→208 MB（jar 305→169、node 134→102）。签名校验通过；App 内 node 跑 MCP 正常；App 自带 Java 运行 jar（临时 storage）接口正常、空载 RSS 303 MB；瘦身 jar 断网下能加载 onnxruntime 和分词器本机库。`releases/` 的旧包被新包覆盖（可从 git 重打）。
 - 未运行：双击 App 界面、App 内真实检索、Linux / Windows 打包、PowerShell 语法检查。未提交。
+
+## 2026-11-25 · C031：Claude / Notion 风格绿色系 UI 统一化与美化（Web + macOS App）
+
+- 日期：2026-11-25
+- 指令：先阅读 doc 与前后端/App 代码建立基础理解，再做计划并一次性完成 Web 端与 macOS App 端的 Claude / Notion 风格 UI 统一化与美化，主色调选用绿色系。
+- 结果：
+  - 新增 `plan/coding/04-refinement/C031-ui-claude-notion-polish.md` 与 `frontend/src/theme.ts`。
+  - Web 端改动：`frontend/src/styles.css`、`frontend/src/main.tsx`、`frontend/src/shell.ts`、`frontend/src/App.tsx`、`frontend/src/chat/icons.tsx`、`frontend/src/dashboard/Kpis.tsx`、`frontend/src/pages/Global.tsx`、`frontend/src/pages/SessionPage.tsx`、`frontend/src/pages/JobPage.tsx`、`frontend/src/pages/Settings.tsx`、`frontend/src/pages/StorageLocation.tsx`（暖石浅灰侧栏 + 暖纸主画布 + 森林绿/鼠尾草绿强调与漏斗梯队、三态主题切换、统一控件与滚动条、修复 Dashboard/Project 双高亮、暖灰用户气泡与悬浮输入框渐隐、工作台行动折叠区突出、5×2 KPI 网格与看板列容器）。
+  - macOS App 端改动：`appbuild/macos/JobApply/main.swift`（`.fullSizeContentView` 透明融合标题栏、红绿灯安全区与空白拖拽、动态背景色与关 `drawsBackground` 防闪白、自适应深浅色启动/报错页带「重试启动/打开日志」、修复 `setFrameUsingName` 位置记忆与 `minSize`、修复 `⌘R` 保留当前 hash 路径、补齐关于/设置/缩放/全屏/返回菜单与桥接）。
+- 验证：`cd frontend && npm run build` 退出码 `0`（323 modules，`tsc -b && vite build`）；`swiftc -typecheck -module-cache-path /tmp/swift-module-cache -target arm64-apple-macos13.0 -framework AppKit -framework WebKit appbuild/macos/JobApply/main.swift` 退出码 `0`；`git status --short` 确认 `storage/` 与 `backend/` 零改动。
+- 未运行：完整 `appbuild/build.sh macos` 打包及真实浏览器 / macOS App 视觉预览（留待用户确认并试跑）。
+- 偏差：无（C030 遗留的侧栏工作台单岗 `portal-check` 运行状态点因后端 `WorkspaceSummary` 未返回该字段且本轮不改后端，按计划未强加）。未提交。

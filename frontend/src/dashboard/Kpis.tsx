@@ -9,23 +9,23 @@ export function Kpis({ jobs }: { jobs: JobView[] }) {
   const due = apps.filter((j) => j.due).length;
   // 候选池里还没决定或想投、还没转为申请的
   const leads = jobs.filter((j) => j.leadStatus === "new" || j.leadStatus === "shortlisted").length;
-  const items: [string, number, boolean][] = [
-    ["投递", sent.length, false],
-    ["公司", new Set(sent.map((j) => j.company)).size, false],
-    ["准备中", count("prep"), false],
-    ["筛选中", count("applied", "screening"), false],
-    ["笔试 / OA", count("assessment"), false],
-    ["面试中", count("interview"), false],
-    ["Offer", count("offer"), false],
-    ["待追踪", due, due > 0],
-    ["候选池待投", leads, false],
+  const items: [string, number, "warn" | "good" | null][] = [
+    ["投递", sent.length, null],
+    ["公司", new Set(sent.map((j) => j.company)).size, null],
+    ["准备中", count("prep"), null],
+    ["筛选中", count("applied", "screening"), null],
+    ["笔试 / OA", count("assessment"), null],
+    ["面试中", count("interview"), null],
+    ["Offer", count("offer"), count("offer") > 0 ? "good" : null],
+    ["待追踪", due, due > 0 ? "warn" : null],
+    ["候选池待投", leads, null],
     // C024：投递失败和不投了放在一格，明细在「没投成 / 不投了」面板
-    ["没投成 / 不投了", apps.filter((j) => markedOutcome(j) !== null).length, false],
+    ["没投成 / 不投了", apps.filter((j) => markedOutcome(j) !== null).length, null],
   ];
   return (
     <div className="kpis">
-      {items.map(([label, value, warn]) => (
-        <div key={label} className={`kpi${warn ? " warn" : ""}`}><b>{value}</b><span>{label}</span></div>
+      {items.map(([label, value, tone]) => (
+        <div key={label} className={`kpi${tone ? ` ${tone}` : ""}`}><b>{value}</b><span>{label}</span></div>
       ))}
     </div>
   );

@@ -1013,3 +1013,13 @@
 - 目标平台本机库缺失时直接报错：分词器在 jar 里找不到本机库会去联网下载，宁可打包失败也不出一个运行时偷偷下载的包。
 - ULMO 必须配 HFS+：APFS 下 hdiutil 报空间不足（实际磁盘空闲很多），这是 hdiutil 的限制。
 - 没做：换本地检索（FTS5）、按需下载、Tika 精简、换 node 运行时；收益小或要改行为，等真实使用后再定。
+
+## 2026-11-25 · C031：Claude / Notion 绿色系 UI 统一化与美化（Web + macOS App）
+
+- 原意：将 Web 端与 macOS App 端一次性统一美化为 Claude / Notion 风格，采用绿色系作为主强调色。
+- 取舍：
+  - **表面反转与森林绿体系**：将原纯白侧栏 + 灰底主区反转为 Notion/Claude 的暖石浅灰侧栏（`#f3f2ec` / 深色 `#181816`）+ 暖纸主画布（`#faf9f5` / 深色 `#1f1f1d`）+ 纯白卡片，主强调色选森林绿（`#2d6a4f` / 深色 `#52b788`），漏斗 6 级采用深绿到鼠尾草绿渐变，第二对比系列保留暖琥珀（`#d97736`）以保证图表的双色辨识度。
+  - **零新增依赖**：沿用原生 CSS 自定义属性与 `localStorage` 三态主题（`system / light / dark`），同时通过 JS Bridge `setTheme` 同步设置 macOS `NSWindow.appearance`，保证 Web 与窗口边框/标题栏外观一致。
+  - **macOS 融合标题栏与防闪白**：在 `.macapp` 类下为 `.side` 预留顶部红绿灯安全区，并在侧栏折叠为 `52px` 窄条时给 `.main > .top` 和 `.chathead` 增加 `44px` 左内边距避免标题与缩放绿灯重叠；空白区域通过 `NSWindow.performDrag(with:)` 原生拖拽移动窗口，比 CSS `-webkit-app-region` 在自定义组件上更可控。
+  - **保留安全与输入法兼容**：未修改 `PersonalSettings.tsx` 的 `-webkit-text-security: disc` 中文输入法兼容方案，未引入任何后端改动；因此 `WorkspaceSummary` 未包含单岗 `portal-check` 状态字段的项暂保持原状。
+- 未决：用户实际在浏览器与打包后的 `JobApply.app` 中检查浅色/深色模式、窗口缩放、拖拽与 Dashboard 布局效果。

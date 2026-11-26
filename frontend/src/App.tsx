@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type MouseEvent } from "react";
 import { api, ApiError, errorText, type ProjectSummary, type SessionSummary, type WorkspaceSummary } from "./api";
 import BrowserBanner from "./BrowserBanner";
 import { DeleteConfirm, type DeleteTarget } from "./DeleteConfirm";
@@ -14,6 +14,7 @@ import { DROPPED_OUTCOMES, labelText } from "./status";
 import { clampWidth, KEEP_MAIN, ResizeHandle, useStoredWidth, useWindowWidth } from "./ResizeHandle";
 import { back, go, href, lastDashboardProject, pruneStack, setRouteExists, useCanGoBack, useRoute, type Route } from "./route";
 import { shell } from "./shell";
+import { themeLabel, useTheme, type ThemeMode } from "./theme";
 import { toast, Toasts } from "./toast";
 
 // 应用外框（C005-ui.md）：左边 Project / Session 侧栏，右边按选中的内容切换
@@ -209,24 +210,45 @@ function BackButton() {
   );
 }
 
+// 在 macOS 融合标题栏模式下，点顶部空白区域可拖拽窗口（C031）
+function dragOnBlank(e: MouseEvent<HTMLElement>) {
+  if (e.button === 0 && shell.available() && e.target === e.currentTarget) {
+    shell.startDrag();
+  }
+}
+
+function themeIcon(mode: ThemeMode) {
+  return mode === "light" ? "sun" : mode === "dark" ? "moon" : "monitor";
+}
+
 function SidebarRail({ route, projects, onExpand, onCreated }: {
   route: Route;
   projects: ProjectSummary[] | null;
   onExpand: () => void;
   onCreated: () => Promise<void>;
 }) {
+  const { theme, cycleTheme } = useTheme();
   return (
-    <aside className="side rail" aria-label="Project 与 Session（已收起）">
+    <aside className="side rail" aria-label="Project 与 Session（已收起）" onMouseDown={dragOnBlank}>
       <button className="iconbtn" title="展开侧栏" aria-label="展开侧栏" onClick={onExpand}><Icon name="side" /></button>
       <BackButton />
       <NewChat route={route} projects={projects} onCreated={onCreated} compact />
-      <button className="iconbtn" title="Dashboard" aria-label="Dashboard" onClick={openDashboard}><Icon name="home" /></button>
+      <button className="iconbtn" title="Dashboard" aria-label="Dashboard"
+        aria-current={route.kind === "global" && !route.project ? "page" : undefined}
+        onClick={openDashboard}><Icon name="home" /></button>
       <div className="bottom">
+        <button className="iconbtn" title={`外观：${themeLabel(theme)}（点击切换）`} aria-label={`外观：${themeLabel(theme)}`}
+          onClick={cycleTheme}>
+          <Icon name={themeIcon(theme)} />
+        </button>
         <button className="iconbtn" title="资料与简历" aria-label="资料与简历"
+          aria-current={route.kind === "settings" && route.tab === "profile" ? "page" : undefined}
           onClick={() => go({ kind: "settings", tab: "profile" })}>
           <Icon name="file" />
         </button>
-        <button className="iconbtn" title="模型设置" aria-label="模型设置" onClick={() => go({ kind: "settings", tab: "models" })}>
+        <button className="iconbtn" title="模型设置" aria-label="模型设置"
+          aria-current={route.kind === "settings" && route.tab === "models" ? "page" : undefined}
+          onClick={() => go({ kind: "settings", tab: "models" })}>
           <Icon name="gear" />
         </button>
       </div>
@@ -325,17 +347,22 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
     }
     await onCreated();
   }
+  const { theme, cycleTheme } = useTheme();
   return (
     <aside className="side" aria-label="Project 与 Session">
-      <div className="brand">
-        <span><i aria-hidden="true"></i>JobApply</span>
+      <div className="brand" onMouseDown={(e) => {
+        if (e.button === 0 && shell.available() && !(e.target as HTMLElement).closest("button")) {
+          shell.startDrag();
+        }
+      }}>
+        <span className="brand-title"><span className="brand-badge" aria-hidden="true">J</span>JobApply</span>
         <span className="brandtools">
           <BackButton />
           <button className="iconbtn" title="收起侧栏" aria-label="收起侧栏" onClick={onCollapse}><Icon name="side" /></button>
         </span>
       </div>
       <NewChat route={route} projects={projects} onCreated={onCreated} />
-      <button className="pbtn" aria-current={route.kind === "global"} onClick={openDashboard}>
+      <button className="pbtn" aria-current={route.kind === "global" && !route.project} onClick={openDashboard}>
         <span className="pico"><Icon name="home" size={15} />Dashboard</span>
       </button>
       <div>
@@ -460,6 +487,9 @@ function Sidebar({ route, projects, error, onCreated, onCollapse }: {
         <button className="pbtn" aria-current={route.kind === "settings" && route.tab === "models"}
           onClick={() => go({ kind: "settings", tab: "models" })}>
           <span className="pico"><Icon name="gear" size={15} />模型设置</span>
+        </button>
+        <button className="pbtn" title="切换浅色 / 深色 / 跟随系统" onClick={cycleTheme}>
+          <span className="pico"><Icon name={themeIcon(theme)} size={15} />外观 · {themeLabel(theme)}</span>
         </button>
       </div>
     </aside>

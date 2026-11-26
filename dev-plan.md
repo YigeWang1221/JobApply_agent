@@ -81,6 +81,7 @@
 | [C004-A-fix 原件](plan/coding/02-core-agent/C004-A-fix-resume-project.md) | 资料页能删除原件（软删进 `.trash/`，Job 记录保留文件名）；原件分「简历 / 通用资料」，简历归属一个 Project（资料页下拉框可改），通用资料所有 Project 共用；对话里发来的文件只用于那次申请、不进资料库；Agent 只看本 Project 的简历和通用资料；旧数据启动时自动分类 | 已施工，等用户在本机试（2026-11-07；`mvn -B clean verify` 0、`npm run build` 0） |
 | [C030](plan/coding/04-refinement/C030-unified-base-agent-and-detox.md) | 统一 Base Agent 运行时与安全排毒（Phase 1）：Slice 0 清理软边界与防御性测试样本、同步文档；Slice 1–6 直接在用户当前分支落地 1 个 Base Agent + Plugin/Skill/Mode + Depth=2/3 单向 Subagent 树 + 统一 Job 线程 + `JobStatus`/侧栏 IA 瘦身，保持 `storage/` 向后兼容 | Slice 0 已提交（`a48fc48`）；Slice 1–6 已施工、经一轮审查，等用户在本机用真实 Chrome 试（2026-11-25；`mvn -B clean verify` 0、`npm run build` 0；未提交） |
 | [C030-fix Mode 放 storage](plan/coding/04-refinement/C030-fix-storage-modes.md) | Mode 文件可放在 `storage/modes/`：同名覆盖内置、可新加子任务 Mode，下一次运行生效，不重新打包；写错时报出文件和项 | 已施工，等用户试（2026-11-25；`mvn -B clean verify` 0） |
+| [C031](plan/coding/04-refinement/C031-ui-claude-notion-polish.md) | Claude / Notion 风格 UI 统一化与美化（Web + macOS App，绿色系）：设计令牌与三态主题、macOS 融合标题栏与启动页、侧栏重塑、对话/工作台、Dashboard 与设置页统一 | 已施工，等用户在浏览器与 macOS App 里看（2026-11-25；`npm run build` 0、`swiftc -typecheck` 0） |
 
 ## 参考（不是施工步骤）
 
@@ -93,4 +94,4 @@
 
 ## 停靠点
 
-2026-11-25：[C030](plan/coding/04-refinement/C030-unified-base-agent-and-detox.md) Slice 0–6 已施工（未提交）；等用户真实 Chrome 端到端试跑，并确认是否把实现与 Master Plan 的三处出入回写。
+2026-11-25：[C031](plan/coding/04-refinement/C031-ui-claude-notion-polish.md) 已施工（Web + macOS App 外壳，`npm run build` 与 `swiftc -typecheck` 通过，未提交）；等用户在浏览器与重新打包的 macOS App 里实际预览验收。

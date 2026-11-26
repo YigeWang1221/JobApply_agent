@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { go } from "../route";
+import { shell } from "../shell";
 import Assets from "./Assets";
 import CheckSettings from "./CheckSettings";
 import ModelSettings from "./ModelSettings";
@@ -53,7 +54,11 @@ export default function Settings({ tab }: { tab: "models" | "profile" }) {
 
   return (
     <>
-      <div className="top">
+      <div className="top" onMouseDown={(e) => {
+        if (e.button === 0 && shell.available() && e.target === e.currentTarget) {
+          shell.startDrag();
+        }
+      }}>
         <div>
           <h1>设置</h1>
         </div>

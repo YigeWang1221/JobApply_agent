@@ -4,7 +4,10 @@ type Bridge = { postMessage: (message: unknown) => void };
 declare global {
   interface Window {
     webkit?: { messageHandlers?: { jobapply?: Bridge } };
-    __jobapplyShell?: { resolve: (id: string, path: string | null) => void };
+    __jobapplyShell?: {
+      resolve: (id: string, path: string | null) => void;
+      back?: () => void;
+    };
   }
 }
 
@@ -38,4 +41,12 @@ export const shell = {
   // 外壳重启 Java 并重新加载窗口
   restartBackend: () => bridge()?.postMessage({ type: "restartBackend" }),
   reveal: (path: string) => bridge()?.postMessage({ type: "reveal", path }),
+  // 融合标题栏拖拽与外观同步（C031）
+  startDrag: () => bridge()?.postMessage({ type: "startDrag" }),
+  setTheme: (mode: "system" | "light" | "dark") => bridge()?.postMessage({ type: "setTheme", mode }),
+  onBack: (handler: () => void) => {
+    if (window.__jobapplyShell) {
+      window.__jobapplyShell.back = handler;
+    }
+  },
 };

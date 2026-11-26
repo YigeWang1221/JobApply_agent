@@ -89,16 +89,25 @@ function ChooseFolder({ initial, onDone }: { initial: string; onDone?: () => voi
 function FirstRun({ storage }: { storage: AppStorage }) {
   const [mode, setMode] = useState<"default" | "custom">("default");
   return (
-    <div className="content" style={{ maxWidth: 640, margin: "10vh auto" }}>
-      <section className="card">
-        <h2>选数据位置</h2>
-        <p className="muted">JobApply 的 Project、申请记录、资料和设置都放在这个文件夹里。以后可以在设置页更改。</p>
+    <div className="firstrun" onMouseDown={(e) => {
+      if (e.target === e.currentTarget) {
+        shell.startDrag();
+      }
+    }}>
+      <section className="card firstrun-card">
+        <div className="firstrun-head">
+          <span className="brand-badge" aria-hidden="true">J</span>
+          <div>
+            <h1>欢迎使用 JobApply</h1>
+            <p className="muted">先选择一个本地文件夹，用来存放你的 Project、投递台账、简历与设置。之后随时可在设置页修改。</p>
+          </div>
+        </div>
         <div className="seg storage-mode" role="group" aria-label="数据位置">
           <button type="button" aria-pressed={mode === "default"} onClick={() => setMode("default")}>默认位置</button>
           <button type="button" aria-pressed={mode === "custom"} onClick={() => setMode("custom")}>选择文件夹…</button>
         </div>
         <p className="muted small">
-          {mode === "default" ? <>默认：<code>{storage.defaultRoot}</code></> : "可以选仓库里已有的 storage/"}
+          {mode === "default" ? <>默认：<code>{storage.defaultRoot}</code></> : "可以选仓库里已有的 storage/ 或任意空目录"}
         </p>
         <ChooseFolder key={mode} initial={mode === "default" ? storage.defaultRoot : ""} />
       </section>
@@ -115,7 +124,13 @@ export function StorageGate({ children }: { children: ReactNode }) {
   }, []);
   if (storage?.needsChoice) return <FirstRun storage={storage} />;
   // 接口出错时不挡住主界面，错误留给各页自己显示
-  if (!storage && !failed) return null;
+  if (!storage && !failed) {
+    return (
+      <div className="firstrun">
+        <div className="firstrun-loading"><span className="spinner" /> 正在连接工作区…</div>
+      </div>
+    );
+  }
   return <>{children}</>;
 }
 
