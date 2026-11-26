@@ -5,7 +5,7 @@ import jobapply.persistence.JobLedger;
 import jobapply.persistence.ProjectRepository;
 import jobapply.persistence.StorageLayout;
 import jobapply.workflow.ApplicationException;
-import jobapply.workflow.ApplicationRunner;
+import jobapply.workflow.JobThreadService;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -33,7 +33,7 @@ public class CheckSettingsController {
     private final JobLedger ledger;
     private final ProjectRepository projects;
 
-    public CheckSettingsController(StorageLayout layout, Clock clock, ApplicationRunner applications) {
+    public CheckSettingsController(StorageLayout layout, Clock clock, JobThreadService applications) {
         this.ledger = new JobLedger(layout, clock, applications.events()::changed);
         this.projects = new ProjectRepository(layout, clock);
     }

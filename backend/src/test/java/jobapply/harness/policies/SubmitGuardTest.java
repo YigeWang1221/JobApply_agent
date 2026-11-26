@@ -6,12 +6,12 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import jobapply.harness.policies.SubmitGuard.ClickIntent;
 import jobapply.tools.PageSnapshot;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.junit.jupiter.api.Test;
 
 /**
- * 提交类按钮一律拒绝；「下一步」类按钮按模型的判断放行，怀疑是最后一步时先问用户；其它点击放行；页面状态只给提醒。
+ * 提交类按钮一律拒绝；普通确认/下一步/保存按钮在非提交语境下放行；页面状态只给提醒。
  * 页面数据全部虚构。
  */
 class SubmitGuardTest {
@@ -88,21 +88,6 @@ class SubmitGuardTest {
         assertThat(((GuardDecision.Reject) decision).reason()).contains("由用户自己点").contains("不要重试");
     }
 
-    // 确认类按钮（C006-fix-real-run 第 18 条，用户决定放行，2026-10-25）：交给模型判断；问要不要提交的对话框里仍然拒绝
-
-    @ParameterizedTest
-    @ValueSource(strings = {"确定", "确 定", "完成", "确认", "Confirm", "Done", "OK"})
-    void confirmButtonsInPanelsAndCardsAreLeftToTheModel(String name) {
-        PageSnapshot latest = page("- generic [ref=e1]:\n  - grid \"2025年9月\" [ref=e5]\n  - button \"" + name
-                + "\" [ref=e2]\n- button \"提交申请\" [ref=e3]");
-
-        assertThat(SubmitGuard.click(latest, "e2")).as(name).isInstanceOf(GuardDecision.Explain.class);
-        assertThat(SubmitGuard.click(latest, "e2", new ClickIntent("confirm", false, "日期面板的确定"), null)).as(name)
-                .isInstanceOf(GuardDecision.Allow.class);
-        assertThat(SubmitGuard.click(latest, "e2", new ClickIntent("confirm", true, "像是最后一步"), null)).as(name)
-                .isInstanceOf(GuardDecision.AskUser.class);
-    }
-
     @ParameterizedTest
     @ValueSource(strings = {"确定", "确 定", "确认", "OK", "Confirm"})
     void aConfirmInADialogAskingToSubmitTheApplicationIsStillRejected(String name) {
@@ -122,9 +107,7 @@ class SubmitGuardTest {
                     - button "%s" [ref=e2]""".formatted(name));
 
         for (PageSnapshot latest : new PageSnapshot[]{submit, deliver}) {
-            assertThat(SubmitGuard.click(latest, "e2", NOT_LAST, null)).as(name).isInstanceOf(GuardDecision.Reject.class);
-            assertThat(SubmitGuard.click(latest, "e2", NOT_LAST, new SubmitGuard.Approval(latest.url(), "e2", name)))
-                    .as(name).isInstanceOf(GuardDecision.Reject.class);
+            assertThat(SubmitGuard.click(latest, "e2")).as(name).isInstanceOf(GuardDecision.Reject.class);
             assertThat(SubmitGuard.readOnly(latest, "e2")).as(name).isInstanceOf(GuardDecision.Reject.class);
         }
     }
@@ -144,7 +127,16 @@ class SubmitGuardTest {
         assertThat(SubmitGuard.click(page("- button [ref=e2]: 提交"), "e2")).isInstanceOf(GuardDecision.Reject.class);
     }
 
-    // 其它
+    // 普通确认 / 下一步 / 保存与其它
+
+    @ParameterizedTest
+    @ValueSource(strings = {"确定", "下一步", "保存", "OK", "Next", "继续", "完成"})
+    void normalConfirmNextAndSaveButtonsAreAllowed(String name) {
+        PageSnapshot latest = page("- generic [ref=e1]:\n  - grid \"2025年9月\" [ref=e5]\n  - button \"" + name
+                + "\" [ref=e2]\n- button \"提交申请\" [ref=e3]");
+
+        assertThat(SubmitGuard.click(latest, "e2")).as(name).isInstanceOf(GuardDecision.Allow.class);
+    }
 
     @ParameterizedTest
     @ValueSource(strings = {"上传简历", "添加经历", "删除", "上一步", "My Applications", "查看职位详情", "北京"})
@@ -152,64 +144,8 @@ class SubmitGuardTest {
         assertThat(click(name)).as(name).isInstanceOf(GuardDecision.Allow.class);
     }
 
-    // 「下一步」这类按钮（C006-fix-runtime-2）：模型判断是不是最后一步；怀疑是、或者页面上看得出可能直接提交时先问用户
-
-    private static final ClickIntent NOT_LAST = new ClickIntent("next_step", false, "第 1/3 步");
-    private static final ClickIntent LAST = new ClickIntent("next_step", true, "按钮旁写着「提交后不可修改」");
-
-    @ParameterizedTest
-    @ValueSource(strings = {"第 1/3 步", "第 2 步，共 4 步", "Step 1 of 2", "step 2/3", "没有步骤条"})
-    void softButtonsAreAllowedWhenTheModelSaysItIsNotTheLastStep(String progress) {
-        PageSnapshot latest = page("- text: " + progress + "\n- button \"下一步\" [ref=e2]\n- button \"Next\" [ref=e3]"
-                + "\n- button \"保存\" [ref=e4]");
-
-        assertThat(SubmitGuard.click(latest, "e2", NOT_LAST, null)).as(progress).isInstanceOf(GuardDecision.Allow.class);
-        assertThat(SubmitGuard.click(latest, "e3", NOT_LAST, null)).as(progress).isInstanceOf(GuardDecision.Allow.class);
-        assertThat(SubmitGuard.click(latest, "e4", NOT_LAST, null)).as(progress).isInstanceOf(GuardDecision.Allow.class);
-    }
-
     @Test
-    void softButtonsWithoutTheModelsJudgementGoBackToTheModelNotTheUser() {
-        assertThat(SubmitGuard.click(button("继续"), "e2")).isInstanceOf(GuardDecision.Explain.class);
-        assertThat(SubmitGuard.click(button("保存"), "e2", new ClickIntent("save_draft", null, null), null))
-                .isInstanceOf(GuardDecision.Explain.class);
-    }
-
-    @Test
-    void theUserIsAskedWhenTheModelSuspectsTheLastStepOrThePageShowsIt() {
-        PageSnapshot lastStep = page("- text: 第 3/3 步\n- button \"下一步\" [ref=e2]");
-        PageSnapshot withSubmit = page("- text: 第 1/2 步\n- button \"下一步\" [ref=e2]\n- button \"提交申请\" [ref=e3]");
-
-        assertThat(SubmitGuard.click(button("继续"), "e2", LAST, null)).isInstanceOf(GuardDecision.AskUser.class);
-        // 页面上看得出可能直接提交（夹具 submitted-page）：模型说不是最后一步也要先问
-        assertThat(SubmitGuard.click(lastStep, "e2", NOT_LAST, null)).isInstanceOf(GuardDecision.AskUser.class);
-        assertThat(SubmitGuard.click(withSubmit, "e2", NOT_LAST, null)).isEqualTo(
-                new GuardDecision.AskUser("下一步", "同一页上还有提交类按钮，这个按钮也可能直接提交"));
-        // 保存不看页面信号，免得每次保存都问
-        PageSnapshot saveWithSubmit = page("- button \"保存\" [ref=e2]\n- button \"提交申请\" [ref=e3]");
-        assertThat(SubmitGuard.click(saveWithSubmit, "e2", NOT_LAST, null)).isInstanceOf(GuardDecision.Allow.class);
-    }
-
-    @Test
-    void anApprovalCoversOnlyThatButtonOnThatPageAndNeverASubmitButton() {
-        PageSnapshot withSubmit = page("- button \"下一步\" [ref=e2]\n- button \"继续\" [ref=e4]"
-                + "\n- button \"提交申请\" [ref=e3]");
-        String url = withSubmit.url();
-        SubmitGuard.Approval approved = new SubmitGuard.Approval(url, "e2", "下一步");
-
-        assertThat(SubmitGuard.click(withSubmit, "e2", null, approved)).isInstanceOf(GuardDecision.Allow.class);
-        assertThat(SubmitGuard.click(withSubmit, "e4", NOT_LAST, approved)).as("别的按钮")
-                .isInstanceOf(GuardDecision.AskUser.class);
-        PageSnapshot otherPage = new PageSnapshot("https://jobs.example.com/apply/2", "申请表", withSubmit.snapshot(), "");
-        assertThat(SubmitGuard.click(otherPage, "e2", NOT_LAST, approved)).as("别的页面")
-                .isInstanceOf(GuardDecision.AskUser.class);
-        assertThat(SubmitGuard.click(withSubmit, "e3", null, new SubmitGuard.Approval(url, "e3", "提交申请")))
-                .isInstanceOf(GuardDecision.Reject.class);
-        assertThat(SubmitGuard.click(withSubmit, "e3", NOT_LAST, null)).isInstanceOf(GuardDecision.Reject.class);
-    }
-
-    @Test
-    void researchLetsSoftButtonsThroughButNeverSubmitButtons() {
+    void readOnlyLetsNormalButtonsThroughButNeverSubmitButtons() {
         PageSnapshot list = page("- button \"下一页\" [ref=e2]\n- button \"立即申请\" [ref=e3]");
 
         assertThat(SubmitGuard.readOnly(list, "e2")).isInstanceOf(GuardDecision.Allow.class);
@@ -222,11 +158,11 @@ class SubmitGuardTest {
         Map<String, Object> args = new LinkedHashMap<>();
         args.put("target", "e2");
         args.put("purpose", "next_step");
-        args.put("final_step_suspected", false);
         args.put("evidence", "第 2/4 步");
 
-        assertThat(ClickIntent.from(args)).isEqualTo(new ClickIntent("next_step", false, "第 2/4 步"));
+        assertThat(ClickIntent.from(args).purpose()).isEqualTo("next_step");
+        assertThat(ClickIntent.from(args).evidence()).isEqualTo("第 2/4 步");
         assertThat(ClickIntent.strip(args)).containsExactly(Map.entry("target", "e2"));
-        assertThat(ClickIntent.from(Map.of("purpose", 3))).isEqualTo(new ClickIntent(null, null, null));
+        assertThat(ClickIntent.from(Map.of("purpose", 3)).purpose()).isNull();
     }
 }

@@ -3,7 +3,7 @@ import {
   api, ApiError, awaitingSubmit, errorText, type ApplicationQuestion, type ApplicationState, type ApplicationStatus,
   type Asset, type BrowserTab, type FileSlot,
   type JobDetail, type JobEventView, type JobView, type OutcomeKind, type ReplyBody, type ResumeChoice, type RoundView,
-  type SentAttachment, type StateField,
+  type SentAttachment, type StateField, type SubRunView,
 } from "../api";
 import { Markdown } from "../chat/Markdown";
 import { ChatSkeleton } from "../chat/ChatSkeleton";
@@ -12,6 +12,7 @@ import { Composer } from "../chat/Composer";
 import { Icon } from "../chat/icons";
 import { MessageList, TranscriptTurns } from "../chat/MessageList";
 import { readDraft, writeDraft } from "../chat/draft";
+import { SubRunCard, SubRunsProvider, useSubRuns } from "../chat/SubRuns";
 import { useAttachments } from "../chat/useAttachments";
 import { useLiveUpdates } from "../chat/useLiveUpdates";
 import { ResizablePanel } from "../ResizeHandle";
@@ -32,8 +33,6 @@ const FIELD: Record<string, [string, string]> = {
 const FIELD_DONE = new Set(["filled", "verified", "skipped"]);
 // 中断（应用重启前还在跑）和等你一样：回复后接着做。排队和在跑一样：能停止、不能回复
 const WAITING = new Set(["waiting_user", "ready", "failed", "interrupted"]);
-// 你已经提交了（等确认）：和后端 reply 的 409 同一条规则，不再回复申请 Agent。暂停的可以回复（接着做）
-const USER_DECIDED = new Set(["user_submitting", "verification_pending", "unconfirmed"]);
 const RESUME_SLOT = /简历|履历|resume|cv/i;
 
 interface ReplyForm {
@@ -81,6 +80,7 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
   const followupRunning = detail?.followup?.status === "running";
   // 推送里的 activity 只按 Job 分：投递段和后续段不会同时在跑，哪段在跑就是哪段的
   const sse = useLiveUpdates({ job: id }, running || followupRunning, load);
+  const subruns = useSubRuns({ job: id });
   const upload = useCallback((file: File) => api.jobAttachment(id, file), [id]);
   const attach = useAttachments(upload);
   const followupUpload = useCallback((file: File) => api.followupAttachment(id, file), [id]);
@@ -169,7 +169,7 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
 
   const lockedReason = !status
     ? "还没有开始申请"
-    : job.phase !== "prep" || USER_DECIDED.has(job.prepState ?? "")
+    : job.phase !== "prep"
       ? `这个申请现在是「${phaseText(job)}」，你已经定下了，不用再回复申请 Agent`
     : running || waiting ? null : "现在不需要回复";
   // 挡住发送的只有这一条；必填问题没答、上传位置空着都不挡，Agent 会再问（C006-fix 第 5 节、第 6 节）
@@ -231,6 +231,7 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
             await onChanged?.();
           }} />
       )}
+      <SubRunsProvider runs={subruns}>
       <div className="chatmain">
         <header className="chathead">
           <div className="chathead-t">
@@ -255,7 +256,7 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
               <details className="moremenu">
                 <summary className="linkbtn ghost">更多</summary>
                 <div className="menu" onClick={(e) => e.currentTarget.closest("details")?.removeAttribute("open")}>
-                  <button className="ghost" onClick={() => go({ kind: "project", id: job.project })}>回到 Project</button>
+                  <button className="ghost" onClick={() => go({ kind: "global", project: job.project })}>回到 Project</button>
                   {job.discoveredIn && !discoveredDeleted && (
                     <button className="ghost" onClick={() => go({ kind: "session", id: job.discoveredIn! })}>发现它的 Session</button>
                   )}
@@ -314,7 +315,8 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
               activity={sse.activity !== undefined ? sse.activity : followup.activity}
               onStop={() => void call(() => api.stopFollowup(job.id))}
               before={<FillSegment steps={steps} job={job}
-                check={<PortalCheckBar job={job} running={followupRunning} busy={busy} call={call} />} />}
+                check={<PortalCheckBar job={job} busy={busy} call={call}
+                  latest={subruns.filter((r) => r.mode === "portal-check" && r.job === job.id).pop() ?? null} />} />}
               empty={
                 <p className="muted small">现在是「{phaseText(job)}」。在这里接着聊：收到的笔试 / OA 题、面试准备、面完的情况。
                   Agent 会把轮次和复盘记下来，题目进题库，别的工作台以后也用得上。</p>
@@ -365,6 +367,7 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
         </>
         )}
       </div>
+      </SubRunsProvider>
       {panelOpen && (
         <ResizablePanel storageKey="jobapply.jobPanel.width" label="现在要你做的事">
           <div className="ph">
@@ -447,12 +450,13 @@ function checkSource(job: JobView): string | null {
   return check?.result === "found" && dayOf(check.checkedAt) === dayOf(job.lastCheckedAt) ? "官网" : "你说的";
 }
 
-// 后续段头部的「查状态」（C026）：让后续 Agent 去官网看一眼，只记建议；有建议时你在这里核准 / 驳回
-function PortalCheckBar({ job, running, busy, call }: {
+// 后续段头部的「查状态」（C026，C030）：起一个 portal-check 子任务去官网看一眼，只记建议；它不进下面的对话，
+// 也不占着后续段（后续 Agent 在做时照样能查）。在查时可以停；最近一次查的过程折在这里。有建议时你在这里核准 / 驳回
+function PortalCheckBar({ job, busy, call, latest }: {
   job: JobView;
-  running: boolean;
   busy: boolean;
   call: (action: () => Promise<unknown>) => Promise<boolean>;
+  latest: SubRunView | null;
 }) {
   const open = job.phase !== "prep" && job.phase !== "closed";
   const proposal = job.proposal ?? null;
@@ -463,11 +467,17 @@ function PortalCheckBar({ job, running, busy, call }: {
     <div className="portalbar">
       {open && (
         <div className="row">
-          <button disabled={busy || running || !!job.checking}
+          <button disabled={busy || !!job.checking}
             title="让 Agent 打开官网的申请状态页看一眼；它不替你登录，看到变化只记成建议，等你核准"
             onClick={() => void call(() => api.checkStatus(job.id))}>
             {job.checking === "running" ? "查状态中…" : job.checking === "queued" ? "排队查状态…" : "查状态"}
           </button>
+          {job.checking && (
+            <button className="textbtn danger" disabled={busy} title="停下这一次查状态"
+              onClick={() => void call(() => api.stopStatusChecks([job.id]))}>
+              <Icon name="stop" size={12} /> 停止
+            </button>
+          )}
           {job.portalCheck && (
             <span className="muted small">
               上次：{job.portalCheck.result === "found" ? `官网显示「${job.portalCheck.stage ?? "—"}」` : PORTAL[job.portalCheck.result]}
@@ -475,6 +485,10 @@ function PortalCheckBar({ job, running, busy, call }: {
             </span>
           )}
         </div>
+      )}
+      {latest && (
+        <SubRunCard run={latest} mode={latest.mode} task={latest.task} status={latest.status} result={latest.result}
+          startedAt={latest.startedAt} endedAt={latest.endedAt} />
       )}
       {proposal && (
         <div className="proposalcard" role="group" aria-label="官网状态建议">

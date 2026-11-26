@@ -3,7 +3,7 @@ package jobapply.api;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
-import jobapply.workflow.FollowupRunner;
+import jobapply.workflow.StatusCheckBatch;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -27,25 +27,25 @@ public class StatusCheckController {
     public record Resolved(List<String> done, List<Failed> failed) {
     }
 
-    private final FollowupRunner runner;
+    private final StatusCheckBatch runner;
 
-    public StatusCheckController(FollowupRunner runner) {
+    public StatusCheckController(StatusCheckBatch runner) {
         this.runner = runner;
     }
 
     @GetMapping("/api/status-checks")
-    public FollowupRunner.StatusChecks checks() {
+    public StatusCheckBatch.StatusChecks checks() {
         return runner.checks();
     }
 
     @PostMapping(path = "/api/status-checks", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public FollowupRunner.StatusChecks start(@RequestBody JobIds request) {
+    public StatusCheckBatch.StatusChecks start(@RequestBody JobIds request) {
         return runner.checkMany(ids(request));
     }
 
     /** 不带 body（或 {@code jobIds} 为空）停下整批；带 {@code jobIds} 只停这些（C006-fix）。 */
     @PostMapping("/api/status-checks/stop")
-    public FollowupRunner.StatusChecks stop(@RequestBody(required = false) JobIds request) {
+    public StatusCheckBatch.StatusChecks stop(@RequestBody(required = false) JobIds request) {
         return runner.stopChecks(ids(request));
     }
 

@@ -8,6 +8,7 @@ import java.util.Deque;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import jobapply.agents.BaseAgent;
 import jobapply.config.HarnessProperties;
 import jobapply.config.PersonalSettingsService;
 import jobapply.domain.Actor;
@@ -15,6 +16,7 @@ import jobapply.domain.AgentRun;
 import jobapply.domain.JobPosting;
 import jobapply.persistence.PersonalEnv;
 import jobapply.persistence.TestStorage;
+import jobapply.tools.AgentServices;
 import jobapply.tools.BrowserSession;
 import jobapply.tools.FakeBrowser;
 import org.junit.jupiter.api.Test;
@@ -79,10 +81,11 @@ class PersonalPlaceholderTest {
 
         AgentRun run;
         try (BrowserSession browser = new BrowserSession(fake.launch(), new PersonalEnv(storage.layout)::values)) {
-            HarnessLoop loop = new HarnessLoop(model, browser, storage.layout, storage.clock,
-                    HarnessProperties.defaults());
-            run = loop.run(AgentRun.start(PROJECT, job, session, "示例科技", "Backend Engineer", fake.formUrl(),
-                    "开始申请。"), () -> false, ignored -> {
+            BaseAgent agent = new BaseAgent(model, new AgentServices(storage.layout, storage.clock, browser, null,
+                    null, null, null, null, null, HarnessProperties.defaults(), null));
+            run = agent.apply(AgentRun.start(PROJECT, job, session, "示例科技", "Backend Engineer", fake.formUrl(),
+                    "开始申请。"), new RunControl(null, null, null, HarnessProperties.defaults()::toolCallsPerRun),
+                    ignored -> {
                     });
         }
 

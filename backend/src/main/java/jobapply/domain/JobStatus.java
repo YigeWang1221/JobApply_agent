@@ -34,17 +34,16 @@ public record JobStatus(
     }
 
     /**
-     * 可以开始申请线程：还是候选（new / shortlisted，开始时转为申请），或者在 prep 里、用户还没有接手提交
-     * （你在提交、等验证、没确认的不行）。{@code ApplicationRunner.start} 和界面的「开始申请」都用它。
+     * 可以开始申请线程：还是候选（new / shortlisted，开始时转为申请），或者还在 prep 里（C030 起 prep 的 5 个状态都可以）。
+     * {@code JobThreadService.start} 和界面的「开始申请」都用它。
      */
     public boolean canStartApplication() {
-        if (leadStatus == LeadStatus.NEW || leadStatus == LeadStatus.SHORTLISTED) {
-            return true;
-        }
-        return phase == Phase.PREP && switch (prepState) {
-            case SELECTED, PREPARING, NEEDS_LOGIN, NEEDS_INPUT, HANDOFF_USER, FAILED, AWAITING_REVIEW, PAUSED -> true;
-            case USER_SUBMITTING, VERIFICATION_PENDING, UNCONFIRMED -> false;
-        };
+        return leadStatus == LeadStatus.NEW || leadStatus == LeadStatus.SHORTLISTED || phase == Phase.PREP;
+    }
+
+    /** 投递段（{@code apply} Mode）还是后续段（{@code followup} Mode），只看 {@code phase}（{@link Phase#applySegment}）。 */
+    public boolean applySegment() {
+        return Phase.applySegment(phase);
     }
 
     /**

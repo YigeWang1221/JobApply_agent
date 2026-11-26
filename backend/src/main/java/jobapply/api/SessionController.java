@@ -11,7 +11,7 @@ import jobapply.domain.SessionRecord;
 import jobapply.persistence.JobRepository;
 import jobapply.persistence.SessionRepository;
 import jobapply.persistence.StorageLayout;
-import jobapply.workflow.ApplicationRunner;
+import jobapply.workflow.JobThreadService;
 import jobapply.workflow.SessionRunner;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
@@ -63,9 +63,9 @@ public class SessionController {
     private final StorageLayout layout;
     private final Clock clock;
     private final SessionRunner runner;
-    private final ApplicationRunner applications;
+    private final JobThreadService applications;
 
-    public SessionController(StorageLayout layout, Clock clock, SessionRunner runner, ApplicationRunner applications) {
+    public SessionController(StorageLayout layout, Clock clock, SessionRunner runner, JobThreadService applications) {
         this.layout = layout;
         this.clock = clock;
         this.runner = runner;
@@ -134,7 +134,7 @@ public class SessionController {
                 .body(new DeleteResponse(id, result.name().toLowerCase(Locale.ROOT)));
     }
 
-    static SessionView view(StorageLayout layout, Clock clock, SessionRunner runner, ApplicationRunner applications,
+    static SessionView view(StorageLayout layout, Clock clock, SessionRunner runner, JobThreadService applications,
                             String sessionId) {
         String project = runner.project(sessionId);
         SessionRepository sessions = new SessionRepository(layout, clock);

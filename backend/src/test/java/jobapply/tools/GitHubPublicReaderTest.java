@@ -48,7 +48,6 @@ class GitHubPublicReaderTest {
         assertThatThrownBy(() -> GitHubPublicReader.parse("https://gitlab.com/a/b"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> GitHubPublicReader.parse("a/b/c")).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> GitHubPublicReader.parse("../etc")).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

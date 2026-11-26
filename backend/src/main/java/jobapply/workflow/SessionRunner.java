@@ -19,7 +19,10 @@ import jobapply.domain.AgentRun;
 import jobapply.domain.Inbox;
 import jobapply.domain.LiveRuns;
 import jobapply.domain.SessionRecord;
-import jobapply.harness.runtime.SessionLoop;
+import jobapply.agents.BaseAgent;
+import jobapply.harness.runtime.RunControl;
+import jobapply.tools.AgentServices;
+import jobapply.tools.ResearchTools;
 import jobapply.persistence.AttachmentStore;
 import jobapply.persistence.ProjectRepository;
 import jobapply.persistence.SessionRepository;
@@ -34,7 +37,7 @@ import org.springframework.ai.chat.model.ChatModel;
 
 /**
  * Session 对话的入口（C005）：新建 Session（空白对话，C005-fix 开场）、发消息、重新生成、停止、查状态。每条消息在后台跑一次
- * {@link SessionLoop}，对话一条一条写进 {@code transcript.jsonl}。在跑的 Session 在内存里；上一次运行的状态和错误
+ * Base Agent 的 Session Mode（{@link BaseAgent#session}），对话一条一条写进 {@code transcript.jsonl}。在跑的 Session 在内存里；上一次运行的状态和错误
  * 记在 {@code session.md}（C006-agent），应用重启时还在跑的那次显示为「中断」。现在在做什么在 {@link #events()} 里。
  * 同一个 Session 同一时间只跑一次；不同 Session 可以同时跑（浏览器按使用者切换标签页）。
  */
@@ -72,7 +75,7 @@ public final class SessionRunner implements AutoCloseable {
     private final Supplier<ChatModel> mainModel;
     private final WebSearch search;
     private final WebFetch fetch;
-    private final ApplicationRunner applications;
+    private final JobThreadService applications;
     private final ProjectRepository projects;
     private final SessionRepository sessions;
     private final ExecutorService pool = Executors.newCachedThreadPool(runnable -> {
@@ -93,7 +96,7 @@ public final class SessionRunner implements AutoCloseable {
 
     /** 事件日志和 {@code applications} 共用；申请线程的回报写进发起它的 Session（{@link #report}）。 */
     public SessionRunner(StorageLayout layout, Clock clock, BrowserSession browser, Supplier<ChatModel> mainModel,
-                         WebSearch search, WebFetch fetch, ApplicationRunner applications) {
+                         WebSearch search, WebFetch fetch, JobThreadService applications) {
         this.layout = layout;
         this.clock = clock;
         this.browser = browser;
@@ -127,7 +130,7 @@ public final class SessionRunner implements AutoCloseable {
 
     /**
      * 出错停下：对话末尾写一句原因（C006-fix-final-reply），刷新、换一轮后历史里还看得出这一轮是出错停的。写不进只记日志。
-     * 后续段（{@link FollowupRunner}）也用。
+     * 后续段（{@link JobThreadService} 的后续段）也用。
      */
     static void noteCrash(String error, Consumer<AgentRun.Turn> append) {
         try {
@@ -392,12 +395,13 @@ public final class SessionRunner implements AutoCloseable {
             try {
                 List<AgentRun.Turn> history = sessions.readTurns(projectId, sessionId).stream()
                         .map(SessionRepository.TimedTurn::turn).toList();
-                SessionLoop loop = new SessionLoop(mainModel.get(), browser, layout, clock, search, fetch,
-                        applicationTools(), events::changed, applications.toolCallLimits()::perMessage);
+                BaseAgent agent = new BaseAgent(mainModel.get(), new AgentServices(layout, clock, browser, fetch,
+                        search, null, events::changed, applicationTools(), null, null, events::subrun));
                 // 发往 OpenCode 的模型请求带这个 Session 的 id（C025-fix）
-                OpenCodeSession.run("jobapply-session-" + sessionId, () -> loop.run(projectId, sessionId, history,
-                        () -> stopRequested(sessionId), turn -> sessions.appendTurn(projectId, sessionId, turn),
-                        events.observer(sessionId, null), () -> inbox.take(sessionId)));
+                OpenCodeSession.run("jobapply-session-" + sessionId, () -> agent.session(projectId, sessionId, history,
+                        new RunControl(() -> stopRequested(sessionId), () -> inbox.take(sessionId),
+                                events.observer(sessionId, null), applications.toolCallLimits()::perMessage),
+                        turn -> sessions.appendTurn(projectId, sessionId, turn)));
             } catch (RuntimeException e) {
                 error = rootMessage(e);
                 log.warn("Session {} 的对话 Agent 出错：{}", sessionId, error);
@@ -462,8 +466,8 @@ public final class SessionRunner implements AutoCloseable {
     }
 
     /** 对话 Agent 的 {@code start_application} 和申请线程的状态。 */
-    private SessionLoop.Applications applicationTools() {
-        return new SessionLoop.Applications() {
+    private ResearchTools.Applications applicationTools() {
+        return new ResearchTools.Applications() {
             @Override
             public String start(String job, String project, String session) {
                 // 可重放（C006-fix 第 4 节）：已经有申请线程时不重新开始（会丢掉填了一半的申请），返回回执

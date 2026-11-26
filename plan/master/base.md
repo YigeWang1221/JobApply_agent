@@ -1,6 +1,6 @@
 # Base plan：JobApply
 
-状态：技术路线已确认（沿用 `../Eco_Agent/` 的栈）。产品目标已由用户给出；各 Master Plan **已确认**（2026-10-22）。未写业务代码。日期：2026-10-22。
+状态：技术路线与各 Master Plan 已确认（2026-10-22 起持续修订，2026-11-25 对齐 C030 目标架构）。
 
 文件架构见 [architecture.md](architecture.md)。脚手架与精确版本见 [C001-scaffold.md](../coding/01-foundation/C001-scaffold.md)。本文件不重复目录树。
 
@@ -9,14 +9,14 @@
 用户已给出（2026-10-22）：
 
 - 根据本地存放的个人资料，找到符合条件的岗位。
-- 通过 Chrome MCP 在浏览器里替用户填写申请表。
+- 通过 `@playwright/mcp` 连接本机 Chrome 在浏览器里替用户填写申请表。
 - **提交前停下来交给用户审核，最终提交由用户本人完成。**
-- 本地维护一份易于 AI 阅读的投递台账（Markdown 等），记录投了哪些岗位、处于什么阶段、最近一次查询的时间。
+- 本地维护一份易于 AI 阅读的投递台账（Markdown + CSV），记录投了哪些岗位、处于什么阶段、最近一次查询的时间，并支持投递后轮次复盘与官网门户查状态。
 - 设计偏重 MCP，自研 Tool 较轻。
 
-流程见 [workflow.md](workflow.md)，Memory 见 [memory.md](memory.md)，追踪见 [tracking.md](tracking.md)，界面与模型设置见 [ui.md](ui.md)。
+流程见 [workflow.md](workflow.md)，Memory 见 [memory.md](memory.md)，追踪见 [tracking.md](tracking.md)，界面与模型设置见 [ui.md](ui.md)，运行时见 [agent-runtime.md](agent-runtime.md)。
 
-原则（沿用）：**Agent 负责推理与决策，系统负责状态管理、权限校验和可靠执行。**
+原则（沿用）：**Agent 负责推理与决策，系统负责状态管理、底线守卫与可靠执行。**
 
 ## 求职表达与包装（用户修订，2026-10-22）
 
@@ -33,38 +33,36 @@
 **不上** Spring AI Alibaba Graph。**不用**框架封装的 ReActAgent 当默认 Agent Loop。
 
 ```text
-Frontend
+Frontend（React + Vite + TypeScript，SSE 实时推送）
         ↓
-Spring Boot 应用层（API、配置、权限、业务服务）
+Spring Boot 应用层（API、配置、业务服务）
         ↓
-申请线程（workflow）：Worker 池并发、超出排队（C011）· 运行状态存盘 · 用户回复后接着跑
+统一工作流（workflow）：SessionService · JobThreadService（apply / followup 同线程切 Mode）· SubagentExecutor（Depth=2/3 单向树）
         ↓
-Custom Agent Harness（自研 Model → Tool → Model，LLM 主持流程）
-  Context / Memory / Tool / Skill / 兜底上限
+Base Agent Harness（AgentLoopEngine + ToolRegistry + PluginChain + 6 Capability Plugins + 外置 Modes）
         ↓
-Spring AI ChatModel          Tools
+Spring AI ChatModel          Playwright MCP / Web Search / Local Memory & Ledger
 ```
 
 | 类别 | 值 | 状态 |
 | --- | --- | --- |
-| 语言 | Java 25（LTS） | 已确认；2026-10-22 用户决定从 21 升到 25 |
-| 构建 | Maven 单模块（`backend/`） | 已确认；是否拆多模块后置 |
+| 语言 | Java 25（LTS） | 已确认 |
+| 构建 | Maven 单模块（`backend/`） | 已确认 |
 | 应用框架 | Spring Boot 4.1.1 | 已确认 |
-| 模型 / 消息 / 工具 | Spring AI 2.0.1 | 已确认；脚手架不注册可用模型 |
-| Workflow Runtime | 不用图引擎：一个 Agent 循环 + 运行状态文件 | 2026-10-23 用户确认，取代 LangGraph4j 1.9.6（见 agent-runtime.md 第 7 节） |
-| Agent 循环 | 自研 Custom Harness | 已确认 |
+| 模型 / 消息 / 工具 | Spring AI 2.0.1（`spring-ai-openai`、`spring-ai-anthropic`，运行时动态创建） | 已确认 |
+| 浏览器自动化 | `@playwright/mcp`（0.0.83，远程调试模式连接本机 Chrome） | 已确认 |
+| 存储与检索 | Markdown + YAML frontmatter + JSONL + 本地 ONNX RAG（`cache/rag/`）；SQLite FTS5 为 Phase 3 未来扩展 | 已确认 |
+| 前端与推送 | React + Vite + TypeScript + SSE（`/api/events`） | 已确认 |
+| Agent 运行时 | 自研单 Base Agent + Plugin / Skill / Mode + Depth=2/3 Subagent 树（不用图引擎） | 已确认（2026-10-23 确立循环，2026-11-25 对齐 C030） |
 
-## 后置
+## 暂不纳入 / 后续演进
 
-- ~~模型供应商（Spring AI starter 选哪家）~~ → 已定（2026-10-22）：由用户在设置页自己配置，支持 OpenAI 兼容和 Anthropic 两种格式（`spring-ai-openai`、`spring-ai-anthropic` 2.0.1，运行时创建，不用自动配置），见 ui.md「模型设置」与 C004-A
-- Chrome MCP 选型（倾向 `chrome-devtools-mcp`，见 design）
-- 存储选型、是否上向量检索
-- 前端框架与推送方式
-- 岗位数据来源（以及条款是否允许抓取）
-- 账号；部署只做本机自用的 macOS App（用户确认，2026-10-27，见 [C017](../coding/03-features/C017-macos-app.md)），不做分发、签名公证、自动更新
+- 岗位数据来源的平台覆盖扩展（按实际投递站点持续补充）
+- Phase 3 未来扩展：SQLite + FTS5 全文查询索引
+- 部署只做本机自用的 macOS App（用户确认，2026-10-27，见 [C017](../coding/03-features/C017-macos-app.md)），不做分发、签名公证、自动更新
 
 ## 不做
 
-- Alibaba Graph
+- Alibaba Graph 或任何固定图执行引擎
 - 用框架封装的 ReActAgent 当默认 Agent Loop
-- 在 Harness 里再实现一套图执行引擎
+- 引入 opencode / pi 双进程运行时

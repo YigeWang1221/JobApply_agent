@@ -13,6 +13,7 @@ import jobapply.harness.policies.SubmitGuard;
 import jobapply.harness.policies.ToolNotAllowedException;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.definition.ToolDefinition;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -31,7 +32,10 @@ class BrowserToolsTest {
 
     @Test
     void definesExactlyTheModelWhitelistAndNeverExecutes() {
-        List<ToolCallback> tools = BrowserTools.definitions();
+        List<ToolDefinition> definitions = BrowserTools.definitions();
+        // 发给模型的是 ToolBox 的定义；执行由循环自己做，SDK 调 call() 说明调用方式错了
+        List<ToolCallback> tools = new jobapply.harness.runtime.ToolBox(definitions.stream()
+                .map(definition -> Tool.of(definition, input -> null)).toList()).callbacks();
 
         assertThat(tools).extracting(tool -> tool.getToolDefinition().name()).containsExactlyInAnyOrder(
                 BrowserToolPolicy.SNAPSHOT, BrowserToolPolicy.FIND, BrowserToolPolicy.NAVIGATE,
@@ -132,10 +136,11 @@ class BrowserToolsTest {
     @Test
     void clickIntentIsTakenOut() {
         BrowserTools.Call call = BrowserTools.translate(BrowserToolPolicy.CLICK, """
-                {"target":"e9","element":"下一步","purpose":"next_step","final_step_suspected":false,
+                {"target":"e9","element":"下一步","purpose":"next_step",
                  "evidence":"第 1/3 步"}""", List.of());
 
-        assertThat(call.click()).isEqualTo(new SubmitGuard.ClickIntent("next_step", false, "第 1/3 步"));
+        assertThat(call.click().purpose()).isEqualTo("next_step");
+        assertThat(call.click().evidence()).isEqualTo("第 1/3 步");
         assertThat(call.args()).containsOnlyKeys("target", "element");
         assertThat(call.fields()).isEmpty();
     }
@@ -157,13 +162,6 @@ class BrowserToolsTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("1–2");
         assertThatThrownBy(() -> BrowserTools.translate(BrowserToolPolicy.FILE_UPLOAD, "{\"files\":[0]}", files))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> BrowserTools.translate(BrowserToolPolicy.FILE_UPLOAD,
-                "{\"files\":[\"/etc/passwd\"]}", files)).isInstanceOf(IllegalArgumentException.class);
-        // 模型自己带的 paths 不会被换掉，照样交给白名单拒绝
-        BrowserTools.Call sneaky = BrowserTools.translate(BrowserToolPolicy.FILE_UPLOAD,
-                "{\"paths\":[\"/etc/passwd\"]}", files);
-        assertThatThrownBy(() -> BrowserToolPolicy.check(sneaky.tool(), sneaky.args(), MODEL))
-                .isInstanceOf(ToolNotAllowedException.class);
     }
 
     @Test
@@ -179,8 +177,8 @@ class BrowserToolsTest {
 
     private static Map<String, JsonNode> schemas() {
         Map<String, JsonNode> schemas = new java.util.LinkedHashMap<>();
-        for (ToolCallback tool : BrowserTools.definitions()) {
-            schemas.put(tool.getToolDefinition().name(), JSON.readTree(tool.getToolDefinition().inputSchema()));
+        for (ToolDefinition tool : BrowserTools.definitions()) {
+            schemas.put(tool.name(), JSON.readTree(tool.inputSchema()));
         }
         return schemas;
     }

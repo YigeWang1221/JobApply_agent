@@ -2,15 +2,9 @@ package jobapply.domain;
 
 import static jobapply.domain.PrepState.AWAITING_REVIEW;
 import static jobapply.domain.PrepState.FAILED;
-import static jobapply.domain.PrepState.HANDOFF_USER;
 import static jobapply.domain.PrepState.NEEDS_INPUT;
-import static jobapply.domain.PrepState.NEEDS_LOGIN;
 import static jobapply.domain.PrepState.PAUSED;
 import static jobapply.domain.PrepState.PREPARING;
-import static jobapply.domain.PrepState.SELECTED;
-import static jobapply.domain.PrepState.UNCONFIRMED;
-import static jobapply.domain.PrepState.USER_SUBMITTING;
-import static jobapply.domain.PrepState.VERIFICATION_PENDING;
 
 import java.util.EnumMap;
 import java.util.EnumSet;
@@ -25,9 +19,7 @@ public final class ApplicationStateMachine {
 
     private static final Map<LeadStatus, Set<LeadStatus>> LEAD_EDGES = new EnumMap<>(LeadStatus.class);
     private static final Map<PrepState, Set<PrepState>> PREP_EDGES = new EnumMap<>(PrepState.class);
-    private static final Set<PrepState> APPLIED_FROM = EnumSet.of(USER_SUBMITTING, VERIFICATION_PENDING, UNCONFIRMED);
-    private static final Set<Phase> AFTER_APPLIED =
-            EnumSet.of(Phase.APPLIED, Phase.SCREENING, Phase.ASSESSMENT, Phase.INTERVIEW, Phase.OFFER);
+    private static final Set<Phase> AFTER_APPLIED = Phase.AFTER_APPLIED;
     private static final Set<Phase> PHASE_TARGETS =
             EnumSet.of(Phase.SCREENING, Phase.ASSESSMENT, Phase.INTERVIEW, Phase.OFFER);
 
@@ -38,16 +30,11 @@ public final class ApplicationStateMachine {
         LEAD_EDGES.put(LeadStatus.SKIPPED, EnumSet.noneOf(LeadStatus.class));
         LEAD_EDGES.put(LeadStatus.CONVERTED, EnumSet.noneOf(LeadStatus.class));
 
-        PREP_EDGES.put(SELECTED, EnumSet.of(PREPARING, PAUSED));
-        PREP_EDGES.put(PREPARING, EnumSet.of(NEEDS_INPUT, NEEDS_LOGIN, HANDOFF_USER, FAILED, AWAITING_REVIEW, PAUSED));
-        for (PrepState blocked : EnumSet.of(NEEDS_INPUT, NEEDS_LOGIN, HANDOFF_USER, FAILED)) {
-            PREP_EDGES.put(blocked, EnumSet.of(PREPARING, PAUSED));
-        }
-        PREP_EDGES.put(AWAITING_REVIEW, EnumSet.of(USER_SUBMITTING, PREPARING, PAUSED));
-        PREP_EDGES.put(USER_SUBMITTING, EnumSet.of(VERIFICATION_PENDING, UNCONFIRMED));
-        PREP_EDGES.put(VERIFICATION_PENDING, EnumSet.of(UNCONFIRMED));
-        PREP_EDGES.put(UNCONFIRMED, EnumSet.noneOf(PrepState.class));
-        PREP_EDGES.put(PAUSED, EnumSet.of(SELECTED, PREPARING));
+        PREP_EDGES.put(PREPARING, EnumSet.of(NEEDS_INPUT, FAILED, AWAITING_REVIEW, PAUSED));
+        PREP_EDGES.put(NEEDS_INPUT, EnumSet.of(PREPARING, PAUSED));
+        PREP_EDGES.put(FAILED, EnumSet.of(PREPARING, PAUSED));
+        PREP_EDGES.put(AWAITING_REVIEW, EnumSet.of(PREPARING, PAUSED));
+        PREP_EDGES.put(PAUSED, EnumSet.of(PREPARING));
     }
 
     private ApplicationStateMachine() {
@@ -92,16 +79,14 @@ public final class ApplicationStateMachine {
         if (lead != LeadStatus.NEW && lead != LeadStatus.SHORTLISTED) {
             throw new IllegalTransitionException("只有 new 或 shortlisted 的候选可以转为申请，当前是 " + lead.value());
         }
-        return new JobStatus(LeadStatus.CONVERTED, null, Phase.PREP, SELECTED, null, null);
+        return new JobStatus(LeadStatus.CONVERTED, null, Phase.PREP, PREPARING, null, null);
     }
 
     private static JobStatus changePrepState(JobStatus current, PrepState to, Actor actor) {
         requirePrep(current);
-        // 用户说的事实优先于流程（C006-fix 第 3 节）：用户随时可能自己在 Chrome 里提交了（先放着之后、等回答时……），
-        // 说提交了，准备中的任何状态都能进 user_submitting；说还没提交 / 先放着，准备中的任何状态都能进 paused。
-        // Agent 只能按边走（例如只能从停在提交前进 user_submitting）
-        boolean userFact = actor == Actor.USER && to != current.prepState()
-                && (to == USER_SUBMITTING && !APPLIED_FROM.contains(current.prepState()) || to == PAUSED);
+        // 用户说的事实优先于流程（C006-fix 第 3 节）：说还没提交 / 先放着，准备中的任何状态都能进 paused。
+        // 说已经提交了不走这里，直接带证据进 applied（MarkApplied）。Agent 只能按边走
+        boolean userFact = actor == Actor.USER && to != current.prepState() && to == PAUSED;
         if (!userFact && !PREP_EDGES.get(current.prepState()).contains(to)) {
             throw new IllegalTransitionException(
                     "prep_state 不能从 " + current.prepState().value() + " 变为 " + to.value());
@@ -110,12 +95,8 @@ public final class ApplicationStateMachine {
     }
 
     private static JobStatus markApplied(JobStatus current, Evidence evidence) {
+        // 准备中的任何状态都能凭证据进 applied（C030：用户随时可能自己在 Chrome 里提交了；证据就是关卡）
         requirePrep(current);
-        if (!APPLIED_FROM.contains(current.prepState())) {
-            throw new IllegalTransitionException(
-                    "只能从 user_submitting / verification_pending / unconfirmed 进入 applied，当前是 "
-                            + current.prepState().value());
-        }
         if (evidence == null || !evidence.isComplete()) {
             throw new IllegalTransitionException(
                     "进入 applied 必须有完整证据：kind 为 success-page、history-record 或 user-reported，text、local_time、verified_at 不能为空");
@@ -188,7 +169,8 @@ public final class ApplicationStateMachine {
                 return new JobStatus(LeadStatus.of(label.substring(5)), null, null, null, null, null);
             }
             if (label.startsWith("prep:")) {
-                return new JobStatus(LeadStatus.CONVERTED, null, Phase.PREP, PrepState.of(label.substring(5)), null,
+                return new JobStatus(LeadStatus.CONVERTED, null, Phase.PREP, PrepState.fromStorage(label.substring(5)),
+                        null,
                         current.evidence());
             }
             Phase phase = Phase.of(label);

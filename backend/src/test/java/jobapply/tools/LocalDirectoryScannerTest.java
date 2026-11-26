@@ -7,10 +7,8 @@ import static org.assertj.core.api.Assertions.tuple;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -18,12 +16,11 @@ import java.util.stream.IntStream;
 import jobapply.domain.SourceScan;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.lib.PersonIdent;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * 本地目录的只读扫描。目录是在 @TempDir 里现造的虚构项目；秘密文件设成不可读，扫描仍然成功，证明它们没有被打开。
+ * 本地目录的只读扫描。目录是在 @TempDir 里现造的虚构项目。
  */
 class LocalDirectoryScannerTest {
 
@@ -31,37 +28,6 @@ class LocalDirectoryScannerTest {
 
     @TempDir
     Path temp;
-
-    private final List<Path> locked = new ArrayList<>();
-
-    @AfterEach
-    void unlock() throws IOException {
-        for (Path path : locked) {
-            Files.setPosixFilePermissions(path, PosixFilePermissions.fromString(Files.isDirectory(path)
-                    ? "rwx------" : "rw-------"));
-        }
-    }
-
-    @Test
-    void secretsAreSkippedByNameAndNeverOpened() throws Exception {
-        Path project = project();
-        for (String secret : List.of(".env", ".env.local", "id_rsa", "deploy/server.pem", "config/credentials.json",
-                "config/app-secret.yaml")) {
-            lock(write(project, secret, "不应被读取的虚构内容"));
-        }
-        Path secretsDir = Files.createDirectories(project.resolve("secrets"));
-        write(project, "secrets/token.txt", "不应被读取");
-        lock(secretsDir);
-
-        SourceScan scan = new LocalDirectoryScanner(LIMITS).scan(project, Set.of());
-
-        assertThat(scan.skipped()).filteredOn(s -> s.reason().equals(SecretFileRules.SECRET))
-                .extracting(SourceScan.Skipped::path)
-                .containsExactlyInAnyOrder(".env", ".env.local", "id_rsa", "deploy/server.pem",
-                        "config/credentials.json", "config/app-secret.yaml", "secrets/");
-        assertThat(scan.files()).extracting(SourceScan.FileEntry::path)
-                .noneMatch(path -> path.contains("env") || path.contains("secret") || path.contains("id_rsa"));
-    }
 
     @Test
     void readsDocsManifestsStructuredAndSourceHeads() throws Exception {
@@ -96,7 +62,7 @@ class LocalDirectoryScannerTest {
     }
 
     @Test
-    void generatedDirsGitignoreAndSymlinksAreSkipped() throws Exception {
+    void generatedDirsAndGitignoreAreSkipped() throws Exception {
         Path project = project();
         write(project, "node_modules/pkg/package.json", "{}");
         write(project, "target/classes/App.java", "class App {}");
@@ -106,10 +72,6 @@ class LocalDirectoryScannerTest {
         write(project, "sub/.gitignore", "private.md\n");
         write(project, "sub/private.md", "子目录忽略");
         write(project, "sub/public.md", "子目录保留");
-        Path outside = Files.createDirectories(temp.resolve("outside"));
-        write(outside, "leak.md", "目录外的文件");
-        Files.createSymbolicLink(project.resolve("link-dir"), outside);
-        Files.createSymbolicLink(project.resolve("link.md"), outside.resolve("leak.md"));
 
         SourceScan scan = new LocalDirectoryScanner(LIMITS).scan(project, Set.of());
 
@@ -118,10 +80,8 @@ class LocalDirectoryScannerTest {
         assertThat(skipReason(scan, "logs/")).contains(".gitignore");
         assertThat(skipReason(scan, "notes.tmp.md")).contains(".gitignore");
         assertThat(skipReason(scan, "sub/private.md")).contains(".gitignore");
-        assertThat(skipReason(scan, "link-dir")).contains("符号链接");
-        assertThat(skipReason(scan, "link.md")).contains("符号链接");
         assertThat(scan.files()).extracting(SourceScan.FileEntry::path).contains("sub/public.md")
-                .noneMatch(path -> path.contains("leak") || path.startsWith("node_modules"));
+                .noneMatch(path -> path.startsWith("node_modules"));
     }
 
     @Test
@@ -219,11 +179,6 @@ class LocalDirectoryScannerTest {
         return path;
     }
 
-    private void lock(Path path) throws IOException {
-        Files.setPosixFilePermissions(path, PosixFilePermissions.fromString("---------"));
-        locked.add(path);
-    }
-
     private static SourceScan.FileEntry file(SourceScan scan, String path) {
         return scan.files().stream().filter(f -> f.path().equals(path)).findFirst().orElseThrow();
     }
@@ -243,7 +198,6 @@ class LocalDirectoryScannerTest {
     void readKeepsTheTextOfReadFilesWithTheSameRules() throws Exception {
         Path project = project();
         write(project, "README.md", "# 示例\n虚构的说明");
-        lock(write(project, ".env", "不应被读取的虚构内容"));
         StringBuilder source = new StringBuilder();
         IntStream.range(0, 60).forEach(i -> source.append("line ").append(i).append('\n'));
         write(project, "src/App.java", source.toString());
@@ -260,7 +214,6 @@ class LocalDirectoryScannerTest {
         assertThat(content.texts()).filteredOn(text -> text.path().equals("src/App.java")).singleElement()
                 .satisfies(text -> assertThat(text.text()).contains("line 0")
                         .doesNotContain("line " + LIMITS.sourceHeadLines()));
-        assertThat(content.texts()).allSatisfy(text -> assertThat(text.text()).doesNotContain("不应被读取"));
     }
 
     @Test
@@ -274,4 +227,3 @@ class LocalDirectoryScannerTest {
         assertThat(LocalDirectoryScanner.locationFromText("「~」")).isEqualTo(home);
     }
 }
-

@@ -2,15 +2,9 @@ package jobapply.domain;
 
 import static jobapply.domain.PrepState.AWAITING_REVIEW;
 import static jobapply.domain.PrepState.FAILED;
-import static jobapply.domain.PrepState.HANDOFF_USER;
 import static jobapply.domain.PrepState.NEEDS_INPUT;
-import static jobapply.domain.PrepState.NEEDS_LOGIN;
 import static jobapply.domain.PrepState.PAUSED;
 import static jobapply.domain.PrepState.PREPARING;
-import static jobapply.domain.PrepState.SELECTED;
-import static jobapply.domain.PrepState.UNCONFIRMED;
-import static jobapply.domain.PrepState.USER_SUBMITTING;
-import static jobapply.domain.PrepState.VERIFICATION_PENDING;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -28,21 +22,15 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 class ApplicationStateMachineTest {
 
-    /** plan/coding/01-foundation/C002-memory-ledger.md「状态机」表的独立复述。 */
+    /** plan/master/workflow.md「状态」里 C030 的 5 个 prep 子状态的独立复述。 */
     private static final Map<PrepState, Set<PrepState>> EXPECTED = new EnumMap<>(PrepState.class);
 
     static {
-        EXPECTED.put(SELECTED, EnumSet.of(PREPARING, PAUSED));
-        EXPECTED.put(PREPARING, EnumSet.of(NEEDS_INPUT, NEEDS_LOGIN, HANDOFF_USER, FAILED, AWAITING_REVIEW, PAUSED));
+        EXPECTED.put(PREPARING, EnumSet.of(NEEDS_INPUT, FAILED, AWAITING_REVIEW, PAUSED));
         EXPECTED.put(NEEDS_INPUT, EnumSet.of(PREPARING, PAUSED));
-        EXPECTED.put(NEEDS_LOGIN, EnumSet.of(PREPARING, PAUSED));
-        EXPECTED.put(HANDOFF_USER, EnumSet.of(PREPARING, PAUSED));
         EXPECTED.put(FAILED, EnumSet.of(PREPARING, PAUSED));
-        EXPECTED.put(AWAITING_REVIEW, EnumSet.of(USER_SUBMITTING, PREPARING, PAUSED));
-        EXPECTED.put(USER_SUBMITTING, EnumSet.of(VERIFICATION_PENDING, UNCONFIRMED));
-        EXPECTED.put(VERIFICATION_PENDING, EnumSet.of(UNCONFIRMED));
-        EXPECTED.put(UNCONFIRMED, EnumSet.noneOf(PrepState.class));
-        EXPECTED.put(PAUSED, EnumSet.of(SELECTED, PREPARING));
+        EXPECTED.put(AWAITING_REVIEW, EnumSet.of(PREPARING, PAUSED));
+        EXPECTED.put(PAUSED, EnumSet.of(PREPARING));
     }
 
     private static final Evidence EVIDENCE = new Evidence("success-page", "投递成功（虚构原文）",
@@ -90,27 +78,26 @@ class ApplicationStateMachineTest {
     }
 
     @Test
-    void appliedNeedsCompleteEvidenceFromSubmittingStates() {
-        for (PrepState from : List.of(USER_SUBMITTING, VERIFICATION_PENDING, UNCONFIRMED)) {
+    void appliedNeedsCompleteEvidenceFromAnyPrepState() {
+        for (PrepState from : PrepState.values()) {
             JobStatus applied = next(prep(from), new Transition.MarkApplied(EVIDENCE));
             assertThat(applied.phase()).isEqualTo(Phase.APPLIED);
             assertThat(applied.prepState()).isNull();
             assertThat(applied.evidence()).isEqualTo(EVIDENCE);
         }
-        rejects(prep(USER_SUBMITTING), new Transition.MarkApplied(null));
-        rejects(prep(USER_SUBMITTING), new Transition.MarkApplied(
+        rejects(prep(AWAITING_REVIEW), new Transition.MarkApplied(null));
+        rejects(prep(AWAITING_REVIEW), new Transition.MarkApplied(
                 new Evidence("user-said-so", "我投了", null, "2026-10-22T10:05:00-04:00", "2026-10-22T10:06:00-04:00")));
-        rejects(prep(USER_SUBMITTING), new Transition.MarkApplied(
+        rejects(prep(AWAITING_REVIEW), new Transition.MarkApplied(
                 new Evidence("history-record", " ", null, "2026-10-22T10:05:00-04:00", "2026-10-22T10:06:00-04:00")));
-        rejects(prep(USER_SUBMITTING), new Transition.MarkApplied(
+        rejects(prep(AWAITING_REVIEW), new Transition.MarkApplied(
                 new Evidence("history-record", "已投递", null, null, "2026-10-22T10:06:00-04:00")));
-        rejects(prep(AWAITING_REVIEW), new Transition.MarkApplied(EVIDENCE));
-        rejects(prep(USER_SUBMITTING), new Transition.ChangePhase(Phase.APPLIED));
+        rejects(prep(AWAITING_REVIEW), new Transition.ChangePhase(Phase.APPLIED));
     }
 
     @Test
     void phasesAfterAppliedMoveFreelyButNeverBack() {
-        JobStatus applied = next(prep(USER_SUBMITTING), new Transition.MarkApplied(EVIDENCE));
+        JobStatus applied = next(prep(AWAITING_REVIEW), new Transition.MarkApplied(EVIDENCE));
         JobStatus interview = next(applied, new Transition.ChangePhase(Phase.INTERVIEW));
         JobStatus assessment = next(interview, new Transition.ChangePhase(Phase.ASSESSMENT));
 
@@ -125,7 +112,7 @@ class ApplicationStateMachineTest {
 
     @Test
     void outcomesDependOnPhase() {
-        JobStatus applied = next(prep(USER_SUBMITTING), new Transition.MarkApplied(EVIDENCE));
+        JobStatus applied = next(prep(AWAITING_REVIEW), new Transition.MarkApplied(EVIDENCE));
         JobStatus offer = next(applied, new Transition.ChangePhase(Phase.OFFER));
         JobStatus interview = next(applied, new Transition.ChangePhase(Phase.INTERVIEW));
 
@@ -149,6 +136,33 @@ class ApplicationStateMachineTest {
     }
 
     @Test
+    void convertStartsAtPreparing() {
+        assertThat(next(JobStatus.newLead(), new Transition.Convert()).prepState()).isEqualTo(PREPARING);
+    }
+
+    @Test
+    void oldPrepStateValuesMapOntoTheFiveStates() {
+        assertThat(PrepState.fromStorage("selected")).isEqualTo(PREPARING);
+        assertThat(PrepState.fromStorage("needs_login")).isEqualTo(NEEDS_INPUT);
+        assertThat(PrepState.fromStorage("handoff_user")).isEqualTo(NEEDS_INPUT);
+        assertThat(PrepState.fromStorage("user_submitting")).isEqualTo(AWAITING_REVIEW);
+        assertThat(PrepState.fromStorage("verification_pending")).isEqualTo(AWAITING_REVIEW);
+        assertThat(PrepState.fromStorage("unconfirmed")).isEqualTo(AWAITING_REVIEW);
+        for (PrepState state : PrepState.values()) {
+            assertThat(PrepState.fromStorage(state.value())).isEqualTo(state);
+        }
+    }
+
+    @Test
+    void phaseDecidesTheSegment() {
+        assertThat(JobStatus.newLead().applySegment()).isTrue();
+        assertThat(prep(PREPARING).applySegment()).isTrue();
+        JobStatus applied = next(prep(AWAITING_REVIEW), new Transition.MarkApplied(EVIDENCE));
+        assertThat(applied.applySegment()).isFalse();
+        assertThat(next(applied, new Transition.Close(Outcome.REJECTED, null)).applySegment()).isFalse();
+    }
+
+    @Test
     void closedIsTerminal() {
         JobStatus closed = next(prep(PREPARING), new Transition.Close(Outcome.NOT_SUBMITTED, null));
 
@@ -163,7 +177,7 @@ class ApplicationStateMachineTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new JobStatus(LeadStatus.CONVERTED, null, Phase.INTERVIEW, null, Outcome.REJECTED, null))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new JobStatus(LeadStatus.NEW, null, Phase.PREP, SELECTED, null, null))
+        assertThatThrownBy(() -> new JobStatus(LeadStatus.NEW, null, Phase.PREP, PREPARING, null, null))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new JobStatus(LeadStatus.SKIPPED, null, null, null, null, null))
                 .isInstanceOf(IllegalArgumentException.class);

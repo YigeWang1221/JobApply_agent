@@ -148,16 +148,14 @@ public final class JobLedger {
     }
 
     /**
-     * 状态已经由用户定下：结束了、已投递，或者已提交（user_submitting 等）、先放着（paused）。
+     * 状态已经由用户定下：结束了、已投递，或者先放着（paused）。
      * {@code actor} 是用户时（回复、重新开始）先放着的不算，用户自己可以接着做。
      */
     public static boolean userDecided(JobStatus status, Actor actor) {
         if (status.phase() != Phase.PREP) {
             return true;
         }
-        PrepState prep = status.prepState();
-        return prep == PrepState.USER_SUBMITTING || prep == PrepState.VERIFICATION_PENDING
-                || prep == PrepState.UNCONFIRMED || prep == PrepState.PAUSED && actor != Actor.USER;
+        return status.prepState() == PrepState.PAUSED && actor != Actor.USER;
     }
 
     /**
@@ -180,8 +178,8 @@ public final class JobLedger {
     }
 
     /**
-     * 用户确认已经在浏览器里提交了（C007）：准备中的任何状态（停在提交前、先放着、等回答……）{@code → user_submitting
-     * → applied}；已经在 user_submitting / verification_pending / unconfirmed 的直接进 applied。证据是用户的确认
+     * 用户确认已经在浏览器里提交了（C007）：准备中的任何状态（停在提交前、先放着、等回答……）直接进 applied
+     * （C030 起不再经过 user_submitting）。证据是用户的确认
      * （{@code user-reported}）。记下 {@code applied_at}，下一次查看定在 {@link #checkEveryDays} 天后。
      * 还在候选池（new / shortlisted、没开始申请就自己投了）的先转为申请。几步都先过状态机，再写文件。
      * <p>
@@ -215,13 +213,6 @@ public final class JobLedger {
             events.add(event(sessionId, Actor.USER, JobEvent.Type.CONVERTED, status, converted, said, null));
             status = converted;
         }
-        if (status.phase() == Phase.PREP && status.prepState() != PrepState.USER_SUBMITTING
-                && status.prepState() != PrepState.VERIFICATION_PENDING && status.prepState() != PrepState.UNCONFIRMED) {
-            JobStatus submitting = ApplicationStateMachine.next(status,
-                    new Transition.ChangePrepState(PrepState.USER_SUBMITTING), Actor.USER);
-            events.add(event(sessionId, Actor.USER, JobEvent.Type.PREP_STATE_CHANGED, status, submitting, said, null));
-            status = submitting;
-        }
         Evidence evidence = new Evidence(Evidence.USER_REPORTED, said, null, now, now);
         JobStatus applied = ApplicationStateMachine.next(status, new Transition.MarkApplied(evidence), Actor.USER);
         events.add(event(sessionId, Actor.USER, JobEvent.Type.PHASE_CHANGED, status, applied, said, evidence));
@@ -239,8 +230,7 @@ public final class JobLedger {
 
     /** 已经投递、还没结束：applied 或之后的阶段（screening …… offer）。 */
     public static boolean alreadyApplied(JobStatus status) {
-        Phase phase = status.phase();
-        return phase != null && phase != Phase.PREP && phase != Phase.CLOSED;
+        return Phase.AFTER_APPLIED.contains(status.phase());
     }
 
     /**

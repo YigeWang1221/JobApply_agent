@@ -35,6 +35,7 @@
 | [master/memory.md](master/memory.md) | Project / Job / Session / Company，storage 结构，继承，新建 Project，资料导入与画像，字段分级，存储格式，Obsidian 兼容 | 已确认 |
 | [master/tracking.md](master/tracking.md) | 阶段与轮次、unknown 规则、台账栏目（md + csv）、Dashboard、面试复盘与题库 | 已确认 |
 | [master/ui.md](master/ui.md) | 界面结构、候选池、模型设置、密钥存放、首次使用引导、隐私说明 | 已确认 |
+| [master/agent-runtime.md](master/agent-runtime.md) | Agent 运行时（循环、工具、提示词、什么时候问用户、插件与 Subagent 演进） | 已确认 |
 
 ## Coding Plan
 
@@ -47,7 +48,7 @@
 | `coding/03-features/` | 功能扩展：投递后、简历匹配、插话、并发 Worker、删除、Move forward、README、下拉框、macOS App、工具上限、申请状态 | C007–C019 |
 | `coding/04-refinement/` | 整体打磨：整体精炼、工作台闭环与侧栏、后续与经验检索、界面打磨 | C020– |
 
-新的 Coding Plan 放进当前阶段的文件夹；文件名一律 `C###-<做了什么>.md`。
+新的 Coding Plan 放进当前阶段的文件夹；文件名一律 `C###-<做了什么>.md`。完整的 Coding Plan 全量索引见 [dev-plan.md](../dev-plan.md)（本表仅作阶段代表与最新记录索引）。
 
 | 文件 | 对应 Master | 状态 |
 | --- | --- | --- |
@@ -62,6 +63,7 @@
 | [coding/02-core-agent/C004-B-fixed-graph-harness.md](coding/02-core-agent/C004-B-fixed-graph-harness.md) | workflow 里程碑 3、memory | 已确认，待施工（在 C004-A-2 之后） |
 | [coding/04-refinement/C020-holistic-refinement.md](coding/04-refinement/C020-holistic-refinement.md) | agent-runtime、workflow、memory | 已施工，等用户试（JDK 25 `mvn -B clean verify`、无头 Chromium 5 项 DOM 验证、`npm run build` 全部通过，2026-10-28） |
 | [coding/04-refinement/C021-workspace-flow-and-sidebar.md](coding/04-refinement/C021-workspace-flow-and-sidebar.md) | agent-runtime、workflow、memory、ui | 已施工，等用户在本机试（A/B/C 三包合龙：JDK 25 `mvn -B clean verify` 660+1 全通过、`npm run build` 通过、`WorkspaceSummary` 契约核对一致，2026-10-28） |
+| [coding/04-refinement/C030-unified-base-agent-and-detox.md](coding/04-refinement/C030-unified-base-agent-and-detox.md) | agent-runtime、architecture、workflow、memory、tracking、ui | 进行中（Slice 0 已施工，Slice 1–6 待确认后按切片施工，2026-11-25） |
 
 ## 参考（`reference/`）
 

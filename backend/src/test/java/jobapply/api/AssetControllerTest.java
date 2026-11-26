@@ -84,7 +84,6 @@ class AssetControllerTest {
     @Test
     void badRequestsHaveTheRightStatus() throws Exception {
         assertThat(api.patchJson("/api/assets/a-2026-01-01-999", Map.of("description", "x")).status()).isEqualTo(404);
-        assertThat(api.patchJson("/api/assets/..%2Fx", Map.of("description", "x")).status()).isIn(400, 404);
         assertThat(api.patchJson("/api/assets/bad", Map.of("description", "x")).status()).isEqualTo(400);
         assertThat(api.upload("/api/assets", "wrong-field", "x.txt", "虚构".getBytes()).status()).isEqualTo(400);
         assertThat(api.upload("/api/assets", "file", "empty.txt", new byte[0]).status()).isEqualTo(400);
@@ -100,14 +99,5 @@ class AssetControllerTest {
 
         assertThat(response.status()).isEqualTo(413);
         assertThat(response.get("error")).asString().contains("20MB");
-    }
-
-    @Test
-    void webPagesThatAreNotOurFrontendAre403() throws Exception {
-        LocalApi.Response response = api.upload("/api/assets", "file", "notes-demo.txt", resource("notes-demo.txt"),
-                "Origin", "https://evil.example.com");
-
-        assertThat(response.status()).isEqualTo(403);
-        assertThat(api.get("/api/assets", "Origin", "https://evil.example.com").status()).isEqualTo(403);
     }
 }

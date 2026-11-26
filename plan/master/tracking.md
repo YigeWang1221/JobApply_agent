@@ -60,14 +60,14 @@ closed      已结束
 
 `phase` 由轮次**自动推导**：最新一轮是笔试，阶段就是 `assessment`；是面试，就是 `interview`；出现 Offer 轮，就是 `offer`。轮次的结果是 failed，或者用户关闭申请时，阶段变为 `closed`。用户也可以手动改阶段，事件日志里会记一条。
 
-原先 design 里的细粒度状态（`needs_input`、`needs_login`、`awaiting_review`、`verification_pending` 等）只在 `prep` 阶段内部使用，作为子状态 `prep_state`，不出现在 Dashboard 的大分组里。
+`prep` 阶段内部在 C030 收敛为 5 个子状态 `PrepState`：`PREPARING`、`NEEDS_INPUT`、`AWAITING_REVIEW`、`PAUSED`、`FAILED`（旧版细粒度值如 `selected`、`needs_login`、`handoff_user`、`user_submitting`、`verification_pending`、`unconfirmed` 在持久化读取时通过 `fromStorage` 兼容映射），不出现在 Dashboard 的大分组里。
 
-### 三个领域的状态（用户确认，2026-10-31，C024-fix）
+### 三个领域的状态（用户确认，2026-10-31，C024-fix；C030 统一）
 
 | 领域 | 值 | 给用户看的字 | 在哪显示 |
 | --- | --- | --- | --- |
-| 运行状态（一个 Agent 循环：投递段、后续段、Session） | 投递段 `queued / running / waiting_user / ready / failed / interrupted / done`；后续段、Session `running / idle / interrupted` | 排队中 / 正在做 / 等你 / 填好了 / 出错了 / 中断了 / 投递段已结束（`done` 是投递段线程结束，不是申请结束）；空闲不显示 | 工作台、侧栏的点；卡片和表格上只在 queued / running / waiting_user / failed / interrupted（与 prep 子状态重复的不挂）或后续段在跑 / 中断时挂一个小 chip |
-| 申请生命周期（`phase` + `prep_state` + `outcome`） | 同上「阶段」与结局 | prep 用子状态；已投递「已投递」；正常结局「已结束 · 被拒」等；用户记的「投递失败」「不投了」直接写结局 | 卡片、表格、看板列、时间线、台账的主文字 |
+| 运行状态（统一 Job Thread 含 `apply` / `followup` Mode、Session 与 Subagent） | 投递段 `queued / running / waiting_user / ready / failed / interrupted / done`；后续段、Session、Subagent `running / idle / interrupted` | 排队中 / 正在做 / 等你 / 填好了 / 出错了 / 中断了 / 投递段已结束（`done` 是投递段切换，不是申请结束）；空闲不显示 | 工作台、Session Subagent 折叠卡、侧栏的点；卡片和表格上只在 queued / running / waiting_user / failed / interrupted（与 prep 子状态重复的不挂）或后续段在跑 / 中断时挂一个小 chip |
+| 申请生命周期（`phase` + `PrepState` + `outcome`） | 同上「阶段」与结局；`prep` 内部为 5 态 `PREPARING / NEEDS_INPUT / AWAITING_REVIEW / PAUSED / FAILED` | prep 用子状态；已投递「已投递」；正常结局「已结束 · 被拒」等；用户记的「投递失败」「不投了」直接写结局 | 卡片、表格、看板列、时间线、台账的主文字 |
 | 候选（`lead_status`） | new / shortlisted / skipped / closed / converted | 新发现 / 想投 / 跳过 / 已下线 / 已转申请 | 候选池；跳过的在 Dashboard 的 Failures |
 
 ### 轮次（可变）
@@ -98,8 +98,8 @@ closed      已结束
 - 用户回复后，`unknown` 就被真实结果替换；事件日志会保留「曾经是 unknown」的记录。
 - `ghosted`（长期无回应）只能由用户手动关闭时选择，系统不会自动设置。
 - Dashboard 的「待追踪」就是所有 `unknown` 的项。
-- **C026（用户确认，2026-11-05）**：
-  - 状态也可以来自 Agent 在官网门户上查到的建议（`result_source=portal`）。建议先进 Dashboard 的「核准列表」，用户核准后才改阶段或轮次，驳回就丢掉。
+- **C026 / C030（用户确认，2026-11-05；C030 演进）**：
+  - 状态也可以来自只读 **`portal-check` 子 Agent** 在官网门户上查到的建议（`result_source=portal`），避免污染主对话上下文。建议先进 Dashboard 的「核准列表」，用户核准后才改阶段或轮次，驳回就丢掉。
   - 官网的阶段是动态的（例如 投递成功 → 筛选通过 → 笔试中 → 面试 → 意向书 → offer → 入职）。官网自己的叫法记成 `portal_stage`；几轮 OA / 面试用「轮次」记，名字就是 OA1、OA2、一面……
   - Dashboard 筛选条的阶段按这些动态阶段（最新一轮的名字，没有轮次时用阶段名）。
   - 「该查看了」= 最近查看（没查看过就从投递）+ N 天。N 由用户设：全局一个值，Project 可以单独设。
@@ -191,23 +191,21 @@ closed      已结束
 
 图表实现时遵循 dataviz 规范（施工时再定具体图表库）。
 
-## 投递之后：在任意 Session 里更新
+## 投递之后：在工作台同一 Job Thread 的 `followup` Mode 更新
 
-> **修订（用户确认，2026-10-28，C022）**：投递之后的更新改在**该岗位的工作台**里进行，不再在 Session 里。确认已投递后，工作台接着开一段新的「后续」对话：开场只带用的简历、JD 快照、`lead_note`、阶段与轮次、公司复盘，不带填表历史。`record_status` / `record_round` / `save_review` 都在工作台。Session 只做找岗位和调研。下文的处理流程（起草、写入、阶段推导、结果来源）不变，只是发生的地方换了。跨工作台的经验通过 `search_experience` 检索（见 [memory.md](memory.md)「经验检索」）。
+> **修订（C022 / C030）**：投递之后的更新统一在**该岗位的工作台**内进行，不再分散在 Session 里。确认已投递后，同一 Job Thread 插入 `SegmentBoundary` 并切换为 `followup` Mode（通过 `SegmentBoundaryPlugin` 隔离旧投递段填表快照，开场上下文带用的简历、JD 快照、`lead_note`、阶段与轮次、公司复盘）。`record_status` / `record_round` / `save_review` 都在工作台 `followup` Mode；官网查状态由只读 **`portal-check` 子 Agent** 执行；Session 只做找岗位和调研。跨工作台的经验通过 `search_experience` 检索（见 [memory.md](memory.md)「经验检索」）。
 
-
-一个 Job 的生命周期覆盖**从候选到结束的整条申请**，跨多个 Session（见 [memory.md](memory.md)「修订：Session 与岗位解耦」）。投递之后，用户可以回到原来的 Session，也可以新开一个 Session 来聊。Agent 根据对话内容识别是哪个 Job（有歧义时，比如同一家公司投了两个岗位，会先问清是哪一个）。例如：
+例如用户在工作台对话里反馈：
 
 > 「X 的一面刚结束，问了限流器设计和一道 LRU，感觉第二题写得不好，面试官说一周内通知。」
 
 Agent 的处理：
 
-1. **识别出这是一轮面试的更新**，起草两份内容：
+1. **识别出这是一轮面试的更新**，整理两份内容：
    - 轮次记录：一面、technical、今天、结果 pending；
    - 复盘草稿：问题列表（每题打上主题标签）、你的作答要点、自评、面试官的反馈和追问、教训。
-2. **展示草稿并让用户确认**，用户可以修改、补充。
-3. **确认后写入**：轮次表、Session 阶段（自动推导为 `interview`）、下一件事（等通知，提醒日期为一周后）、题库。
-4. **提出 Memory 候选**。例如「公司 X 的流程比模板多一轮」写进公司记忆，「系统设计题要先问清 QPS」作为经验候选写进 lessons。
+2. **展示草稿让用户确认或修改**后写入：轮次表、Job 阶段（自动推导为 `interview`）、下一件事（等通知，提醒日期为一周后）、题库。
+3. **直接写入 Memory**：例如「公司 X 的流程比模板多一轮」写进公司记忆，「系统设计题要先问清 QPS」写进经验（C014 起直接通过 `remember` 写入并在回复中提示，不再先提候选队列）。
 
 用户回报「二面挂了」时：这一轮的 `result` 改为 `failed`，`phase` 改为 `closed`，`outcome` 改为 `rejected`，并记录挂在第几轮。Agent 会主动问一句要不要做失败复盘。
 
@@ -295,14 +293,10 @@ result_source: user
 - `workflow.md`：状态机改为「阶段 + prep 子状态 + 轮次」；施工顺序加入追踪和复盘。
 - `memory.md`：storage 树加入 `rounds/`、`review/`、`tracker/rounds.md`；Session 记录加入 `phase`、`outcome`、`rounds`。
 
-## 已确认（2026-10-22）
+## 已确认（2026-10-22；C022/C026/C030 对齐）
 
-1. 7 个阶段加 6 种结局，够用，不加内推等阶段。
-2. 不按阶段设阈值。投递后的状态由用户在 Session 里手动回复；用户没有同步的记为 `unknown`。
-3. 看板只读，状态通过 Session 回复来更新。
+1. 7 个阶段加 9 种结局（含 `apply_failed` / `gave_up`），够用；`prep` 内部为 5 态 `PrepState`（`PREPARING / NEEDS_INPUT / AWAITING_REVIEW / PAUSED / FAILED`）。
+2. 投递后的状态更新在工作台统一 Job Thread 的 `followup` Mode 进行，官网门户查询由只读 `portal-check` 子 Agent 执行；用户未同步的记为 `unknown`。
+3. 看板只读，状态通过工作台更新或官网查状态核准来更新。
 4. 漏斗按公司数统计，因为各公司允许投的岗位数不同。
 5. 题库跨 Project 汇总。
-
-## 待用户决定
-
-- Dashboard 的视觉效果：等 HTML 示意图出来后再确认。

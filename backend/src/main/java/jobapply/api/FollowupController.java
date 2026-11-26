@@ -2,7 +2,8 @@ package jobapply.api;
 
 import java.util.List;
 import jobapply.domain.Job;
-import jobapply.workflow.FollowupRunner;
+import jobapply.workflow.JobThreadService;
+import jobapply.workflow.StatusCheckBatch;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -36,10 +37,12 @@ public class FollowupController {
                                Views.Activity activity, List<String> inserted) {
     }
 
-    private final FollowupRunner runner;
+    private final JobThreadService runner;
+    private final StatusCheckBatch checks;
 
-    public FollowupController(FollowupRunner runner) {
+    public FollowupController(JobThreadService runner, StatusCheckBatch checks) {
         this.runner = runner;
+        this.checks = checks;
     }
 
     @GetMapping
@@ -50,11 +53,13 @@ public class FollowupController {
     @PostMapping(path = "/messages", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<FollowupView> send(@PathVariable String id,
                                              @RequestBody SessionController.MessageRequest request) {
-        runner.send(id, request == null ? null : request.text(), request == null ? null : request.attachments());
+        // 和投递段的回复是同一个 Job 线程：交给哪一段只看 job.md 的 phase（C030）
+        runner.reply(id, new JobThreadService.Reply(null, request == null ? null : request.text(), null, null,
+                request == null ? null : request.attachments()));
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(view(runner, id));
     }
 
-    /** 上传一个附件，存进 {@code followup/attachments/}；发消息时带上返回的 {@code id}。 */
+    /** 上传一个附件，按 phase 存进这一段的附件目录（后续段 {@code followup/attachments/}，两段的附件互相读得到）；发消息时带上返回的 {@code id}。 */
     @PostMapping(path = "/attachments", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<Views.UploadedAttachment> attach(@PathVariable String id,
                                                            @RequestParam("file") MultipartFile file) {
@@ -69,26 +74,27 @@ public class FollowupController {
         return Views.attachmentFile(runner.attachments(id), attachmentId);
     }
 
-    /** 查一次官网上的状态（C026）：往后续段发一条「查状态：」消息，后台跑，返回 202。没投递 / 已结束时 409。 */
+    /** 查一次官网上的状态（C026）：起一个 portal-check Subagent 后台跑（不进工作台对话），返回 202。没投递 / 已结束时 409。 */
     @PostMapping("/check")
     public ResponseEntity<FollowupView> check(@PathVariable String id) {
-        runner.check(id);
+        checks.check(id);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(view(runner, id));
     }
 
     @PostMapping("/stop")
     public FollowupView stop(@PathVariable String id) {
+        runner.job(id);
         runner.stop(id);
         return view(runner, id);
     }
 
-    static FollowupView view(FollowupRunner runner, String jobId) {
+    static FollowupView view(JobThreadService runner, String jobId) {
         Job job = runner.job(jobId);
-        FollowupRunner.Status status = runner.status(jobId);
-        return new FollowupView(FollowupRunner.open(job), status.status(), status.error(),
-                Views.timed(runner.turns(jobId), runner.events().followupInFlight(jobId),
+        JobThreadService.FollowupStatus status = runner.followupStatus(jobId);
+        return new FollowupView(JobThreadService.followupOpen(job), status.status(), status.error(),
+                Views.timed(runner.followupTurns(jobId), runner.events().followupInFlight(jobId),
                         "/api/jobs/" + jobId + "/followup/attachments"),
                 Views.activity(runner.events().followupActivity(jobId)),
-                runner.inserted(jobId).stream().map(SessionController::insertedText).toList());
+                runner.followupInserted(jobId).stream().map(SessionController::insertedText).toList());
     }
 }

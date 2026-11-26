@@ -24,13 +24,14 @@ import jobapply.domain.PrepState;
 import jobapply.domain.ProjectSpec;
 import jobapply.domain.HiringRound;
 import jobapply.domain.SessionRecord;
+import jobapply.domain.SubRun;
 import jobapply.domain.Timestamps;
 import jobapply.harness.policies.SubmitWords;
 import jobapply.persistence.AttachmentStore;
 import jobapply.persistence.JobLedger;
 import jobapply.persistence.SessionRepository;
 import jobapply.workflow.ApplicationException;
-import jobapply.workflow.ApplicationRunner;
+import jobapply.workflow.JobThreadService;
 import jobapply.workflow.ApplicationStatus;
 import jobapply.workflow.RuntimeEvents;
 import jobapply.workflow.SessionRunner;
@@ -204,6 +205,21 @@ final class Views {
         }
     }
 
+    /**
+     * 一次 Subagent 运行（C030）：{@link SubRun} 的字段；{@code messages} 是它的步骤（列表和事件里为 null，
+     * 读单个时才带）。
+     */
+    record SubRunView(String id, String mode, int depth, String parentRunId, String project, String session,
+                      String job, String task, String status, String startedAt, String endedAt, String result,
+                      List<ChatMessage> messages) {
+    }
+
+    static SubRunView subRun(SubRun run, boolean withSteps) {
+        return new SubRunView(run.id(), run.mode(), run.depth(), run.parentRunId(), run.project(), run.session(),
+                run.job(), run.task(), run.status(), run.startedAt(), run.endedAt(), run.result(),
+                withSteps ? messages(run.turns(), null, null) : null);
+    }
+
     /** 用户消息附的文件（C006 附件）；{@code url} 读原文件。 */
     record ChatAttachment(String id, String name, String contentType, boolean image, String url) {
     }
@@ -241,16 +257,16 @@ final class Views {
      * （{@link Job#checkDue}，按服务器的 {@code today}）；{@code bucket} 分组（{@link JobBucket}）；{@code canStart}
      * 可以开始申请线程：还没有申请线程、状态允许（{@link jobapply.domain.JobStatus#canStartApplication}）、有岗位链接。
      */
-    static JobView job(Job job, ApplicationRunner applications, LocalDate today) {
+    static JobView job(Job job, JobThreadService applications, LocalDate today) {
         return job(job, applications, null, today, null, null);
     }
 
     /**
      * 带阶段变化的 JobView（Project 主页、全局页的列表用）；{@code history} 是这个 Job 的全部事件（另带候选「不投」那一条）。
-     * {@code followup} 是后续段的运行状态（C024-fix，{@link jobapply.workflow.FollowupRunner#statusOf}），不知道时为 null。
+     * {@code followup} 是后续段的运行状态（C024-fix，{@link jobapply.workflow.JobThreadService#followupStatusOf}），不知道时为 null。
      * {@code checking} 是查官网状态在排队还是在跑（C026，{@code queued} / {@code running}），不在查时为 null。
      */
-    static JobView job(Job job, ApplicationRunner applications, List<JobEvent> history, LocalDate today,
+    static JobView job(Job job, JobThreadService applications, List<JobEvent> history, LocalDate today,
                        String followup, String checking) {
         List<PhaseEvent> events = history == null ? null : history.stream()
                 .filter(Views::dashboardEvent)

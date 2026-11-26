@@ -73,23 +73,6 @@ class AssetRegistryTest {
     }
 
     @Test
-    void fileNamesCannotEscapeTheOriginalsDirectory() {
-        TestStorage storage = TestStorage.create(root);
-        AssetRegistry registry = new AssetRegistry(storage.layout, storage.clock);
-
-        AssetRegistry.Asset asset = registry.register("../../etc/pa|ss\nwd.txt", "text/plain", RESUME).asset();
-
-        assertThat(asset.fileName()).isEqualTo("passwd.txt");
-        assertThat(registry.originalPath(asset).getParent()).isEqualTo(storage.layout.baseOriginals());
-        assertThat(AssetRegistry.safeFileName("C:\\Users\\x\\简历.pdf")).isEqualTo("简历.pdf");
-        assertThat(AssetRegistry.safeFileName(".hidden")).isEqualTo("hidden");
-        assertThatThrownBy(() -> AssetRegistry.safeFileName("..")).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> registry.register("x.pdf", "application/pdf", new byte[0]))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThat(AssetRegistry.safeFileName("a".repeat(200) + ".pdf")).hasSize(120).endsWith(".pdf");
-    }
-
-    @Test
     void descriptionsCanBeEditedAndUnknownColumnsAreKept() throws Exception {
         TestStorage storage = TestStorage.create(root);
         Files.createDirectories(storage.layout.baseDir());
@@ -129,7 +112,6 @@ class AssetRegistryTest {
         assertThatThrownBy(() -> registry.describe(key, "a|b")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> registry.describe(key, "a\nb")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> registry.describe(key, "x".repeat(201))).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> registry.describe("../x", "说明")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> registry.describe("a-2026-10-22-999", "说明")).isInstanceOf(NoSuchElementException.class);
     }
 

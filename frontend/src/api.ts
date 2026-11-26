@@ -397,7 +397,7 @@ export interface ApplicationStatus {
   disconnected?: boolean;
   state?: ApplicationState | null;
   usage?: { modelCalls: number; toolCalls: number; tokens: number } | null;
-  prepState?: string | null;
+  prepState?: PrepState | null;
   // 报告的状态：draft（填写中的草稿）、final（停在提交前时定稿）；还没有报告时为 null。正文用 api.report 读
   report?: "draft" | "final" | null;
   round?: number | null;
@@ -447,6 +447,8 @@ export interface SentAttachment {
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
 // Project / Session / Job（C005）：候选池、对话 Agent、申请工作台
+export type PrepState = "preparing" | "needs_input" | "awaiting_review" | "paused" | "failed";
+
 export type LeadStatus = "new" | "shortlisted" | "skipped" | "closed" | "converted";
 
 export interface JobView {
@@ -463,7 +465,8 @@ export interface JobView {
   leadStatus: LeadStatus;
   skipReason: string | null;
   phase: string | null;
-  prepState: string | null;
+  // prep 的子状态（C030 收敛为 5 个）：preparing / needs_input / awaiting_review / paused / failed
+  prepState: PrepState | null;
   label: string;
   verified: "verified" | "not_found" | null;
   officialUrl: string | null;
@@ -568,11 +571,11 @@ export interface ResumeChoice {
 }
 
 // 分组（服务器 JobBucket）：lead 候选池里还在考虑；preparing 准备中；waiting 准备中、要你做事（申请线程在等你 / 失败 / 中断，
-// 或者 prep 是 needs_input / needs_login / handoff_user / failed）；ready 停在提交前；applied 投递以后、没结束；
+// 或者 prep 是 needs_input / failed）；ready 停在提交前；applied 投递以后、没结束；
 // closed 跳过 / 下线 / 已结束
 export type JobBucket = "lead" | "preparing" | "waiting" | "ready" | "applied" | "closed";
 
-// to 是变化后的标签：applied、screening…、prep:selected、closed:rejected；
+// to 是变化后的标签：applied、screening…、prep:preparing、closed:rejected；
 // lead_status_changed 只有候选「跳过」那一条（to 是 lead:skipped，C024-fix：Failures 显示日期）
 export interface PhaseEvent {
   at: string;
@@ -671,6 +674,23 @@ export type ChatMessage =
     // C006-fix-final-reply：report 申请线程回报（界面不显示，2026-11-07）；status 一次运行的结束说明；模型的消息没有
     kind?: "report" | "status" | null;
   };
+
+// 一次 Subagent 运行（C030）：父运行用 delegate 交出去的一件事，或者查状态。messages 只有读单个时才带
+export interface SubRunView {
+  id: string;
+  mode: string;
+  depth: number;
+  parentRunId: string | null;
+  project: string;
+  session: string | null;
+  job: string | null;
+  task: string;
+  status: "running" | "done" | "stopped" | "failed" | string;
+  startedAt: string | null;
+  endedAt: string | null;
+  result: string | null;
+  messages?: ChatMessage[] | null;
+}
 
 // 现在在做什么（C006-agent）；没有时前端退回「对话里最后一个工具」
 export interface Activity {
@@ -916,6 +936,11 @@ export const api = {
     uploadFile<Attachment>(`/api/jobs/${enc(jobId)}/followup/attachments`, file),
   stopFollowup: (jobId: string) => request<FollowupView>("POST", `/api/jobs/${enc(jobId)}/followup/stop`),
   // 查官网状态（C026）：单个（工作台）、批量排队 / 进度 / 停止、核准 / 驳回建议、查看间隔（全局 / Project）
+  // Subagent 运行（C030）：Session / 工作台交出去的列表（不带步骤），单个带步骤
+  sessionSubRuns: (sessionId: string) => request<SubRunView[]>("GET", `/api/sessions/${enc(sessionId)}/subruns`),
+  jobSubRuns: (jobId: string) => request<SubRunView[]>("GET", `/api/jobs/${enc(jobId)}/subruns`),
+  subRun: (projectId: string, subRunId: string) =>
+    request<SubRunView>("GET", `/api/projects/${enc(projectId)}/subruns/${enc(subRunId)}`),
   checkStatus: (jobId: string) => request<FollowupView>("POST", `/api/jobs/${enc(jobId)}/followup/check`),
   statusChecks: () => request<StatusChecks>("GET", "/api/status-checks"),
   startStatusChecks: (jobIds: string[]) => request<StatusChecks>("POST", "/api/status-checks", { jobIds }),

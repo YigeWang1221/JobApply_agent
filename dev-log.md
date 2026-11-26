@@ -1506,3 +1506,35 @@
 - 验证：`frontend/` `npm run build` 退出码 0；`backend/` `mvn -B clean verify` 退出码 0（668 + 1）。
 - 未运行：真实 Chrome、真实模型下的查状态（等用户手动试）。
 - 偏差：无。未提交。
+
+## 2026-11-25 · C030 Slice 0：安全排毒、测试瘦身与统一架构文档对齐
+
+- 日期：2026-11-25
+- 指令：使用多 Agent 排除并清理之前的过度安全设计与防御性测试样本（软边界审批、反射/响应体扫描/Origin 403/Posix 权限/CSV 注入/路径穿越样本），将统一优化计划写入 `C030`，并更新 Master Plan、`dev-limit.md`、`AGENTS.md`、`dev-plan.md`、`plan/README.md`、`README.md`。
+- 结果：
+  - 生产代码（9 文件）：移除 `GuardDecision.AskUser/Explain`、`SubmitGuard.Approval/signal` 及软边界 4 参 `click`、`SubmitWords.isSoft/isNext`、`HarnessLoop` `pendingApproval/approval`、以及死代码 `SiteNotes.confirmedButtons/confirmedSafe/recordButton`（`Site` 改为 `(host, platform, notes)`，兼容旧文件忽略未知 frontmatter）；去掉 `BrowserTools`、`ApplyAgent`、`PlaywrightMcpClient` 中的 `final_step_suspected` 提示；`MemoryNotes.site` 不再写 `confirmed_buttons`。硬提交守卫与 `{KEY}` C 级占位符脱敏全部保留。
+  - 测试代码：删除 `SecretFileRulesTest`；清理 `SubmitGuardTest`、`BrowserToolPolicyTest`（23 → 6 用例）、`RunLogTest`、`SiteNotesTest`、`ModelSettingsControllerTest`、`AssetControllerTest`、`SourceControllerTest`、`EnvFileTest`、`TrackerWriterTest`、`AssetRegistryTest`、`ChatGptTokenStoreTest`、`LocalDirectoryScannerTest`、`PlaywrightMcpClientTest`、`BrowserToolsTest`、`BrowserSessionActTest`、`DirectoryBrowserTest`、`GitHubPublicReaderTest`、`FakeFormScriptTest` 中的过度安全样本；保留硬提交守卫与 `FieldClassGuardTest`、`SnapshotRedactorTest`、`PersonalPlaceholderTest`。
+  - 文档：精简 `dev-limit.md`（删「未写入放宽一律禁止」及过时项），`AGENTS.md` 与 `.cursor/rules/dev-process.mdc` 明确禁止主动新增防御守卫与安全/负向测试；归档 `agent-runtime.md` 2026-10-23 迁移记录至 `plan/reference/archive-agent-runtime-2026-10-23.md`；同步更新 `plan/master/*.md`（含 C030 单 Base Agent + Plugin/Skill/Mode + Depth=2/3 Subagent 树设计）；新增 `plan/coding/04-refinement/C030-unified-base-agent-and-detox.md`，更新 `plan/README.md`、`dev-plan.md`、`README.md`。
+- 验证：JDK 25 下在 `backend/` 执行 `mvn -B -f backend/pom.xml clean verify` 退出码 `0`，`BUILD SUCCESS`（surefire `566`，failsafe `1`，0 失败/错误/跳过）；更新文档内链检查 `BROKEN: 0`；`git status` 确认 `storage/` 零改动。`npm run build` 与真实 Chrome：未运行（本步未改前端与浏览器链路）。
+- 偏差：无（按用户指示，计划文档不写死 git 分支名，后续 Slice 1–6 直接在用户当前分支推进）。已提交（`a48fc48`）。
+
+## 2026-11-25 · 文档整理：C028 状态、去掉重复的 C030 Slice 0 记录
+
+- 指令：用户要更新 C028 状态、整理 dev-log 里重复的记录。
+- 结果：删掉夹在两条 C026-fix 之间的那份 C030 Slice 0 记录（和末尾那份逐字相同），末尾那份补上提交号；`dev-plan.md` 和 C028 计划的状态改为已施工并提交（`255d5c2`）。
+- 验证：只改文档，无需构建。C028 真实登录：仍未运行。
+
+## 2026-11-25 · C030 Slice 1–6：统一运行时、Job 线程、Subagent、界面对齐
+
+- 指令：用户要求用多 Agent 实现 C030 剩下的部分（Slice 0 已完成）。
+- 结果（详见 `plan/coding/04-refinement/C030-unified-base-agent-and-detox.md`「Slice 1–6 施工记录」）：
+  - Slice 1：`PrepState` 收成 5 个 + `fromStorage` 旧值映射；`applySegment`；`AgentRunStore` 改为每个运行文件一把锁。
+  - Slice 2+3：四个 Loop 合成 `AgentLoopEngine` + `PluginChain` + `ToolRegistry`；提示词与配置外置到 `resources/modes/*.md`；删除旧 Loop、`*Agent`、`DefinitionOnly`、`ToolArgs`。
+  - Slice 4：`JobThreadService`（原 `ApplicationRunner`，并入 `FollowupRunner` 的单 Job 部分）、`JobThreadStore`（取代 `AgentRunStore`、`FollowupRepository`）、`StatusCheckBatch`（原 `FollowupRunner`）；Mode 只看 `job.md` phase；附件双路径。
+  - Slice 5：`SubagentExecutor`、`delegate` 工具、5 个子 Mode（`web-research`、`reflect`、`portal-check`、`resume-match`、`interview-prep`），记录在 `projects/<id>/subruns/<subId>.json`；查状态改为 portal-check 子运行。
+  - Slice 6：`SubRunController` 三个读接口、SSE `subrun` 带内容；前端 5 个准备状态标签、子任务折叠卡、工作台可停单个查状态、Project 页并入 Dashboard。
+  - 一轮独立审查：两条底线完整、旧数据可读、无死锁；修了 3 个小问题（单个查状态失败可见、子运行列表只读头部、`delegate` 缺 `job` 时立即报错）。
+- 验证：`backend/` `mvn -B clean verify` BUILD SUCCESS（单元 476、IT 1，0 失败）；`frontend/` `npm run build` 退出码 0；新接口在 scratchpad 临时 storage 上试过（列表、读取、404）；`storage/` 零改动。
+- 测试数说明：Slice 0 记录的 surefire 566 与 HEAD 不符（静态计数约 546）；本次减少主要来自 `everyPrepPair` 从 10×10 变 5×5，没有删掉非防御性测试。
+- 未运行：真实 Chrome、真实模型端到端（等用户）；真实 `subrun` SSE 事件。
+- 偏差：与 Master Plan 有三处出入（深度、`thread.jsonl`、`SessionService`），记在 C030 与 `dev-recoding.md`，等用户决定。未提交。

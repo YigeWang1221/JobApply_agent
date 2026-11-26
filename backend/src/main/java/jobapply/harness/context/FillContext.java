@@ -8,21 +8,18 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
-import jobapply.agents.ApplyAgent;
 import jobapply.domain.AgentRun;
 import jobapply.domain.ApplicationState;
-import jobapply.persistence.AttachmentStore;
 import jobapply.domain.Claim;
 import jobapply.domain.FactClass;
 import jobapply.domain.Placeholder;
 import jobapply.memory.ResolvedFact;
 import jobapply.persistence.JobAnswers;
-import org.springframework.ai.chat.messages.Message;
 
 /**
- * Agent 循环每一步交给模型的消息（agent-runtime.md 7.3）：
+ * 申请 Mode 每一步交给模型的上下文（agent-runtime.md 7.3），由 {@code ApplicationStatePlugin} 放进消息：
  * <ol>
- *   <li>系统提示词（{@link ApplyAgent#systemPrompt()}）；</li>
+ *   <li>系统提示词（{@code resources/modes/apply.md}）；</li>
  *   <li>资料和上下文：有效资料（中英两种写法都给，由模型按页面选）、本次答案、可上传的文件编号、skill 目录、
  *       这个站点的记录、这家公司的记录和通用经验（一次运行里基本不变，前缀缓存能一直命中）；</li>
  *   <li>对话（{@link AgentRun#conversation()}），由 {@link Conversation} 拼成消息；</li>
@@ -114,19 +111,8 @@ public final class FillContext {
         return kept;
     }
 
-    /** 组装这一步的全部消息。 */
-    public static List<Message> messages(Inputs inputs, List<AgentRun.Turn> turns, Conversation.LatestPage latest) {
-        return messages(inputs, turns, latest, null);
-    }
-
-    /** @param attachments 用户附的文件存在哪里（C006 附件）；为 null 时图片不发 */
-    public static List<Message> messages(Inputs inputs, List<AgentRun.Turn> turns, Conversation.LatestPage latest,
-                                         AttachmentStore attachments) {
-        return Conversation.messages(ApplyAgent.systemPrompt(), context(inputs), turns, latest, attachments,
-                StateView.render(inputs.goal(), inputs.state()));
-    }
-
-    private static String context(Inputs inputs) {
+    /** 资料和上下文那一段（每一步重新生成；申请状态由 {@link StateView} 接在最后一条消息末尾）。 */
+    public static String context(Inputs inputs) {
         StringBuilder out = new StringBuilder();
         out.append("# 有效资料\n\n");
         out.append("资料键可以写进字段的 fact（可选）。有两种写法时按页面语言选；标「未审阅」的写法是起草的，")

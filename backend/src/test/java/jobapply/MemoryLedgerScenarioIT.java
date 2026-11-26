@@ -70,9 +70,7 @@ class MemoryLedgerScenarioIT {
         String apply = sessions.create(PROJECT, "投递示例公司甲").id();
         List<Transition> steps = List.of(
                 new Transition.Convert(),
-                new Transition.ChangePrepState(PrepState.PREPARING),
                 new Transition.ChangePrepState(PrepState.AWAITING_REVIEW),
-                new Transition.ChangePrepState(PrepState.USER_SUBMITTING),
                 new Transition.MarkApplied(new Evidence("success-page", "投递成功（虚构原文）", null,
                         "2026-10-23T10:05:00-04:00", "2026-10-23T10:06:00-04:00")),
                 new Transition.ChangePhase(Phase.INTERVIEW),
@@ -88,11 +86,11 @@ class MemoryLedgerScenarioIT {
         assertThat(finished.status().evidence().kind()).isEqualTo("success-page");
         assertThat(storage.read(storage.layout.jobFile(PROJECT, alpha.id()))).contains("## JD 快照\n\n虚构 JD");
 
-        // 事件：1 条新增 + 1 条标记 + 7 步申请，并且各自属于正确的 Session
+        // 事件：1 条新增 + 1 条标记 + 5 步申请，并且各自属于正确的 Session
         List<JobEvent> events = ledger.events(PROJECT, alpha.id());
-        assertThat(events).hasSize(9);
+        assertThat(events).hasSize(7);
         assertThat(events.subList(0, 2)).allMatch(event -> event.session().equals(research));
-        assertThat(events.subList(2, 9)).allMatch(event -> event.session().equals(apply));
+        assertThat(events.subList(2, 7)).allMatch(event -> event.session().equals(apply));
         assertThat(events.getLast().to()).isEqualTo("closed:rejected");
         assertThat(events.getLast().reason()).isEqualTo("一面");
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  api, errorText, type JobView, type OutcomeKind, type RoundView, type StatusProposal,
+  api, errorText, type JobView, type OutcomeKind, type PrepState, type RoundView, type StatusProposal,
 } from "./api";
 import { toast } from "./toast";
 
@@ -34,18 +34,13 @@ export const FOLLOWUP: Record<string, string> = {
   interrupted: "后续段中断了",
 };
 
-export const PREP: Record<string, string> = {
-  selected: "已选中",
+// prep 的子状态（C030 收敛为 5 个，旧值由后端读的时候映射掉）
+export const PREP: Record<PrepState, string> = {
   preparing: "填写中",
-  needs_input: "等你回答",
-  needs_login: "等你登录",
-  handoff_user: "交给你",
-  failed: "出错了",
+  needs_input: "等你处理",
   awaiting_review: "等你审阅",
-  user_submitting: "你在提交",
-  verification_pending: "待核实投递",
-  unconfirmed: "投递未确认",
   paused: "暂停",
+  failed: "出错了",
 };
 
 export const PHASE: Record<string, string> = {
@@ -172,7 +167,7 @@ export function labelText(label: string | null | undefined): string {
     return PHASE[head] ?? label;
   }
   if (head === "prep") {
-    return PREP[tail] ?? tail;
+    return PREP[tail as PrepState] ?? tail;
   }
   if (head === "lead") {
     return LEAD[tail] ?? tail;
@@ -329,14 +324,14 @@ export function LeadChip({ status }: { status: string }) {
 // done（投递段结束）和 ready（和「等你审阅」重复）永远不挂；和 prep 子状态说的是同一件事时也不挂。
 // 投递段没事时看后续段：在跑 / 中断了
 const RUN_ON_CARD = new Set(["queued", "running", "waiting_user", "failed", "interrupted"]);
-const SAME_AS_PREP: Record<string, string[]> = {
-  waiting_user: ["needs_input", "needs_login", "handoff_user"],
+const SAME_AS_PREP: Record<string, PrepState[]> = {
+  waiting_user: ["needs_input"],
   failed: ["failed"],
 };
 
 export function runChip(job: Pick<JobView, "application" | "prepState" | "followup">): { text: string; kind: string } | null {
   const app = job.application;
-  if (app && RUN_ON_CARD.has(app) && !(SAME_AS_PREP[app] ?? []).includes(job.prepState ?? "")) {
+  if (app && RUN_ON_CARD.has(app) && !(job.prepState && (SAME_AS_PREP[app] ?? []).includes(job.prepState))) {
     return { text: APPLICATION[app] ?? app, kind: APPLICATION_CHIP[app] ?? "" };
   }
   const followup = job.followup;

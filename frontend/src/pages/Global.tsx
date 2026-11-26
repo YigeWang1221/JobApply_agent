@@ -3,7 +3,7 @@ import { api, errorText, localDay, type JobView, type ProjectSummary } from "../
 import { useGlobalChanges } from "../chat/useLiveUpdates";
 import { TabBar, TabBody, useTab } from "../dashboard/Dashboard";
 import { RecentSessions } from "../dashboard/RecentSessions";
-import { rememberDashboardProject, replaceRoute } from "../route";
+import { go, rememberDashboardProject, replaceRoute } from "../route";
 
 // 默认选哪个 Project：最近有 Session 活动的（按 Session 的创建时间，后端没有别的活动时间），没有 Session 就第一个
 function mostRecent(projects: ProjectSummary[]): string {
@@ -20,9 +20,14 @@ function mostRecent(projects: ProjectSummary[]): string {
   return best.id;
 }
 
-// Dashboard（C006-fix 全局 Dashboard）：顶部下拉框选一个 Project，下面是它的 Dashboard / 候选池 / 申请总表。
-// 不把多个 Project 的申请混在一起看；选中的 Project 记在 URL（#/global/<id>）里，侧栏切换不影响它
-export default function Global({ projects, selected }: { projects: ProjectSummary[] | null; selected?: string }) {
+// Project / Dashboard 合并视图（C006-fix 全局 Dashboard，C030 IA）：顶部下拉框选一个 Project（侧栏点 Project 也切到这里），
+// 同页有「新建 Session」、最近的 Session，下面是它的 Dashboard / 候选池 / 申请总表。
+// 不把多个 Project 的申请混在一起看；选中的 Project 记在 URL（#/global/<id>）里
+export default function Global({ projects, selected, onChanged }: {
+  projects: ProjectSummary[] | null;
+  selected?: string;
+  onChanged: () => Promise<void>;
+}) {
   const [tab, setTab] = useTab();
   // URL 里的 Project 还在就用它，否则最近有活动的
   const chosen = projects && projects.length > 0
@@ -30,6 +35,22 @@ export default function Global({ projects, selected }: { projects: ProjectSummar
     : undefined;
   const [data, setData] = useState<{ id: string; project: ProjectSummary; jobs: JobView[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  async function newSession() {
+    if (!chosen) {
+      return;
+    }
+    setCreating(true);
+    try {
+      const view = await api.createSession(chosen);
+      await onChanged();
+      go({ kind: "session", id: view.session.id });
+    } catch (e) {
+      setError(errorText(e));
+      setCreating(false);
+    }
+  }
 
   // 选中的写回 URL（replace：不压返回栈），也记给侧栏「Dashboard」按钮
   useEffect(() => {
@@ -76,6 +97,7 @@ export default function Global({ projects, selected }: { projects: ProjectSummar
             </select>
           )}
           <TabBar tab={tab} onChange={setTab} />
+          <button className="primary" disabled={creating || !chosen} onClick={() => void newSession()}>＋ 新建 Session</button>
         </div>
       </div>
       {error && <p className="error">{error}</p>}

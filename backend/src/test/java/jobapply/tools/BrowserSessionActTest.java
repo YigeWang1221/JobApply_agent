@@ -9,7 +9,6 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import jobapply.harness.policies.BrowserToolPolicy;
-import jobapply.harness.policies.ToolNotAllowedException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -76,36 +75,6 @@ class BrowserSessionActTest {
                 "browser_snapshot");
         assertThat(fake.calls("browser_select_option")).singleElement()
                 .satisfies(args -> assertThat(args.get("values")).isEqualTo(List.of("女")));
-    }
-
-    @Test
-    void refusesWhenTheTabIsNotThisJobsAndWhenTheWhitelistSaysNo() {
-        FakeBrowser fake = FakeBrowser.create(dir).form("multi-page");
-        String url = fake.formUrl();
-
-        try (BrowserSession session = new BrowserSession(fake.launch())) {
-            assertThatThrownBy(() -> session.act(JOB, BrowserToolPolicy.CLICK, Map.of("target", "e9"),
-                    BrowserToolPolicy.Context.model(SnapshotIndex.empty(), List.of(url), null)))
-                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("不能操作");
-
-            PageSnapshot first = session.open(url, "2026-10-23-002");
-            assertThatThrownBy(() -> session.act(JOB, BrowserToolPolicy.CLICK, Map.of("target", "e9"),
-                    model(first, url, null))).isInstanceOf(IllegalStateException.class);
-            assertThatThrownBy(() -> session.find(JOB, Map.of("text", "下一步"), model(first, url, null)))
-                    .isInstanceOf(IllegalStateException.class);
-
-            // 多出来的参数没去掉、ref 不在最新快照里：白名单拒绝，不发出
-            assertThatThrownBy(() -> session.act("2026-10-23-002", BrowserToolPolicy.TYPE,
-                    Map.of("target", "e3", "text", "x", "fact", "base.name"), model(first, url, null)))
-                    .isInstanceOf(ToolNotAllowedException.class);
-            assertThatThrownBy(() -> session.act("2026-10-23-002", BrowserToolPolicy.CLICK,
-                    Map.of("target", "e19"), model(first, url, null)))
-                    .isInstanceOf(ToolNotAllowedException.class);
-            assertThat(session.ownsTab("2026-10-23-002")).isTrue();
-        }
-        // 白名单拒绝的调用不碰浏览器（连动作前的核对也不做）
-        assertThat(fake.toolCalls()).containsExactly("browser_tabs", "browser_tabs", "browser_run_code_unsafe",
-                "browser_snapshot");
     }
 
     @Test

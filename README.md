@@ -47,7 +47,7 @@ flowchart LR
 
 模型通过 `ask_user` 请求缺失信息，通过 `finish` 结束本次填写并生成报告。Harness 保存对话和工具结果，在用户回复后接着运行。用户在运行期间补充的要求先进入 `Inbox`，由循环在下一次模型调用前加入对话。
 
-实现：[AgentLoop](backend/src/main/java/jobapply/harness/runtime/AgentLoop.java)、[HarnessLoop](backend/src/main/java/jobapply/harness/runtime/HarnessLoop.java)、[FollowupLoop](backend/src/main/java/jobapply/harness/runtime/FollowupLoop.java)。
+实现：[AgentLoop](backend/src/main/java/jobapply/harness/runtime/AgentLoop.java)、[SessionLoop](backend/src/main/java/jobapply/harness/runtime/SessionLoop.java)、[HarnessLoop](backend/src/main/java/jobapply/harness/runtime/HarnessLoop.java)、[FollowupLoop](backend/src/main/java/jobapply/harness/runtime/FollowupLoop.java)。
 
 ### 申请状态连接计划、填写结果与报告
 
@@ -118,7 +118,7 @@ JobApply 通过 CDP 连接用户正在使用的 Chrome，为各任务分配 MCP 
 
 JobApply 用 Markdown 与 YAML 保存资料和岗位记录，用 JSON / JSONL 保存运行状态、对话与事件，用 CSV 导出台账。后台任务独立于页面订阅运行，`RuntimeEvents` 通过 SSE 推送消息和工具进度，并按事件序号支持短暂断线后的补发；缓冲过期时，前端重新读取已保存的状态。
 
-JobApply 在模型上下文中以 `{KEY}` 表示敏感字段，仅在发出浏览器填写调用时替换真实值。本地文件保存资料和记录，云端对话模型与搜索服务仍会接收各自请求所需的上下文；经验嵌入计算在本机完成。
+JobApply 在浏览器操作层守住两条硬底线：一是通过 [SubmitGuard](backend/src/main/java/jobapply/harness/policies/SubmitGuard.java) 与 [SubmitWords](backend/src/main/java/jobapply/harness/policies/SubmitWords.java) 拦截最终提交类按钮以及文本框内的回车/空格提交（不设软边界二次审批，中间步骤按钮由模型自行判断，最终提交始终留给用户亲自完成）；二是通过 [FieldClassGuard](backend/src/main/java/jobapply/harness/policies/FieldClassGuard.java) 与 [SnapshotRedactor](backend/src/main/java/jobapply/harness/policies/SnapshotRedactor.java) 在模型上下文中以 `{KEY}` 占位符表示 C 级敏感字段，仅在发出浏览器填写调用时从本地 `personal.env` 替换真实值，并在快照、日志与报告中保持脱敏。本地文件保存资料和记录，云端对话模型与搜索服务仍会接收各自请求所需的上下文；经验嵌入计算在本机完成。
 
 | 部分 | 技术 |
 | --- | --- |
@@ -146,6 +146,14 @@ JobApply 在模型上下文中以 `{KEY}` 表示敏感字段，仅在发出浏�
 出处：[主循环与 steer](https://github.com/NousResearch/hermes-agent/blob/e5dad4ac57ad11d39fe18b1ac895c0e0ae5b6494/run_agent.py)、[Memory 工具](https://github.com/NousResearch/hermes-agent/blob/e5dad4ac57ad11d39fe18b1ac895c0e0ae5b6494/tools/memory_tool.py)；落地：[ApplyAgent](backend/src/main/java/jobapply/agents/ApplyAgent.java)、[Inbox](backend/src/main/java/jobapply/domain/Inbox.java)、[MemoryWriter](backend/src/main/java/jobapply/memory/MemoryWriter.java)。
 
 **[SillyTavern（酒馆）](https://github.com/SillyTavern/SillyTavern)：分层资料的设计启发。** 项目作者从对酒馆的研究中获得“上层概要、下层资料、引用按需展开”的思路，将它用于 JobApply 的资料组织：画像提供概要，事实与证据保留细节，来源记录指向原件。这是资料组织方式的借鉴，具体落地见 [ProfileResolver](backend/src/main/java/jobapply/memory/ProfileResolver.java) 与 [SourceInventory](backend/src/main/java/jobapply/memory/SourceInventory.java)。
+
+## 当前演进方向（C030 计划中）
+
+当前代码仍由 `SessionLoop`、`HarnessLoop`、`FollowupLoop` 分别组织各自的上下文与工具分发。下一步架构收束方案已整理在 [C030 统一 Base Agent 运行时与安全排毒](plan/coding/04-refinement/C030-unified-base-agent-and-detox.md)（索引见 [dev-plan.md](dev-plan.md)），目前处于 **Slice 0 清理阶段、Slice 1–6 待确认后实施**（尚未上线）：
+
+- 计划将三套循环收拢为单一 Base Agent 运行时，配合插件拦截链、外置 Mode 与统一工具注册表；
+- 计划统一 Job 跨阶段运行线程，并引入深度受限的单向 Subagent 机制以隔离调研、投递复盘与官网状态巡检等任务；
+- 计划同步精简状态模型与侧栏信息架构，同时保持既有 `storage/` 数据向后兼容以及硬提交守卫、`{KEY}` 脱敏两条底线不变。
 
 ## 本地运行
 

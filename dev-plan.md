@@ -74,18 +74,21 @@
 | [C026](plan/coding/04-refinement/C026-portal-status-check.md) | 投递状态交给 Agent 查：Dashboard 按当前筛选出的申请「查状态」，跑后续段（只读、用户 Chrome 的登录态），识别门户状态并记下；要手动登录的记下、不再查；查看间隔天数可设，状态显示跟着改；状态变化进「核准列表」由用户核准；阶段按官网动态（复用轮次） | 已施工，等用户在本机试（2026-11-05；`npm run build` 0、工作区 `mvn -B clean verify` 0，含 C025；真实 Chrome 未跑） |
 | [C027](plan/coding/04-refinement/C027-thinking-strength.md) | DeepSeek 模型可选思考强度：用途分配里模型名含 deepseek 时多一个「思考」下拉（默认 / 关 / 低 / 高 / 最高），按 DeepSeek 的 `thinking` + `reasoning_effort` 发请求 | 已施工，等用户用真实模型试（2026-11-05；`npm run build` 0、`mvn -B clean verify` 0） |
 | [C027-fix](plan/coding/04-refinement/C027-fix-gemini-thinking.md) | Gemini 模型也可选思考强度：模型名含 gemini 时显示「思考」下拉（3.x：默认 / 低 / 中 / 高；2.5 Flash 多「关」），发 `reasoning_effort`；新增存值 `medium` | 已施工，等真实 Gemini 测试（2026-11-05；`npm run build` 0、`mvn -B clean verify` 0） |
-| [C028](plan/coding/04-refinement/C028-chatgpt-plan-signin.md) | 用 ChatGPT 登录：模型设置加「ChatGPT 套餐」提供方，用户在浏览器里登录（官方 SIWC，OAuth + PKCE，本机回调），用订阅额度走 Responses API，可分配给各用途 | 计划，待用户确认（2026-11-07） |
+| [C028](plan/coding/04-refinement/C028-chatgpt-plan-signin.md) | 用 ChatGPT 登录：模型设置加「ChatGPT 套餐」提供方，用户在浏览器里登录（官方 SIWC，OAuth + PKCE，本机回调），用订阅额度走 Responses API，可分配给各用途 | 已施工并提交（`255d5c2`，2026-11-07；`mvn -B clean verify`、`npm run build` 通过），真实 ChatGPT 登录等用户试 |
 | [C029](plan/coding/04-refinement/C029-jvm-memory.md) | 后端内存：实测带嵌入模型时约 1.1GB（分词器约 500MB、ONNX 会话约 200MB，启动就加载）；JVM 加上限和省内存参数，嵌入模型用时才加载、闲置后卸下 | 已施工，等用户重新打包 App 在本机看（2026-11-14；`mvn -B clean verify` 0；改后启动 299MB、建索引时 1.0GB、闲置卸下后 597MB） |
 | [C026-fix](plan/coding/04-refinement/C026-fix-keep-login-tabs.md) | 查状态遇到要登录 / 没找到状态页：每份查完照旧关页，整批查完后在 Chrome 里一次打开这些门户（一个网站一页、已开着的不再开，属于用户）；批量不再默认跳过要手动登录的（第二版，第一版「交还登录页」用户试过不对） | 已施工，等用户在本机试（2026-11-14；`mvn -B clean verify` 0、`npm run build` 0；真实 Chrome 未跑） |
 | [C004-A-fix 原件](plan/coding/02-core-agent/C004-A-fix-resume-project.md) | 资料页能删除原件（软删进 `.trash/`，Job 记录保留文件名）；原件分「简历 / 通用资料」，简历归属一个 Project（资料页下拉框可改），通用资料所有 Project 共用；对话里发来的文件只用于那次申请、不进资料库；Agent 只看本 Project 的简历和通用资料；旧数据启动时自动分类 | 已施工，等用户在本机试（2026-11-07；`mvn -B clean verify` 0、`npm run build` 0） |
+| [C030](plan/coding/04-refinement/C030-unified-base-agent-and-detox.md) | 统一 Base Agent 运行时与安全排毒（Phase 1）：Slice 0 清理软边界与防御性测试样本、同步文档；Slice 1–6 直接在用户当前分支落地 1 个 Base Agent + Plugin/Skill/Mode + Depth=2/3 单向 Subagent 树 + 统一 Job 线程 + `JobStatus`/侧栏 IA 瘦身，保持 `storage/` 向后兼容 | Slice 0 已提交（`a48fc48`）；Slice 1–6 已施工、经一轮审查，等用户在本机用真实 Chrome 试（2026-11-25；`mvn -B clean verify` 0、`npm run build` 0；未提交） |
 
 ## 参考（不是施工步骤）
 
 - `../Eco_Agent/`：同栈参考仓库，只读。
 - [plan/reference/research-codex.md](plan/reference/research-codex.md)：旧 Codex 投递工作区复盘。
 - [plan/reference/research-hermes.md](plan/reference/research-hermes.md)：Hermes Agent 设计参考。
+- [plan/reference/gap-context-compaction.md](plan/reference/gap-context-compaction.md)：待做，对话上下文压缩（compact），只记录，未排期（2026-11-25）。
+- [plan/reference/research-agent-platform.md](plan/reference/research-agent-platform.md)：调研，把 Agent 换成可插件化的基底（opencode 等）、外部 skill 导入；方向待用户选（2026-11-25）。
 - Dashboard 与界面示意页（虚构数据）：https://claude.ai/artifact/4K6eE85i51GvrLUGz8cARD
 
 ## 停靠点
 
-2026-10-23 晚暂停：标签页改回提示词、C008、真实跑通的修补都已提交（分支 C008，最新 7613292）。申请 2026-10-23-001 停在「浏览器断开」。明天按 dev-log.md 最后一条「暂停交接」：先接着跑完这次申请，再定第 18 条和 C009，再修 9、12、16、17 和 token。
+2026-11-25：[C030](plan/coding/04-refinement/C030-unified-base-agent-and-detox.md) Slice 0–6 已施工（未提交）；等用户真实 Chrome 端到端试跑，并确认是否把实现与 Master Plan 的三处出入回写。

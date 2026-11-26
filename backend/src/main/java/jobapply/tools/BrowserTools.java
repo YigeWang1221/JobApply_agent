@@ -9,7 +9,6 @@ import java.util.Set;
 import jobapply.harness.policies.BrowserToolPolicy;
 import jobapply.harness.policies.FieldIntent;
 import jobapply.harness.policies.SubmitGuard;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
@@ -18,14 +17,14 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * 交给模型的浏览器工具：定义和参数翻译（agent-runtime.md 7.2）。
  * <p>
- * 定义是 Spring AI 的 {@link ToolCallback}，{@code call()} 一律抛异常：调用方直接调用 {@code ChatModel}，
- * 工具调用原样留在响应里，由 Harness 循环自己执行。工具名和 MCP 的工具名相同，和 {@link BrowserToolPolicy}
+ * 定义是 Spring AI 的 {@link ToolDefinition}，执行在 {@link BrowserFillTools}（申请）和 {@link BrowserReadTools}
+ * （调研、后续段只读）。工具名和 MCP 的工具名相同，和 {@link BrowserToolPolicy}
  * 的模型白名单一一对应（不开放 {@code handle_dialog}；{@code browser_tabs} 另由 {@link #tabs()} 定义，系统代发）。
  * <p>
  * 比 MCP 多出来的参数：{@code browser_fill_form} 的每个字段、{@code browser_type}、{@code browser_select_option}、
  * {@code browser_set_date}（C016，不是 MCP 的工具，系统用固定脚本代发）可以带 {@code fact}、{@code confidence}、{@code language}（都可选，写了就进报告）
- * 和 {@code field}（申请状态里的字段 id，C019）（{@link FieldIntent}）；{@code browser_click} 可以带
- * {@code purpose}、{@code final_step_suspected}、{@code evidence}（{@code final_step_suspected} 决定软边界按钮放不放行）（{@link SubmitGuard.ClickIntent}）；
+ * 和 {@code field}（申请状态里的字段 id，C019）（{@link FieldIntent}）；{@code browser_click} 可以带可选的
+ * {@code purpose}、{@code evidence}（只进日志）（{@link SubmitGuard.ClickIntent}）；
  * {@code browser_file_upload} 只收文件编号（{@code files}，从 1 开始；可带上传位置的 {@code target}），系统换成 {@code storage/uploads/<job-id>/}
  * 下的路径，模型看不到路径。{@link #translate} 先取出这些参数并去掉，再交给白名单和守卫。
  */
@@ -80,16 +79,12 @@ public final class BrowserTools {
                     "Click a button, link, tab, dropdown or option. Buttons whose name looks like submitting "
                             + "(Submit, Apply, Send, 提交, 投递, 申请...) are rejected: the user clicks those. So is a "
                             + "Confirm / OK / 确定 / 确认 inside a dialog that asks whether to submit or send the application. "
-                            + "For Next / Continue / Save buttons and for confirm buttons (确定, 确认, 完成, Confirm, Done) in "
-                            + "dialogs, cards, date panels and cascaders, look at the page first (step indicator, progress, text "
-                            + "near the button) and pass final_step_suspected with evidence: false lets the click through; "
-                            + "true means the system asks the user first (via ask_user) for this one button on this page. "
-                            + "Without final_step_suspected such buttons are not clicked. Other elements need no notes.",
+                            + "For Next / Continue / Save / Confirm buttons, judge from the page context whether it is safe "
+                            + "to click; if it looks like the final step that submits the application, ask the user first via ask_user.",
                     """
                     {"type":"object","properties":{%s,\
                     "purpose":{"type":"string","enum":["next_step","save_draft","confirm","open_control","unsure"]},\
-                    "final_step_suspected":{"type":"boolean"},\
-                    "evidence":{"type":"string","description":"Why, e.g. progress shows step 2 of 4"}},\
+                    "evidence":{"type":"string","description":"Optional note, e.g. progress shows step 2 of 4"}},\
                     "required":["target"]}""".formatted(TARGET)),
             definition(BrowserToolPolicy.TYPE,
                     "Type text into one editable field (replaces its content). Use it for one field, rich text areas and "
@@ -196,14 +191,20 @@ public final class BrowserTools {
             "index":{"type":"integer","minimum":0,"description":"For select: an index from list"}},\
             "required":["action"]}""");
 
-    /** 填写角色的全部浏览器工具定义。 */
-    public static List<ToolCallback> definitions() {
-        return DEFINITIONS.stream().map(BrowserTools::callback).toList();
+    /** 填写角色的全部浏览器工具定义（执行在 {@link BrowserFillTools} / {@link BrowserReadTools}）。 */
+    public static List<ToolDefinition> definitions() {
+        return DEFINITIONS;
     }
 
-    /** 申请 Agent 的标签页工具定义（{@link #TABS}）。 */
-    public static ToolCallback tabs() {
-        return callback(TABS_DEFINITION);
+    /** 浏览器工具里名字是 {@code name} 的那个定义。 */
+    public static ToolDefinition definition(String name) {
+        return DEFINITIONS.stream().filter(d -> d.name().equals(name)).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("没有这个浏览器工具：" + name));
+    }
+
+    /** 标签页工具的定义（{@link #TABS}）。 */
+    public static ToolDefinition tabsDefinition() {
+        return TABS_DEFINITION;
     }
 
     public static boolean isBrowserTool(String name) {
@@ -305,23 +306,5 @@ public final class BrowserTools {
 
     private static ToolDefinition definition(String name, String description, String schema) {
         return ToolDefinition.builder().name(name).description(description).inputSchema(schema).build();
-    }
-
-    private static ToolCallback callback(ToolDefinition definition) {
-        return new DefinitionOnly(definition);
-    }
-
-    /** 只有定义的工具：执行由 Harness 循环负责，{@code call()} 被用到说明调用方式错了。 */
-    private record DefinitionOnly(ToolDefinition definition) implements ToolCallback {
-
-        @Override
-        public ToolDefinition getToolDefinition() {
-            return definition;
-        }
-
-        @Override
-        public String call(String toolInput) {
-            throw new IllegalStateException("浏览器工具 " + definition.name() + " 由 Harness 循环执行，不应被 SDK 调用");
-        }
     }
 }

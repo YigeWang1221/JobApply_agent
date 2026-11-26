@@ -9,8 +9,8 @@ import jobapply.persistence.StorageLayout;
 import jobapply.tools.BrowserSession;
 import jobapply.tools.WebFetch;
 import jobapply.tools.WebSearch;
-import jobapply.workflow.ApplicationRunner;
-import jobapply.workflow.FollowupRunner;
+import jobapply.workflow.JobThreadService;
+import jobapply.workflow.StatusCheckBatch;
 import jobapply.workflow.RuntimeEvents;
 import jobapply.workflow.SessionRunner;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -62,11 +62,12 @@ public class ApplicationConfiguration {
         return events;
     }
 
+    /** 统一 Job 线程（C030）：每个 Job 的投递段和后续段，Mode 只看 job.md 的 phase。 */
     @Bean(destroyMethod = "close")
-    ApplicationRunner applicationRunner(StorageLayout layout, Clock clock, BrowserSession browser,
-                                        ModelRegistry models, HarnessProperties limits, RuntimeEvents events,
-                                        ExperienceIndex experience) {
-        return new ApplicationRunner(layout, clock, browser, models::main, limits, events, experience);
+    JobThreadService jobThreadService(StorageLayout layout, Clock clock, BrowserSession browser,
+                                      ModelRegistry models, HarnessProperties limits, RuntimeEvents events,
+                                      ExperienceIndex experience, WebFetch fetch) {
+        return new JobThreadService(layout, clock, browser, models::main, limits, events, experience, fetch);
     }
 
     @Bean
@@ -82,14 +83,14 @@ public class ApplicationConfiguration {
 
     @Bean(destroyMethod = "close")
     SessionRunner sessionRunner(StorageLayout layout, Clock clock, BrowserSession browser, ModelRegistry models,
-                                WebSearch search, WebFetch fetch, ApplicationRunner applications) {
+                                WebSearch search, WebFetch fetch, JobThreadService applications) {
         return new SessionRunner(layout, clock, browser, models::main, search, fetch, applications);
     }
 
-    /** 工作台的后续段（C022）：和申请线程共用事件日志和工具调用上限。 */
-    @Bean(destroyMethod = "close")
-    FollowupRunner followupRunner(StorageLayout layout, Clock clock, BrowserSession browser, ModelRegistry models,
-                                  WebFetch fetch, ApplicationRunner applications) {
-        return new FollowupRunner(layout, clock, browser, models::main, fetch, applications);
+    /** 查状态（C026）：单个和批量，每一份都是一个 portal-check Subagent（C030），不进工作台对话。 */
+    @Bean
+    StatusCheckBatch statusCheckBatch(StorageLayout layout, Clock clock, BrowserSession browser,
+                                      JobThreadService threads) {
+        return new StatusCheckBatch(layout, clock, browser, threads);
     }
 }

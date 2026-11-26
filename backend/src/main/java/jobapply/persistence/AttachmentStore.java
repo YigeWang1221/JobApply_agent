@@ -21,6 +21,9 @@ import jobapply.tools.SecretFileRules;
 /**
  * 用户附在消息里的文件（C006 附件）：一个附件一个目录 {@code <dir>/<id>/<原文件名>}，文件名保持原样（上传到表单时网站看到的名字）。
  * 申请的放在 {@code uploads/<job-id>/attachments/}，Session 的放在 {@code sessions/<id>/attachments/}；不进资料库。
+ * <p>
+ * 可以带一个后备目录（C030 统一 Job 线程：投递段和历史的 {@code followup/attachments/} 互为后备，见
+ * {@link JobThreadStore#attachments}）：新附件存进主目录，按编号找、列出时两个目录都看。
  */
 public final class AttachmentStore {
 
@@ -52,9 +55,17 @@ public final class AttachmentStore {
     }
 
     private final Path dir;
+    /** 只读的后备目录；没有时为 null。 */
+    private final Path fallback;
 
     public AttachmentStore(Path dir) {
+        this(dir, null);
+    }
+
+    /** @param fallback 主目录里找不到时再找这里（只读）；为 null 时没有 */
+    public AttachmentStore(Path dir, Path fallback) {
         this.dir = dir;
+        this.fallback = fallback;
     }
 
     /** 存一个附件。文件名像密钥文件、空文件、超过 20 MB 时抛出 {@link IllegalArgumentException}。 */
@@ -90,6 +101,11 @@ public final class AttachmentStore {
         if (id == null || !ID.matcher(id).matches()) {
             return Optional.empty();
         }
+        Optional<Stored> found = find(dir, id);
+        return found.isPresent() || fallback == null ? found : find(fallback, id);
+    }
+
+    private static Optional<Stored> find(Path dir, String id) {
         Path folder = dir.resolve(id);
         if (!Files.isDirectory(folder)) {
             return Optional.empty();
@@ -109,12 +125,19 @@ public final class AttachmentStore {
 
     /** 存着的全部附件，先存的在前；目录不存在时为空。 */
     public List<Stored> list() {
+        Stream<Stored> all = Stream.concat(list(dir).stream(), fallback == null ? Stream.empty() : list(fallback).stream());
+        return all.collect(java.util.stream.Collectors.toMap(Stored::id, stored -> stored, (first, second) -> first,
+                        java.util.LinkedHashMap::new)).values().stream()
+                .sorted(Comparator.comparing(stored -> modified(stored.path()))).toList();
+    }
+
+    private static List<Stored> list(Path dir) {
         if (!Files.isDirectory(dir)) {
             return List.of();
         }
         try (Stream<Path> folders = Files.list(dir)) {
-            return folders.map(folder -> find(folder.getFileName().toString())).flatMap(Optional::stream)
-                    .sorted(Comparator.comparing(stored -> modified(stored.path()))).toList();
+            return folders.map(folder -> folder.getFileName().toString()).filter(id -> ID.matcher(id).matches())
+                    .map(id -> find(dir, id)).flatMap(Optional::stream).toList();
         } catch (IOException e) {
             throw new UncheckedIOException("读取附件目录失败：" + dir, e);
         }

@@ -1,6 +1,6 @@
 package jobapply.api;
 
-import jobapply.workflow.ApplicationRunner;
+import jobapply.workflow.JobThreadService;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -19,19 +19,19 @@ public class WorkerSettingsController {
     public record WorkersRequest(Integer workers, Integer perSite) {
     }
 
-    private final ApplicationRunner applications;
+    private final JobThreadService applications;
 
-    public WorkerSettingsController(ApplicationRunner applications) {
+    public WorkerSettingsController(JobThreadService applications) {
         this.applications = applications;
     }
 
     @GetMapping
-    public ApplicationRunner.Concurrency view() {
+    public JobThreadService.Concurrency view() {
         return applications.concurrency();
     }
 
     @PutMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ApplicationRunner.Concurrency save(@RequestBody WorkersRequest request) {
+    public JobThreadService.Concurrency save(@RequestBody WorkersRequest request) {
         if (request.workers() == null || request.perSite() == null) {
             throw new IllegalArgumentException("需要 workers 和 perSite");
         }

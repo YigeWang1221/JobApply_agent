@@ -534,7 +534,7 @@ public final class PlaywrightMcpClient implements AutoCloseable {
         return switch (String.valueOf(done.get("status"))) {
             case "set" -> "日期已设好（" + how + "）" + read;
             case "needs_confirm" -> "已在面板上点了日期，但面板上还有「确定」要点才生效" + read
-                    + "在新快照里找到面板上的「确定」，用 browser_click 点它（purpose 写 confirm，final_step_suspected 写 false），"
+                    + "在新快照里找到面板上的「确定」，用 browser_click 点它，"
                     + "再看新快照核对。";
             case "open" -> "已在面板上点了日期，面板还开着" + read + "范围选择要再给结束日期的框设一次。";
             case "closed" -> "面板关了" + read;

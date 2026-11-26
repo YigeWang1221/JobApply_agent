@@ -15,6 +15,7 @@ import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import jobapply.domain.AgentRun;
+import jobapply.domain.SubRun;
 import jobapply.domain.Timestamps;
 import jobapply.harness.runtime.LoopObserver;
 import jobapply.tools.BrowserState;
@@ -41,6 +42,11 @@ public final class RuntimeEvents {
     public static final String CHANGED = "changed";
     /** 浏览器连接状态变了（全局事件，{@code session}、{@code job} 都为 null，payload 是 {@link BrowserState}）。 */
     public static final String BROWSER = "browser";
+    /**
+     * Subagent 开始或结束了（C030 Slice 5）：payload 是不带对话的 {@link SubRun}（id、mode、depth、parentRunId、status、
+     * result……），{@code session}、{@code job} 是子运行的。完整对话在 {@code projects/<p>/subruns/<id>.json}。
+     */
+    public static final String SUBRUN = "subrun";
 
     /**
      * 现在在做什么。
@@ -245,6 +251,11 @@ public final class RuntimeEvents {
     /** 台账或视图变了（JobLedger 每次写、Session 改名、附件、申请线程的回报……）。 */
     public void changed(String session, String job) {
         publish(CHANGED, session, job, null);
+    }
+
+    /** Subagent 开始或结束了（{@link SubRun.Listener}）。 */
+    public void subrun(SubRun run) {
+        publish(SUBRUN, run.session(), run.job(), run.header());
     }
 
     /** 浏览器连接状态变了（{@code BrowserSession} 的监听者）。只进全局流（{@link #all()}）。 */

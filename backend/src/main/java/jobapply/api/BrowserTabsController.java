@@ -6,7 +6,7 @@ import jobapply.domain.AgentRun;
 import jobapply.tools.BrowserException;
 import jobapply.tools.BrowserSession;
 import jobapply.workflow.ApplicationException;
-import jobapply.workflow.ApplicationRunner;
+import jobapply.workflow.JobThreadService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -38,9 +38,9 @@ public class BrowserTabsController {
     }
 
     private final BrowserSession browser;
-    private final ApplicationRunner runner;
+    private final JobThreadService runner;
 
-    public BrowserTabsController(BrowserSession browser, ApplicationRunner runner) {
+    public BrowserTabsController(BrowserSession browser, JobThreadService runner) {
         this.browser = browser;
         this.runner = runner;
     }

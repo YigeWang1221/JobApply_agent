@@ -10,4 +10,4 @@ alwaysApply: true
 - 只做用户点名的当前一步。计划里没写的不做。
 - `dev-plan.md` 只更新索引。设计写进 `plan/master/`，每次开发任务写进 `plan/coding/C###-*.md`。
 - 事实写入 `dev-log.md`。取舍写入 `dev-recoding.md`。新边界才改 `dev-limit.md`。
-- 不读、不改 `.env` 和其它秘密文件。
+- 遵守 `dev-limit.md` 的底线（不点最终提交、秘密文件不读不改不建）；不主动新增未点名的防御守卫或负向测试。

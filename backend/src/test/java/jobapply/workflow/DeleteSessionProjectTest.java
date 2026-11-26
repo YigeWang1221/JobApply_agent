@@ -63,7 +63,7 @@ class DeleteSessionProjectTest {
         fake.page("https://jobs.beta-demo.com/2", "Beta示例 招聘", "- heading \"Beta示例\" [level=1] [ref=e1]");
         GatedModel model = new GatedModel();
         try (BrowserSession browser = new BrowserSession(fake.launch());
-             ApplicationRunner applications = new ApplicationRunner(storage.layout, storage.clock, browser,
+             JobThreadService applications = new JobThreadService(storage.layout, storage.clock, browser,
                      () -> model, null);
              SessionRunner runner = new SessionRunner(storage.layout, storage.clock, browser, () -> model, null, null,
                      applications)) {

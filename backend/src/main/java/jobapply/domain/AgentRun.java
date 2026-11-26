@@ -14,7 +14,7 @@ import java.util.List;
  *                     （浏览器断开不再存在这里，由全局的连接状态推出来，C006-fix-browser 第 1 节；旧文件里的
  *                     {@code disconnected} 键读的时候忽略）
  * @param state        申请状态（C019）：现在在哪一步、计划、字段清单、决定；旧记录里只有 {@code plan}，读的时候由
- *                     {@code AgentRunStore} 换成 {@code state.steps}
+ *                     {@code JobThreadStore} 换成 {@code state.steps}
  * @param files        已经复制到 {@code uploads/<job-id>/} 的文件，编号从 1 开始
  * @param round        报告第几轮（定稿后用户要求修改时加一）
  * @param error        失败的原因；没有时为 null

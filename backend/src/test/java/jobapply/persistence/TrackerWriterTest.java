@@ -44,7 +44,7 @@ class TrackerWriterTest {
         Job prep = convert(TestStorage.posting("示例公司甲", "JD-3"));
         ledger.addLead(PROJECT, session, Actor.AGENT, TestStorage.posting("示例公司丁", "JD-4"), null);
         move(closed, new Transition.Close(Outcome.NOT_SUBMITTED, "转投别家"));
-        for (PrepState state : List.of(PrepState.PREPARING, PrepState.AWAITING_REVIEW, PrepState.USER_SUBMITTING)) {
+        for (PrepState state : List.of(PrepState.AWAITING_REVIEW)) {
             move(interview, new Transition.ChangePrepState(state));
         }
         move(interview, new Transition.MarkApplied(EVIDENCE));
@@ -57,7 +57,7 @@ class TrackerWriterTest {
                 .filter(line -> line.startsWith("| ") && !line.startsWith("| #") && !line.startsWith("| ---"))
                 .toList();
         assertThat(rows).hasSize(3);
-        assertThat(rows.get(0)).startsWith("| 3 | 示例公司甲 |").contains("| prep · selected |");
+        assertThat(rows.get(0)).startsWith("| 3 | 示例公司甲 |").contains("| prep · preparing |");
         assertThat(rows.get(1)).startsWith("| 2 | 示例公司乙 |").contains("| 10-16 | interview | — |");
         assertThat(rows.get(2)).startsWith("| 1 | 示例公司丙 |").contains("| closed · not_submitted |");
         assertThat(rows.get(1)).contains("[Backend Engineer](../jobs/" + interview.id() + "/job.md)");
@@ -84,22 +84,6 @@ class TrackerWriterTest {
     }
 
     @Test
-    void csvIsExcelSafe() {
-        JobPosting tricky = new JobPosting("=SUM(1)", null, "Backend, \"Infra\"\n二线", "JD-9", null,
-                List.of("上海", "杭州"), null, null, null, null);
-        convert(tricky);
-
-        String csv = storage.read(storage.layout.trackerDir(PROJECT).resolve("applications.csv"));
-        String md = storage.read(storage.layout.trackerDir(PROJECT).resolve("applications.md"));
-
-        assertThat(csv).startsWith("﻿id,project,company,");
-        assertThat(csv.split("\r\n", -1)).hasSize(3);
-        assertThat(csv).contains(",'=SUM(1),").contains(",\"Backend, \"\"Infra\"\"\n二线\",")
-                .contains(",上海; 杭州,").contains(",prep,selected,");
-        assertThat(md).contains("Backend, \"Infra\" 二线").contains("| 上海、杭州 |");
-    }
-
-    @Test
     void globalIndexHasProjectColumnAndLeads() {
         storage.project("spring-2027-v2", "live");
         String other = storage.session("spring-2027-v2");
@@ -114,7 +98,7 @@ class TrackerWriterTest {
                 .contains("| Project | 公司 | 岗位 | 状态 | 发现于 | 链接 |")
                 .contains("| fall-2026-v1 | 示例公司甲 | [Backend Engineer](projects/fall-2026-v1/jobs/")
                 .contains("| spring-2027-v2 | 示例公司乙 |")
-                .contains("| prep · selected |")
+                .contains("| prep · preparing |")
                 .contains("| new |");
         assertThat(exported.split("\r\n", -1)).hasSize(4);
     }

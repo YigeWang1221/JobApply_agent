@@ -1,6 +1,6 @@
 package jobapply.api;
 
-import jobapply.workflow.ApplicationRunner;
+import jobapply.workflow.JobThreadService;
 import jobapply.workflow.ToolCallLimits;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,7 +23,7 @@ public class ToolCallSettingsController {
 
     private final ToolCallLimits limits;
 
-    public ToolCallSettingsController(ApplicationRunner applications) {
+    public ToolCallSettingsController(JobThreadService applications) {
         this.limits = applications.toolCallLimits();
     }
 

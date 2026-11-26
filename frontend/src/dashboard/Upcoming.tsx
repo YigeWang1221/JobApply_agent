@@ -39,7 +39,7 @@ export function Upcoming({ jobs }: { jobs: JobView[] }) {
                 <time>待你</time>
                 <div className="t">
                   <div>{job.company} · {job.title}</div>
-                  <small>{[PREP[job.prepState ?? ""] ?? job.prepState].filter(Boolean).join(" · ")}</small>
+                  <small>{job.prepState ? PREP[job.prepState] : ""}</small>
                 </div>
                 <button className="linkbtn" onClick={() => go({ kind: "job", id: job.id })}>工作台</button>
               </div>
