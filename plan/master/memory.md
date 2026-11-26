@@ -86,6 +86,7 @@ storage/                              # 整个目录被主仓库 .gitignore 忽�
 │   │   ├── components/<name>/SKILL.md  # 按 UI 组件：级联城市、日期、只读下拉、上传、简历解析校正……任何公司官网都能用
 │   │   └── platforms/<name>/SKILL.md   # 按招聘系统：Moka、飞书、Workday……观察到再加
 │   └── sites/<host>.md               # 不是 skill：平台猜测、站点观察记录
+├── modes/<name>.md                   # C030-fix：用户自己的 Mode（同名覆盖内置的，也可以新加子 Mode）；每次运行开始时读，写错时这次运行报错。不复制内置的进来
 ├── companies/<company>.md            # 公司记忆（跨 Project 共享）：招聘项目、额度规则及证据、已用额度、账号标识、排除原因
 ├── jobs-index.md                     # 生成：所有 Project 的岗位与申请总台账（防止跨 Project 重复投递）
 ├── settings/                         # 应用设置，见 ui.md「模型设置」

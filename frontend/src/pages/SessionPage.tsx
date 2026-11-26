@@ -11,6 +11,7 @@ import { useLiveUpdates } from "../chat/useLiveUpdates";
 import { go } from "../route";
 import { RenameTitle } from "../RenameTitle";
 import { ResizablePanel } from "../ResizeHandle";
+import { shell } from "../shell";
 import { JobState, SubmitConfirm } from "../status";
 import { toast } from "../toast";
 
@@ -121,7 +122,11 @@ export default function SessionPage({ id, onChanged }: { id: string; onChanged?:
   return (
     <div className="chatpage">
       <div className="chatmain">
-        <header className="chathead">
+        <header className="chathead" onMouseDown={(e) => {
+          if (e.button === 0 && shell.available() && e.target === e.currentTarget) {
+            shell.startDrag();
+          }
+        }}>
           <div className="chathead-t">
             <RenameTitle value={view.session.title}
               onSave={async (title) => setView(await api.renameSession(id, title))} />
@@ -149,6 +154,8 @@ export default function SessionPage({ id, onChanged }: { id: string; onChanged?:
           empty={
             // 新建的 Session 是空白对话（C005-fix 开场）：一行固定提示，项目状态看 Project 主页
             <div className="emptychat">
+              <span className="brand-badge" aria-hidden="true">J</span>
+              <h2>准备开始这一轮调研与投递</h2>
               <p className="muted">说说想找什么岗位、投哪几个，或者更新一下面试情况。</p>
             </div>
           } />

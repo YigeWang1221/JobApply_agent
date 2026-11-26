@@ -66,6 +66,7 @@ try {
     $InputDir = Join-Path $Tmp "input"
     New-Item -ItemType Directory -Path $InputDir | Out-Null
     Copy-Item $Jar.FullName (Join-Path $InputDir "jobapply.jar")
+    & "$ScriptDir\slim-jar.ps1" -JarPath (Join-Path $InputDir "jobapply.jar") -JarTool (Join-Path $JavaHome "bin\jar.exe")
 
     # 4. jdeps + jlink 裁剪 JRE
     Stage-Info "3/6 jdeps + jlink 裁剪 JRE 运行时"

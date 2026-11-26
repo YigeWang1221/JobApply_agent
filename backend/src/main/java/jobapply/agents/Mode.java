@@ -7,7 +7,7 @@ import jobapply.harness.context.SkillCatalog;
 
 /**
  * 一种工作模式（C030 外置 Mode）：Base Agent 的同一个循环，换上不同的系统提示词、工具集、插件组合和循环参数。
- * 定义在 classpath 的 {@code modes/<name>.md}：frontmatter 是装配，正文是系统提示词（{@link Modes}）。
+ * 定义在 {@code storage/modes/<name>.md} 或内置的 {@code modes/<name>.md}：frontmatter 是装配，正文是系统提示词（{@link Modes}）。
  *
  * @param tools                ToolRegistry 里的工具集名字，按顺序
  * @param allowTools           只给这些工具（按名字，从上面的工具集里挑）；为空时工具集里的都给。Subagent 的 Mode 用它
@@ -18,10 +18,11 @@ import jobapply.harness.context.SkillCatalog;
  * @param toolCallLimit        {@code per-run}（申请一次运行）或 {@code per-message}（对话每条消息），上限的值在设置页
  * @param limitNote            到了上限时的系统说明，{@code {calls}} 换成已经用掉的次数
  * @param skills               这个 Mode 的 skill 目录范围
+ * @param source               从哪个文件读的（报错时写清是哪个文件）
  */
 public record Mode(String name, String description, String system, List<String> tools, List<String> allowTools,
                    List<String> plugins, List<String> subagents, boolean dropReplyWhenStopped, String toolCallLimit,
-                   String limitNote, SkillScope skills) {
+                   String limitNote, SkillScope skills, String source) {
 
     public static final String PER_RUN = "per-run";
     public static final String PER_MESSAGE = "per-message";

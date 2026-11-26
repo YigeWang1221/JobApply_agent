@@ -75,6 +75,11 @@ public final class BaseAgent {
             ctx.put(Subagents.class, new SubagentExecutor(this, services).bind(mode, ctx, control));
         }
         ToolBox tools = ToolRegistry.toolsFor(mode.tools(), mode.allowTools(), ctx);
+        for (String name : mode.allowTools()) {
+            if (!tools.has(name)) {
+                throw new IllegalArgumentException(mode.source() + " 的 allow-tools 里的工具在 tools 的工具集里没有：" + name);
+            }
+        }
         PluginChain plugins = plugins(mode, ctx);
         AgentLoopEngine engine = new AgentLoopEngine(model, mode.system(), mode.dropReplyWhenStopped(), tools,
                 plugins, control, services.clock(), history, appended);
@@ -92,15 +97,15 @@ public final class BaseAgent {
         RunContext ctx = new RunContext(services, run.project(), run.session(), run.job(), run.job());
         Workbench bench = ctx.put(Workbench.class, new Workbench(services.layout(), services.clock(), run, progress));
         bench.open(ControlTools.catalog(ctx));
-        run(Modes.get(Modes.APPLY), ctx, run.conversation(), control, null);
+        run(Modes.get(services.layout(), Modes.APPLY), ctx, run.conversation(), control, null);
         return ctx.slot(ApplicationStatePlugin.class).result();
     }
 
     /** Session 的对话（{@link Modes#SESSION}）：每一条新对话交给 {@code appended}。 */
     public void session(String projectId, String sessionId, List<AgentRun.Turn> history, RunControl control,
                         Consumer<AgentRun.Turn> appended) {
-        run(Modes.get(Modes.SESSION), new RunContext(services, projectId, sessionId, null, sessionId), history,
-                control, appended);
+        run(Modes.get(services.layout(), Modes.SESSION),
+                new RunContext(services, projectId, sessionId, null, sessionId), history, control, appended);
     }
 
     /**
@@ -110,7 +115,7 @@ public final class BaseAgent {
      */
     public void followup(String projectId, String jobId, String sessionId, List<AgentRun.Turn> history,
                          RunControl control, Consumer<AgentRun.Turn> appended) {
-        run(Modes.get(Modes.FOLLOWUP), new RunContext(services, projectId, sessionId, jobId,
+        run(Modes.get(services.layout(), Modes.FOLLOWUP), new RunContext(services, projectId, sessionId, jobId,
                 FollowupTools.tabOwner(jobId)), history, control, appended);
     }
 
@@ -123,8 +128,8 @@ public final class BaseAgent {
      */
     public SubRun subagent(String modeName, String projectId, String sessionId, String jobId, String parentRunId,
                            int depth, String task, RunControl control) {
-        return new SubagentExecutor(this, services).run(Modes.get(modeName), projectId, sessionId, jobId, parentRunId,
-                depth, task, control);
+        return new SubagentExecutor(this, services).run(Modes.get(services.layout(), modeName), projectId, sessionId,
+                jobId, parentRunId, depth, task, control);
     }
 
     /** Mode 里写的插件，按顺序建；没有这个插件时抛出（Mode 写错了）。 */
@@ -146,7 +151,7 @@ public final class BaseAgent {
                         ctx.project(), ctx.session(), ControlTools.catalog(ctx), mode.skills());
                 case "followup-context" -> new FollowupContextPlugin(services.layout(), services.clock(),
                         ctx.project(), ctx.job(), ControlTools.catalog(ctx), mode.skills());
-                default -> throw new IllegalArgumentException("Mode " + mode.name() + " 里没有这个插件：" + name);
+                default -> throw new IllegalArgumentException(mode.source() + " 的 plugins 里没有这个插件：" + name);
             });
         }
         return new PluginChain(plugins);

@@ -4,6 +4,7 @@ import { useGlobalChanges } from "../chat/useLiveUpdates";
 import { TabBar, TabBody, useTab } from "../dashboard/Dashboard";
 import { RecentSessions } from "../dashboard/RecentSessions";
 import { go, rememberDashboardProject, replaceRoute } from "../route";
+import { shell } from "../shell";
 
 // 默认选哪个 Project：最近有 Session 活动的（按 Session 的创建时间，后端没有别的活动时间），没有 Session 就第一个
 function mostRecent(projects: ProjectSummary[]): string {
@@ -84,7 +85,11 @@ export default function Global({ projects, selected, onChanged }: {
   const current = data && data.id === chosen ? data : null;
   return (
     <>
-      <div className="top">
+      <div className="top" onMouseDown={(e) => {
+        if (e.button === 0 && shell.available() && e.target === e.currentTarget) {
+          shell.startDrag();
+        }
+      }}>
         <div>
           <h1>Dashboard</h1>
           <p>{localDay()}{current ? ` · ${current.project.title}` : ""}</p>

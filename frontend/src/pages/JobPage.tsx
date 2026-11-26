@@ -17,6 +17,7 @@ import { useAttachments } from "../chat/useAttachments";
 import { useLiveUpdates } from "../chat/useLiveUpdates";
 import { ResizablePanel } from "../ResizeHandle";
 import { go } from "../route";
+import { shell } from "../shell";
 import { dayOf, md } from "../dashboard/metrics";
 import {
   APPLICATION, CheckChip, JobState, OUTCOME, OutcomeDialog, phaseText, PORTAL, proposalAction, ROUND_CHIP, ROUND_RESULT,
@@ -233,7 +234,11 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
       )}
       <SubRunsProvider runs={subruns}>
       <div className="chatmain">
-        <header className="chathead">
+        <header className="chathead" onMouseDown={(e) => {
+          if (e.button === 0 && shell.available() && e.target === e.currentTarget) {
+            shell.startDrag();
+          }
+        }}>
           <div className="chathead-t">
             <h1>{job.company} · {job.title}</h1>
             <span className="muted small headmeta">
@@ -342,6 +347,7 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
           onStop={() => void call(() => api.stop(job.id))}
           empty={
             <div className="emptychat">
+              <span className="brand-badge" aria-hidden="true">J</span>
               <h2>还没有开始申请</h2>
               <p className="muted">点上面的「开始申请」，Agent 先在这个工作台里匹配简历、给出修改建议，你确认后再打开岗位页填表，停在最终提交前。最终提交由你自己点。</p>
               {!status && !canStart && <p className="muted small">这个岗位现在不能开始申请</p>}
@@ -380,14 +386,14 @@ export default function JobPage({ id, onChanged }: { id: string; onChanged?: () 
           {awaitingSubmit(job) && !running && <SubmitConfirm job={job} onDone={load} />}
           {/* 下面每块同一种折叠头（C023-E）：要你现在做的默认展开，做完的、参考性的默认折起 */}
           {questions.length > 0 && (
-            <Fold title="要你回答" open
+            <Fold title="要你回答" open variant="action"
               meta={<>{questions.length} 个{missingAnswers.length > 0 && <span className="warn"> · 必填没答 {missingAnswers.length}</span>}</>}>
               <Questions questions={questions} answers={current.answers}
                 setAnswers={(answers) => setForm({ ...current, answers })} />
             </Fold>
           )}
           {slots.length > 0 && (
-            <Fold title="上传位置" open
+            <Fold title="上传位置" open variant="action"
               meta={<>{slots.length} 个 · 已选 {slots.filter((slot) => current.picked[slot.id]).length}</>}>
               <Files project={job.project} slots={slots} offered={status?.assets ?? null} attachments={attachable} picked={current.picked}
                 setPicked={(update) => setForm((old) => {
@@ -547,12 +553,13 @@ function StatusNote({ status, job }: { status: ApplicationStatus | null; job: Jo
 // remember 给了时，用户点过的开 / 合记在 localStorage（每块一个键）；数据决定默认值的子层不记
 const FOLD_KEY = "jobapply.jobPanel.fold.";
 
-function Fold({ title, meta, open: initial, remember, level = 1, children }: {
+function Fold({ title, meta, open: initial, remember, level = 1, variant, children }: {
   title: ReactNode;
   meta?: ReactNode;
   open: boolean;
   remember?: string;
   level?: 1 | 2;
+  variant?: "action";
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(() => {
@@ -580,7 +587,7 @@ function Fold({ title, meta, open: initial, remember, level = 1, children }: {
     }
   };
   return (
-    <section className={`fold l${level}${open ? " open" : ""}`}>
+    <section className={`fold l${level}${variant ? ` fold-${variant}` : ""}${open ? " open" : ""}`}>
       <button type="button" className="foldhead" aria-expanded={open} onClick={toggle}>
         <span className={`chev${open ? " open" : ""}`}><Icon name="chevron" size={12} /></span>
         <span className="foldtitle">{title}</span>

@@ -997,3 +997,29 @@
 - 审查只做一轮；审查给出的 4 个小问题修 3 个，旧状态重新开放那一个是映射的有意结果，不改。
 
 未决：Master Plan 里写的 Depth=2/3、统一 `thread.jsonl`、`SessionService` / `SegmentBoundary` 与实现不一致，等用户决定改文档还是改实现。
+
+## 2026-11-25 · C030-fix：Mode 放 storage
+
+- 只做 Mode 文件可外放：提示词、工具组合、子任务、插件组合已经都在 Mode 里，放开它就覆盖了「加内容不重新打包」的大部分需求；新插件、新工具仍是 Java，没有做运行时装插件包。
+- 不把内置 Mode 复制进 storage：复制了以后 App 升级不会更新它们，用户要改哪个再自己复制。
+- 写错时报错、不退回内置：悄悄退回会让用户以为自己的改动生效了。
+- 只派一个 Agent：改动集中在 `Modes` 和两个调用处，拆开会改同一批文件。
+
+## 2026-11-25 · C017-fix：打包瘦身
+
+- 只改打包脚本，不动代码：最大的一块（onnxruntime 的调试符号和其它平台本机库）运行时根本不用，删掉没有行为变化。
+- 瘦身只对拷进 App 的 jar 做，`backend/target` 的 jar 保持全平台，开发时不受影响。
+- Maven 上 onnxruntime 没有按平台拆的包，新版本也还带 dSYM，所以用打包后删条目的办法，不靠换版本。
+- 目标平台本机库缺失时直接报错：分词器在 jar 里找不到本机库会去联网下载，宁可打包失败也不出一个运行时偷偷下载的包。
+- ULMO 必须配 HFS+：APFS 下 hdiutil 报空间不足（实际磁盘空闲很多），这是 hdiutil 的限制。
+- 没做：换本地检索（FTS5）、按需下载、Tika 精简、换 node 运行时；收益小或要改行为，等真实使用后再定。
+
+## 2026-11-25 · C031：Claude / Notion 绿色系 UI 统一化与美化（Web + macOS App）
+
+- 原意：将 Web 端与 macOS App 端一次性统一美化为 Claude / Notion 风格，采用绿色系作为主强调色。
+- 取舍：
+  - **表面反转与森林绿体系**：将原纯白侧栏 + 灰底主区反转为 Notion/Claude 的暖石浅灰侧栏（`#f3f2ec` / 深色 `#181816`）+ 暖纸主画布（`#faf9f5` / 深色 `#1f1f1d`）+ 纯白卡片，主强调色选森林绿（`#2d6a4f` / 深色 `#52b788`），漏斗 6 级采用深绿到鼠尾草绿渐变，第二对比系列保留暖琥珀（`#d97736`）以保证图表的双色辨识度。
+  - **零新增依赖**：沿用原生 CSS 自定义属性与 `localStorage` 三态主题（`system / light / dark`），同时通过 JS Bridge `setTheme` 同步设置 macOS `NSWindow.appearance`，保证 Web 与窗口边框/标题栏外观一致。
+  - **macOS 融合标题栏与防闪白**：在 `.macapp` 类下为 `.side` 预留顶部红绿灯安全区，并在侧栏折叠为 `52px` 窄条时给 `.main > .top` 和 `.chathead` 增加 `44px` 左内边距避免标题与缩放绿灯重叠；空白区域通过 `NSWindow.performDrag(with:)` 原生拖拽移动窗口，比 CSS `-webkit-app-region` 在自定义组件上更可控。
+  - **保留安全与输入法兼容**：未修改 `PersonalSettings.tsx` 的 `-webkit-text-security: disc` 中文输入法兼容方案，未引入任何后端改动；因此 `WorkspaceSummary` 未包含单岗 `portal-check` 状态字段的项暂保持原状。
+- 未决：用户实际在浏览器与打包后的 `JobApply.app` 中检查浅色/深色模式、窗口缩放、拖拽与 Dashboard 布局效果。
